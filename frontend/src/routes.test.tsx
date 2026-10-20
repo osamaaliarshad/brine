@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react'
+import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { fleet, mockApi, renderApp, systemStatus } from '@/test/render'
@@ -45,5 +45,32 @@ describe('app shell', () => {
     const { FakeEventSource } = await import('@/test/setup')
     renderApp('/')
     expect(FakeEventSource.instances.map((s) => s.url)).toEqual(['/api/stream'])
+  })
+})
+
+describe('collapsible sidebar', () => {
+  beforeEach(() => {
+    mockApi({ '/api/fleet': fleet([]), '/api/status': systemStatus() })
+  })
+
+  it('collapses to icons with the b mark, and remembers it', async () => {
+    const user = userEvent.setup()
+    renderApp('/')
+    const nav = screen.getAllByRole('navigation', { name: 'Main' })[0]!
+    await user.click(screen.getAllByRole('button', { name: 'Collapse sidebar' })[0]!)
+    expect(localStorage.getItem('brine-sidebar-collapsed')).toBe('1')
+    // Labels stay available to screen readers and as tooltips.
+    expect(within(nav).getByRole('link', { name: 'Jobs' })).toHaveAttribute('title', 'Jobs')
+    expect(screen.getAllByRole('button', { name: 'Expand sidebar' })).toHaveLength(1)
+  })
+
+  it('toggles with the [ key, but not while typing', async () => {
+    const user = userEvent.setup()
+    renderApp('/')
+    await user.keyboard('[[') // '[[' is a literal '[' in user-event syntax
+    expect(localStorage.getItem('brine-sidebar-collapsed')).toBe('1')
+    await user.click(screen.getByRole('searchbox', { name: 'Search minions' }))
+    await user.keyboard('[[') // '[[' is a literal '[' in user-event syntax
+    expect(localStorage.getItem('brine-sidebar-collapsed')).toBe('1')
   })
 })

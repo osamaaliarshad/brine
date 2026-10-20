@@ -1,20 +1,21 @@
 import { cn } from '@/lib/cn'
 
 /**
- * The brine wordmark, tinted with the current text color.
+ * The brine wordmark (or just its "b", for tight spots), tinted with the current text color.
  *
- * The SVG ships with a fixed light fill, so it is used as a CSS mask and painted with
- * `currentColor` — that keeps it legible in both light and dark themes.
+ * The SVGs ship with a fixed light fill, so they're used as CSS masks and painted with
+ * `currentColor`. That keeps them legible in both light and dark themes.
  */
-export function Wordmark({ className }: { className?: string }) {
+export function Wordmark({ className, mark = false }: { className?: string; mark?: boolean }) {
+  const src = mark ? '/brine-mark.svg' : '/brine-wordmark.svg'
   return (
     <span
       role="img"
       aria-label="brine"
-      className={cn('inline-block aspect-[1115/368] bg-current', className)}
+      className={cn('inline-block bg-current', mark ? 'aspect-square' : 'aspect-[1115/368]', className)}
       style={{
-        mask: 'url(/brine-wordmark.svg) center / contain no-repeat',
-        WebkitMask: 'url(/brine-wordmark.svg) center / contain no-repeat',
+        mask: `url(${src}) center / contain no-repeat`,
+        WebkitMask: `url(${src}) center / contain no-repeat`,
       }}
     />
   )
