@@ -66,11 +66,10 @@ Use `SALT_VERSION=3008` to run a newer Salt. Stop a minion to watch it go offlin
 ### brine
 
 ```bash
-# backend: http://localhost:8000
+# backend: http://localhost:8000 (against the demo fleet; use your own config.yaml for real ones)
 cd backend
 uv sync
-cp ../config.example.yaml ../config.yaml   # then edit
-BRINE_CONFIG=../config.yaml uv run uvicorn app.main:create_app --factory --reload
+BRINE_CONFIG=../demo/brine.yaml uv run uvicorn app.main:create_app --factory --reload
 
 # frontend: http://localhost:5173 (proxies /api to the backend)
 cd frontend
@@ -82,6 +81,7 @@ Checks (the same ones CI runs):
 
 ```bash
 cd backend && uv run ruff check . && uv run ruff format --check . && uv run mypy && uv run pytest
+BRINE_DEMO_SALT_API=http://127.0.0.1:8001 uv run pytest tests/test_demo_integration.py  # needs the demo fleet
 cd frontend && npm run lint && npm run typecheck && npm test && npm run build
 ```
 

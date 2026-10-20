@@ -10,15 +10,21 @@ Short and prioritized. Top of each section is next. SaltGUI page-by-page mapping
 - [x] `docker-compose.demo.yml`: salt-master + salt-api (PAM user `brine`) + 4 accepted minions with custom grains + 1 pending, `presence_events: True`
 - [x] `demo/smoke_test.py`: login, `test.ping`, grains, keys, `manage.status`, `/events`; stopping a minion shows up as `salt/presence/change`. Runs in CI on Salt 3006 and 3008
 
-## Phase 1 — Backend core (read-only) (next)
+## Phase 1 — Backend core (read-only) ✅
 
 - [x] Config loading (YAML + `${VAR}` + `BRINE__` env overrides)
-- [ ] Async salt-api client: token handling, re-login on 401, timeouts
-- [ ] Event listener: presence, job returns, grains refreshes; reconnect with backoff
-- [ ] Presence fallback: periodic `manage.status`; report which method is active
-- [ ] DB models + Alembic: minions, presence history, grains snapshots, jobs/returns, audit log
-- [ ] REST: fleet list, minion detail, jobs, keys; SSE stream for live updates
-- [ ] Integration test against the demo stack; survives backend and master restarts
+- [x] Async salt-api client: token handling, re-login on 401 and before expiry, error mapping
+- [x] Collector: snapshot sync (keys, presence, grains, job backfill) + event stream; reconnect with backoff
+- [x] Presence: `salt/presence/*` events, falling back to polling `minions.connected` (or `manage.status` in `ping` mode); active method reported
+- [x] DB models + Alembic (SQLite, Postgres optional): minions, presence changes, grains snapshots, jobs/returns, audit log
+- [x] REST: fleet, minion detail, grains history (diffs), jobs (paged, filtered), job detail, keys, status; SSE `/api/stream`
+- [x] Integration test against the demo stack (CI, Salt 3006 + 3008): offline/online, CLI jobs, master and backend restarts
+
+Follow-ups found along the way:
+
+- [ ] Retention: prune old jobs/returns/presence changes (`jobs.keep_days`)
+- [ ] Large fleets: the fleet endpoint loads full grains for every minion; denormalize column values if it gets slow
+- [ ] Half-open connections: the event stream has no read timeout, so a silent network partition isn't noticed until a poll fails
 
 ## Phase 2 — Auth and roles
 

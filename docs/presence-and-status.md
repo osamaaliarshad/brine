@@ -34,22 +34,40 @@ for every minion. Consequences:
 - **Grains must be cached** (`minion_data_cache: True`, the default).
 - Quick check: `salt-run manage.present` should list your minions.
 
-## Fallback: periodic status checks
+## Fallbacks: polling
 
-Without presence events, brine periodically runs `manage.status` (a `test.ping` behind the scenes)
-and records who answered. This works everywhere but costs a job on every minion per check, and
-"last seen" is only as precise as the check interval.
+Without presence events, brine polls every `presence.poll_seconds` (default 60):
 
-brine shows which method is active on the Settings page.
+- **`connected`** (default fallback): `wheel minions.connected`. Same TCP-based detection as
+  presence events, so same requirements, but it works without `presence_events: True`. Cheap: no
+  jobs on minions.
+- **`ping`**: `runner manage.status`, which pings every minion. Works through NAT, but costs a
+  job on every minion per check.
+
+```yaml
+presence:
+  method: auto        # auto | events | connected | ping
+  poll_seconds: 60
+```
+
+`auto` uses presence events whenever the master sends them, and polls `minions.connected`
+otherwise (including at startup, before the first event arrives). `/api/status` and the Settings
+page show which method provided the latest observation.
 
 ## What brine shows
 
+A status is only *observed* while brine's latest presence observation is fresh, meaning newer
+than `fleet.stale_after_minutes` (default 15). After that, brine says what it last knew.
+
 | State | Meaning |
 |---|---|
-| **Online** | Seen connected in the most recent presence check |
-| **Stale** | Not seen for longer than `fleet.stale_after_minutes` but not yet confirmed gone, or brine has lost contact with salt-api and can't tell |
-| **Offline** | Reported lost, or missing from presence checks |
-| **Unknown** | Accepted key, but brine has never seen the minion report |
+| **Online** | Connected in the latest presence observation, which is fresh |
+| **Offline** | Missing from the latest presence observation, which is fresh. "Last seen" says when brine last had evidence it was alive |
+| **Stale** | No fresh observation (salt-api unreachable, master down, presence not working). Shows the last known state and "last seen" |
+| **Unknown** | No fresh observation, and brine has never seen this minion at all |
+
+"Last seen" moves forward whenever brine gets evidence a minion is alive: present in a
+presence observation, a job return, or a minion start event.
 
 Grains are always shown with the time they were collected ("as of"), because cached grains can
 be days old even while the minion is online.

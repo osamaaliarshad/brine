@@ -63,5 +63,10 @@ jobs:
       - uses: astral-sh/setup-uv@v10.3.0  # no floating major tag upstream
       - run: docker compose -f docker-compose.demo.yml up -d --build --wait
       - run: uv run --project backend python demo/smoke_test.py --presence
+      - name: backend end-to-end (presence, jobs, master and backend restarts)
+        working-directory: backend
+        env:
+          BRINE_DEMO_SALT_API: http://127.0.0.1:8001
+        run: uv run pytest tests/test_demo_integration.py -v
       - if: failure()
         run: docker compose -f docker-compose.demo.yml logs --no-color --tail 100

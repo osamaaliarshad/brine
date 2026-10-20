@@ -50,3 +50,32 @@ world-writable, and Salt ignores world-writable autosign files.
 
 salt-api is published on `127.0.0.1:8001` so it doesn't collide with brine's own port 8000 in
 development.
+
+## 7. Presence times use brine's clock; job times use Salt's
+
+"Is this observation fresh?" has to be answered by brine, so presence observations and "last
+seen" are stamped with brine's own clock when they arrive. That way a master with a wrong clock
+can't make the fleet look online forever. Job start/return times come from Salt's `_stamp`,
+which records when things actually happened, even for jobs backfilled hours later.
+
+## 8. The live stream sends hints, not data
+
+`/api/stream` sends messages like `{"type": "minion", "id": "rover-03"}`. The browser re-fetches
+what it shows through the normal REST API. One source of truth, no second serialization of every
+object, and a dropped or reordered message can only make a view briefly old, never wrong. A slow
+client whose queue overflows gets `{"type": "resync"}`.
+
+## 9. brine doesn't record its own housekeeping jobs
+
+The collector's own calls (grains refreshes, presence polls, backfill lookups) and the pings the
+master runs for `manage.status` aren't stored as jobs. In polling mode they'd add over a
+thousand rows a day of noise. Their effects still count: a `grains.items` return updates grains
+and "last seen". Master-side wheel/runner calls that show up as `salt/job` events or in the job
+cache aren't minion jobs either, so they're skipped. Runner jobs started by people (`salt/run/*`)
+are recorded, with `kind: runner`.
+
+## 10. One writer, idempotent writes
+
+All database writes go through `Ingest`, which serializes them with a lock and is idempotent:
+the same event twice, or a job seen both live and in a backfill, leaves the database unchanged.
+That's what makes "re-sync everything after every reconnect" safe, and reconnect logic simple.
