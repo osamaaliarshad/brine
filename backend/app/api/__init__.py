@@ -11,6 +11,7 @@ from app.api import (
     audit,
     auth,
     automation,
+    commands,
     events,
     fleet,
     issues,
@@ -27,6 +28,7 @@ from app.auth.users import current_user
 protected = APIRouter(dependencies=[Depends(current_user)])
 protected.include_router(audit.router, tags=["audit"])
 protected.include_router(automation.router, tags=["automation"])
+protected.include_router(commands.router, tags=["commands"])
 protected.include_router(events.router, tags=["events"])
 protected.include_router(fleet.router, tags=["fleet"])
 protected.include_router(issues.router, tags=["issues"])

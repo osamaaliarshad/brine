@@ -28,4 +28,9 @@ auth:
   provider: none
   anonymous_role: admin
 
+# Command box. Admins (everyone here) may run anything the Salt account allows; with sign-in on,
+# operators could run just these.
+commands:
+  operator: ["test.*", "state.apply", "grains.item", "saltutil.refresh_*", "runners.manage.*"]
+
 database: ${BRINE_DATABASE:-sqlite:///data/brine-demo.db}

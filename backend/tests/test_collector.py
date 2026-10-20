@@ -280,3 +280,33 @@ async def test_minion_start_clears_presence_blindness(make_collector: Any, inges
     assert await ingest.get_state(PRESENCE_BLIND_STATE) == ["rover-01"]
     await collector.handle(ev("salt/minion/rover-01/start", id="rover-01"))
     assert await ingest.get_state(PRESENCE_BLIND_STATE) == []
+
+
+async def test_commands_run_through_brine_are_recorded_under_the_person(
+    make_collector: Any, sessions: Sessions
+) -> None:
+    api = FakeSaltApi([])
+    alice = {"brine": {"actor": "alice@example.com"}}
+    api.responses["jobs.list_jobs"] = {
+        "20261020110000000000": {  # run while brine was away: from the job cache
+            "Function": "test.version",
+            "Arguments": [],
+            "Target": "*",
+            "Target-type": "glob",
+            "User": "brine",
+            "Metadata": alice,
+            "StartTime": "2026, Oct 20 11:00:00.000000",
+        }
+    }
+    collector = make_collector(api)
+    await collector.sync()
+    ret = {"id": "rover-01", "fun": "test.ping", "success": True, "retcode": 0, "user": "brine"}
+    # A return can beat brine writing the job down; it's still alice's.
+    await collector.handle(ev("salt/job/c1/ret/rover-01", jid="c1", metadata=alice, **ret))
+    # brine's own calls (same account, no metadata) stay housekeeping.
+    await collector.handle(ev("salt/job/h1/ret/rover-01", jid="h1", **ret))
+
+    async with sessions() as s:
+        jobs = {j.jid: j for j in (await s.scalars(select(Job))).all()}
+    assert set(jobs) == {"20261020110000000000", "c1"}
+    assert {j.user for j in jobs.values()} == {"alice@example.com"}

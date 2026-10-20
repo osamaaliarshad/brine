@@ -117,6 +117,16 @@ class PresenceConfig(_Strict):
     poll_seconds: int = Field(default=60, ge=5)
 
 
+class CommandsConfig(_Strict):
+    """Salt functions each role may run from brine's command box (fnmatch patterns, e.g.
+    ``test.*``). Master-side functions carry their client: ``runners.jobs.list_jobs``,
+    ``wheel.key.list_all``. Viewers never run commands. brine's Salt account's external_auth
+    still limits everything, admins included."""
+
+    operator: list[str] = Field(default_factory=list)
+    admin: list[str] = Field(default_factory=lambda: ["*"])
+
+
 class JobsConfig(_Strict):
     # On (re)connect, import up to this many jobs from the master's job cache.
     backfill_limit: int = Field(default=200, ge=0)
@@ -128,6 +138,7 @@ class Settings(_Strict):
     roles: RolesConfig = Field(default_factory=RolesConfig)
     fleet: FleetConfig = Field(default_factory=FleetConfig)
     presence: PresenceConfig = Field(default_factory=PresenceConfig)
+    commands: CommandsConfig = Field(default_factory=CommandsConfig)
     jobs: JobsConfig = Field(default_factory=JobsConfig)
     database: str = "sqlite:///data/brine.db"
     # How browsers reach brine, e.g. https://brine.example.com. Used for the sign-in redirect;

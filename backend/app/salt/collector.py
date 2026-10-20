@@ -25,6 +25,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
 
 from app.bus import EventBus
+from app.commands import actor_of
 from app.config import Settings
 from app.eventlog import EventLog
 from app.ingest import Changes, Ingest
@@ -214,7 +215,7 @@ class Collector:
             for jid, info in listed.items()
             if isinstance(info, dict)
             and _is_minion_job(str(info.get("Function", "")))
-            and not self.ingest.is_housekeeping(info.get("User"), str(info.get("Function", "")))
+            and not self.ingest.is_housekeeping(_job_user(info), str(info.get("Function", "")))
         ]
         newest = sorted(candidates, key=lambda c: c[0], reverse=True)[:limit]
         known = await self.ingest.known_jids(jid for jid, _ in newest)
@@ -237,7 +238,7 @@ class Collector:
             args=info.get("Arguments") or [],
             target=_as_text(info.get("Target")),
             target_type=info.get("Target-type"),
-            user=info.get("User"),
+            user=_job_user(info),
             minions=detail.get("Minions") or [],
         )
         for mid, result in (detail.get("Result") or {}).items():
@@ -253,7 +254,7 @@ class Collector:
                     data=result.get("return"),
                     success=result.get("success"),
                     retcode=result.get("retcode"),
-                    user=info.get("User"),
+                    user=_job_user(info),
                 )
             )
         self._publish(changes)
@@ -337,7 +338,8 @@ class Collector:
                 data=d.get("return"),
                 success=d.get("success"),
                 retcode=d.get("retcode"),
-                user=d.get("user"),
+                # Someone's command run through brine: theirs, not brine's housekeeping.
+                user=actor_of(d.get("metadata")) or d.get("user"),
             )
         elif m := _JOB_NEW.match(tag):
             changes = await self.ingest.job_new(
@@ -385,6 +387,11 @@ class Collector:
             await self.client.local_async(m["mid"], "grains.items", tgt_type="list")
 
         self._publish(changes)
+
+
+def _job_user(info: dict[str, Any]) -> Any:
+    """A job-cache entry's user: the person, for commands brine ran on their behalf."""
+    return actor_of(info.get("Metadata")) or info.get("User")
 
 
 def _is_minion_job(fun: str) -> bool:

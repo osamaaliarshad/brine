@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.states import StateResult
 from app.status import Status
@@ -309,6 +309,37 @@ class Capability(BaseModel):
 
 class Capabilities(BaseModel):
     manage_keys: Capability
+    commands: list[str]  # what the signed-in person may run (patterns); empty: no command box
+
+
+TargetType = Literal["glob", "list", "compound", "grain", "nodegroup", "pcre"]
+
+
+class CommandRequest(BaseModel):
+    command: str  # as typed: "state.apply webserver test=True", "runners.manage.status"
+    target: str = ""
+    target_type: TargetType = "glob"
+    # Running: the minions the preview showed. Refused if the target matches others by then.
+    expect: list[str] | None = None
+
+
+class CommandPreview(BaseModel):
+    client: str  # local (minions), runner or wheel (the master)
+    fun: str
+    qualified: str  # how allowlists name it: runners.manage.status
+    args: list[str]
+    minions: list[str]  # what the target matches now (minion commands only)
+    offline: list[str]  # of those, the ones presence says are offline: they won't answer
+    unknown: list[str]  # list targets that aren't accepted minions
+    from_cache: bool  # matched from the master's cache (grain, compound, nodegroup)
+
+
+class CommandResult(BaseModel):
+    client: str
+    jid: str | None = None  # minion commands: follow it on the job page
+    minions: list[str] = Field(default_factory=list)
+    result: Any = None  # runner/wheel: what the master answered
+    success: bool | None = None
 
 
 class SaltApiStatus(BaseModel):

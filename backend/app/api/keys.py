@@ -24,6 +24,7 @@ from app.api.schemas import (
 )
 from app.audit import record
 from app.auth.users import CurrentUser, require_role
+from app.commands import allowed_patterns
 from app.ingest import KEY_LIST_FIELDS
 from app.models import Minion
 from app.runtime import Runtime
@@ -106,14 +107,18 @@ async def keys(runtime: RuntimeDep, session: SessionDep) -> list[Key]:
 
 
 @router.get("/capabilities", response_model=Capabilities)
-async def capabilities(runtime: RuntimeDep) -> Capabilities:
-    """What Salt lets brine's service account do, so the UI only offers what will work."""
+async def capabilities(runtime: RuntimeDep, user: CurrentUser) -> Capabilities:
+    """What the signed-in person may do, and what Salt lets brine's service account do, so the
+    UI only offers what will work."""
+    commands = allowed_patterns(user.role, runtime.settings.commands)
     try:
         perms = await runtime.client.permissions()
     except SaltApiError:
-        return Capabilities(manage_keys=Capability(allowed=None, missing=[]))
+        return Capabilities(manage_keys=Capability(allowed=None, missing=[]), commands=commands)
     lacking = missing(perms, "wheel", KEY_FUNCTIONS)
-    return Capabilities(manage_keys=Capability(allowed=not lacking, missing=lacking))
+    return Capabilities(
+        manage_keys=Capability(allowed=not lacking, missing=lacking), commands=commands
+    )
 
 
 @router.post(

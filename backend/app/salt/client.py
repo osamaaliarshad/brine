@@ -132,9 +132,18 @@ class SaltApiClient:
         _raise_for_status(resp)
         return resp
 
-    async def run(self, lowstate: dict[str, Any]) -> Any:
-        """POST one lowstate chunk to salt-api and return its result."""
-        resp = await self._authed("POST", "/", json=[lowstate])
+    async def run(self, lowstate: dict[str, Any], *, wait_seconds: float | None = None) -> Any:
+        """POST one lowstate chunk to salt-api and return its result. `wait_seconds` overrides
+        the configured timeout, for calls that wait on slow work."""
+        extra: dict[str, Any] = {"timeout": wait_seconds} if wait_seconds is not None else {}
+        try:
+            resp = await self._authed("POST", "/", json=[lowstate], **extra)
+        except SaltApiForbidden as exc:
+            client, fun = str(lowstate.get("client", "")), lowstate.get("fun")
+            what = fun if client.startswith("local") else f"{client} {fun}"
+            raise SaltApiForbidden(
+                f"brine's Salt account isn't allowed to run {what}", 403
+            ) from exc
         try:
             return resp.json()["return"][0]
         except (ValueError, KeyError, IndexError, TypeError) as exc:
@@ -170,28 +179,39 @@ class SaltApiClient:
         self, tgt: str, fun: str, *, arg: list[Any] | None = None, tgt_type: str = "glob"
     ) -> str | None:
         """Start a job without waiting; returns its jid (None if no minion matched)."""
-        result = await self.run(
-            {
-                "client": "local_async",
-                "tgt": tgt,
-                "tgt_type": tgt_type,
-                "fun": fun,
-                "arg": arg or [],
-            }
-        )
-        jid = result.get("jid") if isinstance(result, dict) else None
-        return str(jid) if jid else None
+        jid, _ = await self.start_job(tgt, fun, arg=arg, tgt_type=tgt_type)
+        return jid
+
+    async def start_job(
+        self,
+        tgt: str,
+        fun: str,
+        *,
+        arg: list[Any] | None = None,
+        tgt_type: str = "glob",
+        metadata: dict[str, Any] | None = None,
+    ) -> tuple[str | None, list[str]]:
+        """Start a job without waiting: (jid, the minions Salt sent it to). No jid if nothing
+        matched. `metadata` travels with the job into every return and the job cache."""
+        lowstate: dict[str, Any] = {
+            "client": "local_async",
+            "tgt": tgt,
+            "tgt_type": tgt_type,
+            "fun": fun,
+            "arg": arg or [],
+        }
+        if metadata:
+            lowstate["metadata"] = metadata
+        result = await self.run(lowstate)
+        if not isinstance(result, dict) or not result.get("jid"):
+            return None, []
+        return str(result["jid"]), [str(m) for m in result.get("minions") or []]
 
     async def runner(self, fun: str, **kwargs: Any) -> Any:
         return await self.run({"client": "runner", "fun": fun, **kwargs})
 
     async def wheel(self, fun: str, **kwargs: Any) -> Any:
-        try:
-            result = await self.run({"client": "wheel", "fun": fun, **kwargs})
-        except SaltApiForbidden as exc:
-            raise SaltApiForbidden(
-                f"brine's Salt account isn't allowed to run wheel {fun}", 403
-            ) from exc
+        result = await self.run({"client": "wheel", "fun": fun, **kwargs})
         if not isinstance(result, dict):  # salt-api reports some failures as a bare string
             raise SaltApiError(f"wheel {fun} failed: {result!r:.200}")
         data = result.get("data", {})

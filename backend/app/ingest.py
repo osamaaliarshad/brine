@@ -264,6 +264,30 @@ class Ingest:
             job.minions = minions or []
         return Changes(jobs={jid})
 
+    async def command_started(
+        self,
+        *,
+        jid: str,
+        fun: str,
+        args: list[Any],
+        target: str,
+        target_type: str,
+        actor: str,
+        minions: list[str],
+        at: datetime,
+    ) -> Changes:
+        """A job brine started for someone. Salt reports brine's service account as its user,
+        so this records the person instead; returns find them through the job's metadata."""
+        async with self._lock, self._sessions() as s, s.begin():
+            job = await s.get(Job, jid)
+            if job is None:
+                job = Job(jid=jid, kind="local", fun=fun, started_at=at)
+                s.add(job)
+            job.fun, job.started_at = fun, min(job.started_at, at)
+            job.args, job.target, job.target_type = args, target, target_type
+            job.user, job.minions = actor, minions
+        return Changes(jobs={jid})
+
     async def job_return(
         self,
         *,

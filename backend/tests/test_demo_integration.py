@@ -178,3 +178,42 @@ def test_demo_key_lifecycle(settings: Settings) -> None:
         # Whatever happened, put rover-04 back to pending for the rest of the demo.
         compose("exec", "-T", "salt-master", "salt-key", "-y", "-d", "rover-04")
         compose("restart", "rover-04")
+
+
+def test_demo_command_box(settings: Settings) -> None:
+    """Preview and run a command on the real master; its results are recorded under the
+    person who ran it (here the anonymous admin, "local"), not brine's service account."""
+    csrf = {"X-Requested-With": "brine"}
+    with TestClient(create_app(settings, frontend_dist=Path("/nonexistent"))) as c:
+        wait_until(
+            "the rovers online",
+            lambda: (
+                {m: s for m, s in statuses(c).items() if m.startswith("rover")}
+                == {"rover-01": "online", "rover-02": "online", "rover-03": "online"}
+            ),
+            90,
+        )
+        body = {"command": "test.echo hello", "target": "rover-0*"}
+        preview = c.post("/api/commands/preview", json=body, headers=csrf).json()
+        assert preview["minions"] == ["rover-01", "rover-02", "rover-03"]
+        run = c.post("/api/commands/run", json={**body, "expect": preview["minions"]}, headers=csrf)
+        assert run.status_code == 200, run.text
+        jid = run.json()["jid"]
+        wait_until(
+            "every rover to answer",
+            lambda: get(c, f"/api/jobs/{jid}")["returned"] == 3,
+            30,
+        )
+        job = get(c, f"/api/jobs/{jid}")
+        assert job["user"] == "local" and job["fun"] == "test.echo"
+        assert {r["minion_id"]: r["data"] for r in job["results"]} == {
+            "rover-01": "hello",
+            "rover-02": "hello",
+            "rover-03": "hello",
+        }
+
+        versions = c.post(
+            "/api/commands/run", json={"command": "runners.manage.versions"}, headers=csrf
+        )
+        assert versions.status_code == 200, versions.text
+        assert "Master" in versions.json()["result"]
