@@ -1,0 +1,46 @@
+# --- Local-only files: NEVER commit -------------------------------------
+# UI mockup contains sensitive real-fleet data.
+reference.png
+# Personal project brief / working notes.
+salt-fleet-ui-project-brief.md
+/private/
+
+# --- Secrets & local config ----------------------------------------------
+.env
+.env.*
+!.env.example
+config.yaml
+!config.example.yaml
+
+# --- Runtime data --------------------------------------------------------
+/data/
+*.db
+*.db-journal
+*.sqlite3
+
+# --- Python --------------------------------------------------------------
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.egg-info/
+
+# --- Node / frontend -----------------------------------------------------
+node_modules/
+dist/
+*.tsbuildinfo
+coverage/
+
+# --- Editors / OS --------------------------------------------------------
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+
+# --- Local tooling -------------------------------------------------------
+.claude/

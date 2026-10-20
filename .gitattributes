@@ -1,0 +1,4 @@
+# Normalise line endings so shell scripts and configs work inside Linux containers.
+* text=auto eol=lf
+*.png binary
+*.woff2 binary

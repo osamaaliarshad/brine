@@ -1,0 +1,33 @@
+# brine configuration. Copy to config.yaml and adjust.
+#
+# Secrets never go in this file directly: use ${VAR} placeholders, or override any key
+# with an environment variable named BRINE__<SECTION>__<KEY> (e.g. BRINE__SALT_API__PASSWORD).
+
+salt_api:
+  url: https://salt.internal:8000
+  username: brine-service          # dedicated, least-privilege eauth user
+  password: ${SALT_API_PASSWORD}
+  eauth: pam
+  verify_tls: true
+
+auth:
+  provider: oidc
+  issuer: https://accounts.google.com
+  client_id: ${OIDC_CLIENT_ID}
+  client_secret: ${OIDC_CLIENT_SECRET}
+  allowed_domains: [example.com]
+
+roles:                             # fnmatch-style email patterns
+  viewer:   ["*@example.com"]
+  operator: ["alice@example.com"]
+  admin:    ["bob@example.com"]
+
+fleet:
+  columns:                         # custom grains shown in the fleet table
+    - grain: app_version
+      label: App version
+    - grain: firmware_version
+      label: Firmware
+  stale_after_minutes: 15
+
+database: sqlite:///data/brine.db  # or postgresql://user:pass@host/brine

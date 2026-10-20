@@ -1,0 +1,70 @@
+@import '@fontsource-variable/geist';
+@import '@fontsource-variable/geist-mono';
+@import 'tailwindcss';
+
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
+/* Theme tokens. Components use the Tailwind names below (bg-surface, text-muted, ...),
+   never raw colors, so light and dark stay in sync. */
+:root {
+  --bg: #f6f7f8;
+  --surface: #ffffff;
+  --surface-2: #eff1f3;
+  --border: #e2e5e9;
+  --fg: #111315;
+  --muted: #5d656d;
+  --accent: #16a34a;
+  --accent-fg: #ffffff;
+  --online: #16a34a;
+  --offline: #9aa1a8;
+  --warn: #d97706;
+  --danger: #dc2626;
+}
+
+[data-theme='dark'] {
+  --bg: #0f1113;
+  --surface: #15181b;
+  --surface-2: #1c2024;
+  --border: #252a2f;
+  --fg: #f2f4f5;
+  --muted: #9aa1a8;
+  --accent: #4ade80;
+  --accent-fg: #0b1a10;
+  --online: #3fcf6e;
+  --offline: #6b7280;
+  --warn: #f5b942;
+  --danger: #f87171;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-border: var(--border);
+  --color-fg: var(--fg);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-accent-fg: var(--accent-fg);
+  --color-online: var(--online);
+  --color-offline: var(--offline);
+  --color-warn: var(--warn);
+  --color-danger: var(--danger);
+  --font-sans: 'Geist Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'Geist Mono Variable', ui-monospace, monospace;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-bg font-sans text-fg antialiased;
+  }
+
+  * {
+    @apply border-border;
+  }
+}
