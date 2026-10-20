@@ -102,6 +102,18 @@ reactor configuration.
   <img alt="The Events page: job, auth and wheel events with one-line summaries" src="docs/assets/screenshots/events-light.png">
 </picture>
 
+### Issues
+
+What needs a human, most serious first: failed states, minions gone offline, keys waiting for
+approval, recent jobs with failures or missing returns, Salt version drift, and problems with
+brine's own view (salt-api unreachable, stale presence, minions presence can't see). Each links
+to the minion or job. The count also appears on the Fleet page and in the sidebar.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/issues-dark.png">
+  <img alt="The Issues page: a failed state on dock-01, rover-03 offline, rover-04 waiting for approval" src="docs/assets/screenshots/issues-light.png">
+</picture>
+
 ## How it fits
 
 ```

@@ -31,8 +31,15 @@ for every minion. Consequences:
   "present", even though it answers `test.ping`. Check with `salt-run cache.grains tgt=<id>`.
 - **NAT or proxies between minions and master break it**, because the address the master sees
   isn't one the minion reports. Use the fallback below for those setups.
-- **Grains must be cached** (`minion_data_cache: True`, the default).
+- **Grains must be cached** (`minion_data_cache: True`, the default). The cache lives in
+  `/var/cache/salt/master`; if it's wiped (e.g. a master container without a volume), connected
+  minions stay invisible until they restart or refresh their pillar.
 - Quick check: `salt-run manage.present` should list your minions.
+
+**brine watches for this.** Whenever it reads the master's cache (on connect and with each
+grains refresh) it notes accepted minions with no cached IP address. Those minions are shown as
+*stale* rather than *offline* (being absent from a presence check proves nothing for them), and
+the Issues page explains why and how to fix it. The warning clears when the minion restarts.
 
 ## Fallbacks: polling
 

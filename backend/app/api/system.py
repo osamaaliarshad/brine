@@ -10,7 +10,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 
 from app.api.deps import RuntimeDep, SessionDep
-from app.api.fleet import presence_info
+from app.api.fleet import presence_blind, presence_info
 from app.api.schemas import Key, SaltApiStatus, SystemStatus
 from app.models import Minion
 from app.status import minion_status
@@ -23,6 +23,7 @@ KEEPALIVE_SECONDS = 15
 @router.get("/keys", response_model=list[Key])
 async def keys(runtime: RuntimeDep, session: SessionDep) -> list[Key]:
     presence = await presence_info(session)
+    blind = await presence_blind(session)
     now = datetime.now(UTC)
     stale_after = timedelta(minutes=runtime.settings.fleet.stale_after_minutes)
     rows = await session.scalars(
@@ -41,6 +42,7 @@ async def keys(runtime: RuntimeDep, session: SessionDep) -> list[Key]:
                 presence_at=presence.checked_at,
                 now=now,
                 stale_after=stale_after,
+                observable=m.id not in blind,
             )
             if m.key_state == "accepted"
             else None,

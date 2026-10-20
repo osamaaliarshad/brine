@@ -14,6 +14,7 @@ import {
 import { useState } from 'react'
 import { NavLink, Outlet } from 'react-router'
 import { useLiveUpdates } from '@/api/live'
+import { attentionCount, useIssues } from '@/api/queries'
 import { Wordmark } from '@/components/Wordmark'
 import { cn } from '@/lib/cn'
 import { getTheme, setTheme, type Theme } from '@/lib/theme'
@@ -28,7 +29,7 @@ const MAIN_NAV: NavItem[] = [
   { to: '/issues', label: 'Issues', icon: TriangleAlert },
 ]
 
-function NavRow({ item, onNavigate }: { item: NavItem; onNavigate?: () => void }) {
+function NavRow({ item, onNavigate, badge }: { item: NavItem; onNavigate?: () => void; badge?: number }) {
   const Icon = item.icon
   return (
     <NavLink
@@ -45,6 +46,11 @@ function NavRow({ item, onNavigate }: { item: NavItem; onNavigate?: () => void }
     >
       <Icon className="size-5" strokeWidth={1.75} aria-hidden />
       {item.label}
+      {!!badge && (
+        <span className="ml-auto rounded-full bg-warn/15 px-2 py-0.5 text-xs font-medium text-warn tabular-nums" aria-label={`${badge} need attention`}>
+          {badge}
+        </span>
+      )}
     </NavLink>
   )
 }
@@ -69,12 +75,18 @@ function ThemeToggle() {
 }
 
 function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
+  const attention = attentionCount(useIssues().data)
   return (
     <div className="flex h-full flex-col gap-6 px-3 py-6">
       <Wordmark className="mx-auto h-10" />
       <nav aria-label="Main" className="flex flex-col gap-1">
         {MAIN_NAV.map((item) => (
-          <NavRow key={item.to} item={item} onNavigate={onNavigate} />
+          <NavRow
+            key={item.to}
+            item={item}
+            onNavigate={onNavigate}
+            badge={item.to === '/issues' ? attention : undefined}
+          />
         ))}
       </nav>
       <div className="mt-auto flex flex-col gap-1">

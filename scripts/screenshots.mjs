@@ -35,6 +35,7 @@ export const PAGES = [
   ['job', async (base) => `/jobs/${(await getJson(`${base}/api/jobs?fun=state.apply&limit=1`)).jobs[0].jid}`],
   ['keys', '/keys'],
   ['events', '/events'],
+  ['issues', '/issues'],
 ]
 
 const THEMES = ['light', 'dark']

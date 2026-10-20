@@ -20,7 +20,7 @@ from app.api.schemas import (
     PresenceInfo,
     PresencePoint,
 )
-from app.ingest import PRESENCE_STATE
+from app.ingest import PRESENCE_BLIND_STATE, PRESENCE_STATE
 from app.models import GrainsSnapshot, Job, JobReturn, Minion, PresenceChange, SystemState
 from app.runtime import Runtime
 from app.status import Status, minion_status
@@ -72,6 +72,11 @@ async def presence_info(session: SessionDep) -> PresenceInfo:
     )
 
 
+async def presence_blind(session: SessionDep) -> set[str]:
+    row = await session.get(SystemState, PRESENCE_BLIND_STATE)
+    return set(row.value or []) if row is not None else set()
+
+
 def configured_columns(runtime: Runtime) -> list[Column]:
     return [Column(grain=c.grain, label=c.label or c.grain) for c in runtime.settings.fleet.columns]
 
@@ -92,6 +97,7 @@ def summarize(
     presence: PresenceInfo,
     now: datetime,
     columns: list[Column] | None = None,
+    blind: set[str] | frozenset[str] = frozenset(),
 ) -> MinionSummary:
     stale_after = timedelta(minutes=runtime.settings.fleet.stale_after_minutes)
     return MinionSummary(
@@ -102,6 +108,7 @@ def summarize(
             presence_at=presence.checked_at,
             now=now,
             stale_after=stale_after,
+            observable=minion.id not in blind,
         ),
         connected=minion.connected,
         last_seen_at=minion.last_seen_at,
@@ -134,9 +141,12 @@ async def fleet(
     now = datetime.now(UTC)
     presence = await presence_info(session)
     columns = requested_columns(runtime, column)
+    blind = await presence_blind(session)
     rows = (await session.scalars(select(Minion).order_by(Minion.id))).all()
     accepted = [
-        summarize(m, runtime, presence, now, columns) for m in rows if m.key_state == "accepted"
+        summarize(m, runtime, presence, now, columns, blind)
+        for m in rows
+        if m.key_state == "accepted"
     ]
     counts = {s: sum(1 for m in accepted if m.status is s) for s in Status}
     return Fleet(
@@ -183,7 +193,9 @@ async def minion_detail(
     if minion is None:
         raise HTTPException(404, f"no minion {minion_id!r}")
     presence = await presence_info(session)
-    summary = summarize(minion, runtime, presence, datetime.now(UTC))
+    summary = summarize(
+        minion, runtime, presence, datetime.now(UTC), blind=await presence_blind(session)
+    )
 
     changes = await session.scalars(
         select(PresenceChange)

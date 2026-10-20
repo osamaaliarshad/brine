@@ -267,3 +267,15 @@ async def test_status_tracks_connection(make_collector: Any) -> None:
     assert collector.status.connected  # run() flips it back on stream end
     assert {"type": "status"} in bus_messages
     assert {"type": "fleet"} in bus_messages
+
+
+async def test_minion_start_clears_presence_blindness(make_collector: Any, ingest: Ingest) -> None:
+    from app.ingest import PRESENCE_BLIND_STATE
+
+    api = FakeSaltApi([])
+    collector = make_collector(api)
+    await ingest.keys({"minions": ["rover-01"]})
+    await ingest.presence_blind({})
+    assert await ingest.get_state(PRESENCE_BLIND_STATE) == ["rover-01"]
+    await collector.handle(ev("salt/minion/rover-01/start", id="rover-01"))
+    assert await ingest.get_state(PRESENCE_BLIND_STATE) == []

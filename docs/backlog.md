@@ -45,7 +45,8 @@ Follow-ups found along the way:
 - [x] Jobs page (search, minion/runner filter, load older) + job detail (state-by-state results, missing minions); State runs view (SaltGUI's Highstate)
 - [x] Keys page (read-only): states, fingerprints (`wheel key.finger`, second migration), pending first
 - [x] Events page: live bus with summaries, pause, filter, presence toggle, expandable data; Reactors tab (only the `reactor` key leaves the server)
-- [ ] Issues page (SaltGUI's detectors + stale/offline)
+- [x] Issues page: failed states, offline/never-seen minions, pending keys, failed jobs, missing returns, version drift, salt-api/presence problems, presence-blind minions; feeds the Fleet card and a sidebar badge
+- [ ] Issues: disabled beacons/schedules and CVE warnings (need live calls / a CVE list)
 - [ ] Settings: active config, presence method, salt-api status
 - [x] Live updates via SSE (debounced refetch), dark/light themes
 - [ ] Phone layout: works (table scrolls sideways); a card list would read better on small screens

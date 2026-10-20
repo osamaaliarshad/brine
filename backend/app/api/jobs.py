@@ -4,6 +4,7 @@ from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import Select, and_, case, func, or_, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import SessionDep
 from app.api.schemas import (
@@ -105,6 +106,10 @@ async def list_jobs(
 @router.get("/jobs/state-runs", response_model=StateRuns)
 async def state_runs(session: SessionDep) -> StateRuns:
     """Each accepted minion's most recent state run (SaltGUI's Highstate page)."""
+    return await latest_state_runs(session)
+
+
+async def latest_state_runs(session: AsyncSession) -> StateRuns:
     rows = (
         await session.execute(
             select(JobReturn, Job.fun, Job.started_at)

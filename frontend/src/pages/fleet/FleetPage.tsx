@@ -1,7 +1,7 @@
 import { CircleAlert, Unplug } from 'lucide-react'
 import { useState } from 'react'
 import { useSearchParams } from 'react-router'
-import { useFleet, useSystemStatus } from '@/api/queries'
+import { attentionCount, useFleet, useIssues, useSystemStatus } from '@/api/queries'
 import type { SystemStatus } from '@/api/types'
 import { PageHeader } from '@/components/PageHeader'
 import { Card } from '@/components/ui'
@@ -55,6 +55,7 @@ export function FleetPage() {
   }
   const fleetQuery = useFleet(prefs.grains)
   const statusQuery = useSystemStatus()
+  const issuesQuery = useIssues()
   const fleet = fleetQuery.data
   const now = useNow()
   const [params, setParams] = useSearchParams()
@@ -113,7 +114,7 @@ export function FleetPage() {
 
       <ConnectionBanner status={statusQuery.data} now={now} />
 
-      <StatCards summary={fleet?.summary} />
+      <StatCards summary={fleet?.summary} attention={attentionCount(issuesQuery.data)} />
 
       <Card className="mt-4 overflow-hidden sm:mt-6">
         <FleetToolbar

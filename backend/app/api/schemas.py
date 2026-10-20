@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel
 
@@ -59,6 +59,16 @@ class LiveView(BaseModel):
     fetched_at: datetime
     answered: bool  # False: the minion didn't reply in time (offline or busy)
     data: Any
+
+
+class Issue(BaseModel):
+    key: str  # stable identity, e.g. "offline:rover-03"
+    severity: Literal["critical", "warning", "info"]
+    title: str
+    detail: str
+    since: datetime | None
+    minion_id: str | None
+    jid: str | None
 
 
 class Reactor(BaseModel):

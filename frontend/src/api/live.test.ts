@@ -25,14 +25,14 @@ describe('createLiveInvalidator', () => {
     expect(invalidate).not.toHaveBeenCalled()
 
     vi.advanceTimersByTime(100)
-    expect(keys()).toEqual([['fleet'], ['keys'], ['minion', 'rover-01'], ['jobs']])
+    expect(keys()).toEqual([['fleet'], ['keys'], ['issues'], ['minion', 'rover-01'], ['jobs']])
   })
 
   it('status changes refresh the fleet too (stale/online depends on them)', () => {
     const handle = createLiveInvalidator(client, 100)
     handle({ type: 'status' })
     vi.advanceTimersByTime(100)
-    expect(keys()).toEqual([['status'], ['fleet']])
+    expect(keys()).toEqual([['status'], ['fleet'], ['issues']])
   })
 
   it('hello and resync refresh everything immediately', () => {

@@ -44,3 +44,20 @@ def test_minion_status(
     expected: Status,
 ) -> None:
     assert status(connected=connected, last_seen=last_seen, presence=presence) is expected
+
+
+def test_unobservable_minions_are_never_claimed_offline() -> None:
+    def unobservable(connected: bool, last_seen_at: datetime | None) -> Status:
+        return minion_status(
+            connected=connected,
+            last_seen_at=last_seen_at,
+            presence_at=NOW - timedelta(seconds=10),
+            now=NOW,
+            stale_after=STALE_AFTER,
+            observable=False,
+        )
+
+    assert unobservable(False, NOW - timedelta(minutes=1)) is Status.STALE
+    assert unobservable(False, None) is Status.UNKNOWN
+    # If presence does see it after all, it's online.
+    assert unobservable(True, NOW) is Status.ONLINE

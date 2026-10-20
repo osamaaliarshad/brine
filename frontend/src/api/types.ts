@@ -182,3 +182,15 @@ export type SaltEventEntry = {
 }
 
 export type Reactor = { tag: string; sls: string[] }
+
+export type IssueSeverity = 'critical' | 'warning' | 'info'
+
+export type Issue = {
+  key: string
+  severity: IssueSeverity
+  title: string
+  detail: string
+  since: string | null
+  minion_id: string | null
+  jid: string | null
+}

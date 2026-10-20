@@ -25,10 +25,15 @@ def minion_status(
     presence_at: datetime | None,
     now: datetime,
     stale_after: timedelta,
+    observable: bool = True,
 ) -> Status:
+    """`observable=False`: presence detection can't see this minion (the master has no cached
+    IP addresses for it), so being absent from a presence check proves nothing."""
     fresh = presence_at is not None and now - presence_at <= stale_after
-    if fresh:
-        return Status.ONLINE if connected else Status.OFFLINE
+    if fresh and connected:
+        return Status.ONLINE
+    if fresh and observable:
+        return Status.OFFLINE
     if last_seen_at is None:
         return Status.UNKNOWN
     return Status.STALE

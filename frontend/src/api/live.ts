@@ -31,16 +31,19 @@ export function createLiveInvalidator(queryClient: QueryClient, debounceMs = DEB
       case 'fleet':
         queue(queryKeys.fleet)
         queue(queryKeys.keys)
+        queue(queryKeys.issues)
         break
       case 'status':
         queue(queryKeys.status)
         queue(queryKeys.fleet)
+        queue(queryKeys.issues)
         break
       case 'minion':
         queue(queryKeys.minion(message.id))
         break
       case 'job':
         queue(queryKeys.jobs)
+        queue(queryKeys.issues)
         break
       case 'hello':
       case 'resync':

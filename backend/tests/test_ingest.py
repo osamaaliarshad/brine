@@ -233,3 +233,27 @@ async def test_fingerprints(ingest: Ingest, sessions: Sessions) -> None:
     assert (await minion(sessions, "b")).key_fingerprint == "bb:bb"
     assert not await ingest.fingerprints(finger)  # unchanged
     assert not await ingest.fingerprints({})
+
+
+def test_has_routable_ip() -> None:
+    from app.ingest import has_routable_ip
+
+    assert has_routable_ip({"ipv4": ["127.0.0.1", "172.18.0.5"]})
+    assert has_routable_ip({"ipv6": ["::1", "fd00::5"]})
+    assert not has_routable_ip({"ipv4": ["127.0.0.1"], "ipv6": ["::1"]})
+    assert not has_routable_ip({"ipv4": []})
+    assert not has_routable_ip(None)
+
+
+async def test_presence_blind_tracks_minions_without_cached_ips(ingest: Ingest) -> None:
+    from app.ingest import PRESENCE_BLIND_STATE
+
+    await ingest.keys({"minions": ["seen", "blind", "missing"], "minions_pre": ["pending"]})
+    cached = {"seen": {"ipv4": ["10.0.0.1"]}, "blind": {"ipv4": ["127.0.0.1"]}}
+    assert await ingest.presence_blind(cached)
+    assert await ingest.get_state(PRESENCE_BLIND_STATE) == ["blind", "missing"]
+    assert not await ingest.presence_blind(cached)  # unchanged
+
+    assert await ingest.presence_visible("blind")
+    assert await ingest.get_state(PRESENCE_BLIND_STATE) == ["missing"]
+    assert not await ingest.presence_visible("seen")

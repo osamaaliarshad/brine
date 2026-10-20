@@ -199,6 +199,7 @@ class Collector:
         for mid, grains in (cached or {}).items():
             if isinstance(grains, dict) and grains:
                 changes.merge(await self.ingest.grains(mid, grains, at=None, source="master_cache"))
+        changes.merge(await self.ingest.presence_blind(cached if isinstance(cached, dict) else {}))
         self._publish(changes)
 
     async def _backfill_jobs(self) -> None:
@@ -296,6 +297,9 @@ class Collector:
             await asyncio.sleep(self.settings.fleet.grains_refresh_minutes * 60)
             try:
                 await self.client.local_async("*", "grains.items")
+                cached = await self.client.runner("cache.grains", tgt="*")
+                if isinstance(cached, dict):
+                    self._publish(await self.ingest.presence_blind(cached))
             except SaltApiError as exc:
                 log.warning("grains refresh failed: %s", exc)
 
@@ -376,6 +380,7 @@ class Collector:
                 await self._sync_fingerprints(mid)
         elif m := _MINION_START.match(tag):
             changes = await self.ingest.minion_seen(m["mid"], at=now)
+            changes.merge(await self.ingest.presence_visible(m["mid"]))
             # A (re)started minion may have new grains.
             await self.client.local_async(m["mid"], "grains.items", tgt_type="list")
 

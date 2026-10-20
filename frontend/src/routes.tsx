@@ -1,12 +1,12 @@
 import type { RouteObject } from 'react-router'
 import { AppShell } from '@/components/AppShell'
 import {
-  IssuesPage,
   NotFoundPage,
   SettingsPage,
 } from '@/pages'
 import { FleetPage } from '@/pages/fleet/FleetPage'
 import { EventsPage } from '@/pages/events/EventsPage'
+import { IssuesPage } from '@/pages/issues/IssuesPage'
 import { JobPage } from '@/pages/jobs/JobPage'
 import { KeysPage } from '@/pages/keys/KeysPage'
 import { JobsPage } from '@/pages/jobs/JobsPage'

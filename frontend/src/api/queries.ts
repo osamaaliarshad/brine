@@ -4,6 +4,7 @@ import type {
   Fleet,
   GrainKey,
   GrainsChange,
+  Issue,
   JobDetail,
   JobPage,
   Key,
@@ -24,6 +25,7 @@ export const queryKeys = {
   minionLive: (id: string, kind: LiveKind) => ['minion-live', id, kind] as const,
   jobs: ['jobs'] as const,
   keys: ['keys'] as const,
+  issues: ['issues'] as const,
 }
 
 /** `/api/fleet`, with `?column=` for each grain when the user picked their own columns. */
@@ -131,4 +133,13 @@ export function useReactors(enabled: boolean) {
     enabled,
     staleTime: 60_000,
   })
+}
+
+export function useIssues() {
+  return useQuery({ queryKey: queryKeys.issues, queryFn: () => fetchJson<Issue[]>('/api/issues') })
+}
+
+/** Critical + warning issues: what "need attention" means everywhere. */
+export function attentionCount(issues: Issue[] | undefined): number | undefined {
+  return issues?.filter((i) => i.severity !== 'info').length
 }

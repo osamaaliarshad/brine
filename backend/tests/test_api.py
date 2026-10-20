@@ -472,3 +472,76 @@ def test_reactors_handles_none_configured_and_errors(api: Api) -> None:
     assert api.get("/api/reactors") == []
     use_live_client(api, FakeWheelClient(SaltApiUnavailable("down")))
     assert api.client.get("/api/reactors").status_code == 502
+
+
+def test_issues(api: Api) -> None:
+    api.seed(api.ingest.keys, {"minions": ["a", "b", "c", "d"], "minions_pre": ["new"]})
+    api.seed(api.ingest.presence, ["a", "b", "c"], at=NOW - timedelta(minutes=2), method="events")
+    api.seed(api.ingest.presence, ["a", "b"], at=NOW, method="events")  # c went offline
+    for mid, version in [("a", "3006.28"), ("b", "3006.28"), ("c", "3006.9")]:
+        api.seed(api.ingest.grains, mid, {"saltversion": version}, at=NOW, source="minion")
+    bad = {"cmd_|-calibrate_|-false_|-run": {"result": False, "comment": "no", "changes": {}}}
+    api.seed(
+        api.ingest.job_new,
+        jid="s1",
+        kind="local",
+        fun="state.apply",
+        at=NOW,
+        user="root",
+        minions=["a"],
+    )
+    api.seed(
+        api.ingest.job_return,
+        jid="s1",
+        kind="local",
+        minion_id="a",
+        fun="state.apply",
+        at=NOW,
+        data=bad,
+        success=False,
+        retcode=2,
+    )
+    api.seed(
+        api.ingest.job_new,
+        jid="c1",
+        kind="local",
+        fun="cmd.run",
+        at=NOW,
+        user="root",
+        target="*",
+        minions=["a", "b"],
+    )
+    api.seed(
+        api.ingest.job_return,
+        jid="c1",
+        kind="local",
+        minion_id="b",
+        fun="cmd.run",
+        at=NOW,
+        data="boom",
+        success=False,
+        retcode=1,
+    )
+
+    issues = api.get("/api/issues")
+    keys = [i["key"] for i in issues]
+    # The collector isn't running in tests, so salt-api shows as unreachable.
+    assert keys[:2] == ["salt-api", "state:a"]
+    assert {"key:new", "offline:c", "never:d", "version:c", "job-failed:c1"} <= set(keys)
+    by_key = {i["key"]: i for i in issues}
+    assert by_key["state:a"]["jid"] == "s1" and by_key["state:a"]["title"] == "a: 1 state failed"
+    assert by_key["version:c"]["detail"] == "Most of the fleet runs 3006.28."
+    assert by_key["job-failed:c1"]["title"] == "cmd.run failed on 1 minion"
+    severities = [i["severity"] for i in issues]
+    assert severities == sorted(severities, key=["critical", "warning", "info"].index)
+
+
+def test_presence_blind_minions_are_stale_not_offline(api: Api) -> None:
+    seed_fleet(api)  # a online, b offline
+    api.seed(api.ingest.presence_blind, {"a": {"ipv4": ["10.0.0.1"]}})  # b has no cached IPs
+    by_id = {m["id"]: m["status"] for m in api.get("/api/fleet")["minions"]}
+    assert by_id == {"a": "online", "b": "stale"}
+    keys = {k["id"]: k["status"] for k in api.get("/api/keys")}
+    assert keys["b"] == "stale"
+    issue_keys = [i["key"] for i in api.get("/api/issues")]
+    assert "blind:b" in issue_keys and "offline:b" not in issue_keys

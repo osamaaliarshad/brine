@@ -31,6 +31,16 @@ KEY_LIST_FIELDS = {
 KEY_ACTS = {"pend": "pending", "accept": "accepted", "reject": "rejected", "delete": "deleted"}
 
 PRESENCE_STATE = "presence"
+# Accepted minions the master's presence detection can't see (no cached IP addresses).
+PRESENCE_BLIND_STATE = "presence_blind"
+
+
+def has_routable_ip(grains: Any) -> bool:
+    """Presence matches TCP peers against cached ipv4/ipv6 grains; loopback never matches."""
+    if not isinstance(grains, dict):
+        return False
+    addresses = [*(grains.get("ipv4") or []), *(grains.get("ipv6") or [])]
+    return any(isinstance(a, str) and not a.startswith("127.") and a != "::1" for a in addresses)
 
 
 @dataclass
@@ -308,6 +318,28 @@ class Ingest:
             s.add(SystemState(key=key, value=value, updated_at=self._clock()))
         else:
             row.value, row.updated_at = value, self._clock()
+
+    async def presence_blind(self, cached_grains: dict[str, Any]) -> Changes:
+        """From `runner cache.grains`: remember accepted minions presence can't see."""
+        async with self._lock, self._sessions() as s, s.begin():
+            accepted = (
+                await s.scalars(select(Minion.id).where(Minion.key_state == "accepted"))
+            ).all()
+            blind = sorted(m for m in accepted if not has_routable_ip(cached_grains.get(m)))
+            row = await s.get(SystemState, PRESENCE_BLIND_STATE)
+            if row is not None and row.value == blind:
+                return Changes()
+            await self._set_state(s, PRESENCE_BLIND_STATE, blind)
+        return Changes(fleet=True, status=True)
+
+    async def presence_visible(self, mid: str) -> Changes:
+        """A (re)started minion refreshes the master's cache, so presence can see it again."""
+        async with self._lock, self._sessions() as s, s.begin():
+            row = await s.get(SystemState, PRESENCE_BLIND_STATE)
+            if row is None or mid not in (row.value or []):
+                return Changes()
+            await self._set_state(s, PRESENCE_BLIND_STATE, [m for m in row.value if m != mid])
+        return Changes(fleet=True, status=True)
 
     async def get_state(self, key: str) -> Any:
         async with self._sessions() as s:

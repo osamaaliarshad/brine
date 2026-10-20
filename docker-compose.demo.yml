@@ -38,6 +38,9 @@ services:
       - ./demo/pillar:/srv/pillar:ro
       - ./demo/reactor:/srv/reactor:ro
       - master-pki:/etc/salt/pki/master
+      # The minion data cache (cached grains) is what presence detection matches against;
+      # losing it makes connected minions invisible until they restart.
+      - master-cache:/var/cache/salt/master
     ports:
       - "127.0.0.1:8001:8000"
     healthcheck:
@@ -80,6 +83,7 @@ services:
 # Keys are kept in volumes so recreating one container doesn't break its trust with the others.
 volumes:
   master-pki:
+  master-cache:
   rover-01-pki:
   rover-02-pki:
   rover-03-pki:

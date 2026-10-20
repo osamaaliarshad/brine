@@ -1,5 +1,6 @@
 import { Server, TriangleAlert } from 'lucide-react'
 import type { ReactNode } from 'react'
+import { Link } from 'react-router'
 import type { Fleet } from '@/api/types'
 import { Card, StatusDot } from '@/components/ui'
 
@@ -23,9 +24,15 @@ function Stat({ icon, value, label, title }: {
   )
 }
 
-export function StatCards({ summary }: { summary: Fleet['summary'] | undefined }) {
+export function StatCards({
+  summary,
+  attention,
+}: {
+  summary: Fleet['summary'] | undefined
+  /** Critical + warning issues. */
+  attention: number | undefined
+}) {
   const value = (n: number | undefined) => (n === undefined ? '–' : n)
-  const attention = summary ? summary.pending_keys + summary.stale + summary.unknown : undefined
   return (
     <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
       <Stat
@@ -35,15 +42,14 @@ export function StatCards({ summary }: { summary: Fleet['summary'] | undefined }
       />
       <Stat icon={<StatusDot status="online" className="size-3 sm:size-4" />} value={value(summary?.online)} label="Online" />
       <Stat icon={<StatusDot status="offline" className="size-3 sm:size-4" />} value={value(summary?.offline)} label="Offline" />
-      <Stat
-        icon={<TriangleAlert className="size-5 text-warn sm:size-7" strokeWidth={1.75} />}
-        value={value(attention)}
-        label="Need attention"
-        title={
-          summary &&
-          `${summary.pending_keys} pending key(s), ${summary.stale} stale, ${summary.unknown} never seen`
-        }
-      />
+      <Link to="/issues" className="rounded-2xl transition-opacity hover:opacity-80" aria-label="Need attention: see issues">
+        <Stat
+          icon={<TriangleAlert className="size-5 text-warn sm:size-7" strokeWidth={1.75} />}
+          value={value(attention)}
+          label="Need attention"
+          title="Critical and warning issues; see the Issues page"
+        />
+      </Link>
     </div>
   )
 }
