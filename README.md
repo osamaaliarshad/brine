@@ -80,6 +80,17 @@ minion's result. State runs are broken down state by state; anything else is sho
   <img alt="A state.apply job: dock-01's calibration state failed, the rovers succeeded" src="docs/assets/screenshots/job-light.png">
 </picture>
 
+### Keys
+
+Every minion key the master knows, with its fingerprint and whether that minion is around. Keys
+waiting for approval come first. (Accepting and rejecting from brine arrives with roles and the
+audit log.)
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/keys-dark.png">
+  <img alt="The Keys page: rover-04 waiting for approval, four accepted keys with fingerprints" src="docs/assets/screenshots/keys-light.png">
+</picture>
+
 ## How it fits
 
 ```

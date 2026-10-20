@@ -3,12 +3,12 @@ import { AppShell } from '@/components/AppShell'
 import {
   EventsPage,
   IssuesPage,
-  KeysPage,
   NotFoundPage,
   SettingsPage,
 } from '@/pages'
 import { FleetPage } from '@/pages/fleet/FleetPage'
 import { JobPage } from '@/pages/jobs/JobPage'
+import { KeysPage } from '@/pages/keys/KeysPage'
 import { JobsPage } from '@/pages/jobs/JobsPage'
 import { MinionPage } from '@/pages/minion/MinionPage'
 

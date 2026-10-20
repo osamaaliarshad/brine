@@ -92,6 +92,9 @@ def test_demo_fleet_end_to_end(settings: Settings) -> None:
         assert rover["columns"] == {"site": "site-a", "app_version": "2.4.1"}
         assert rover["salt_version"] and rover["ip"] and rover["grains_source"] == "minion"
         assert get(c, "/api/status")["salt_api"]["connected"] is True
+        keys = {k["id"]: k for k in get(c, "/api/keys")}
+        assert keys["rover-04"]["key_state"] == "pending"
+        assert all(k["fingerprint"] for k in keys.values())
 
         # A job started on the master's own CLI is recorded with its return.
         compose("exec", "-T", "salt-master", "salt", "rover-01", "test.ping")

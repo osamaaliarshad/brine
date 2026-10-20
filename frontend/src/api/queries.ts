@@ -6,6 +6,7 @@ import type {
   GrainsChange,
   JobDetail,
   JobPage,
+  Key,
   LiveKind,
   LiveView,
   MinionDetail,
@@ -21,6 +22,7 @@ export const queryKeys = {
   // Not under ['minion', id]: live views run a Salt job, so they mustn't refetch on every hint.
   minionLive: (id: string, kind: LiveKind) => ['minion-live', id, kind] as const,
   jobs: ['jobs'] as const,
+  keys: ['keys'] as const,
 }
 
 /** `/api/fleet`, with `?column=` for each grain when the user picked their own columns. */
@@ -115,4 +117,8 @@ export function useStateRuns(enabled: boolean) {
     queryFn: () => fetchJson<StateRuns>('/api/jobs/state-runs'),
     enabled,
   })
+}
+
+export function useKeys() {
+  return useQuery({ queryKey: queryKeys.keys, queryFn: () => fetchJson<Key[]>('/api/keys') })
 }

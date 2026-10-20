@@ -159,8 +159,10 @@ class JobDetail(JobSummary):
 class Key(BaseModel):
     id: str
     key_state: str
-    connected: bool
+    fingerprint: str | None
+    first_seen_at: datetime
     last_seen_at: datetime | None
+    status: Status | None  # accepted keys only
 
 
 class SaltApiStatus(BaseModel):

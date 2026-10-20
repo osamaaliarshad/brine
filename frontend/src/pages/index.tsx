@@ -3,15 +3,6 @@ import { ComingSoon, PageHeader } from '@/components/PageHeader'
 
 // Placeholder pages. Each moves to its own file as it gets built out.
 
-export function KeysPage() {
-  return (
-    <>
-      <PageHeader title="Keys" subtitle="Minion keys and their acceptance state." />
-      <ComingSoon phase="Phase 3" />
-    </>
-  )
-}
-
 export function EventsPage() {
   return (
     <>

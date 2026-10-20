@@ -33,6 +33,7 @@ export const PAGES = [
   ['state-runs', '/jobs?tab=states'],
   // The most recent state.apply: in the demo, dock-01's calibration state fails on purpose.
   ['job', async (base) => `/jobs/${(await getJson(`${base}/api/jobs?fun=state.apply&limit=1`)).jobs[0].jid}`],
+  ['keys', '/keys'],
 ]
 
 const THEMES = ['light', 'dark']

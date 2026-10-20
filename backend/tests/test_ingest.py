@@ -220,3 +220,16 @@ async def test_runner_returns_do_not_touch_minions(ingest: Ingest, sessions: Ses
     )
     assert await count(sessions, Minion) == 0
     assert await count(sessions, JobReturn, minion_id="master") == 1
+
+
+async def test_fingerprints(ingest: Ingest, sessions: Sessions) -> None:
+    await ingest.keys({"minions": ["a"], "minions_pre": ["b"]})
+    finger = {
+        "minions": {"a": "aa:aa"},
+        "minions_pre": {"b": "bb:bb"},
+        "local": {"master.pem": "x"},
+    }
+    assert (await ingest.fingerprints(finger)).minions == {"a", "b"}
+    assert (await minion(sessions, "b")).key_fingerprint == "bb:bb"
+    assert not await ingest.fingerprints(finger)  # unchanged
+    assert not await ingest.fingerprints({})

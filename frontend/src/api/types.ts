@@ -161,3 +161,14 @@ export type StateRun = {
 }
 
 export type StateRuns = { runs: StateRun[]; never: string[] }
+
+export type KeyState = 'accepted' | 'pending' | 'rejected' | 'denied'
+
+export type Key = {
+  id: string
+  key_state: KeyState
+  fingerprint: string | null
+  first_seen_at: string
+  last_seen_at: string | null
+  status: MinionStatus | null
+}

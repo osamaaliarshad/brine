@@ -128,6 +128,24 @@ class Ingest:
                 minion.connected = False
         return Changes(fleet=True, minions={mid})
 
+    async def fingerprints(self, finger: dict[str, Any]) -> Changes:
+        """Apply `wheel key.finger` output: {"minions": {id: fp}, "minions_pre": {...}, ...}."""
+        flat = {
+            mid: str(fp)
+            for name in KEY_LIST_FIELDS
+            for mid, fp in (finger.get(name) or {}).items()
+            if fp
+        }
+        changes = Changes()
+        if not flat:
+            return changes
+        async with self._lock, self._sessions() as s, s.begin():
+            for minion in (await s.scalars(select(Minion).where(Minion.id.in_(flat)))).all():
+                if minion.key_fingerprint != flat[minion.id]:
+                    minion.key_fingerprint = flat[minion.id]
+                    changes.minions.add(minion.id)
+        return changes
+
     # --- presence -------------------------------------------------------------------------
 
     async def presence(self, present: Iterable[str], *, at: datetime, method: str) -> Changes:

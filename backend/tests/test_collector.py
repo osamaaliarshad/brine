@@ -38,6 +38,11 @@ class FakeSaltApi:
         self.responses: dict[str, Any] = {
             "key.list_all": {"minions": ["rover-01", "rover-02"], "minions_pre": ["rover-04"]},
             "minions.connected": ["rover-01"],
+            "key.finger": {
+                "minions": {"rover-01": "aa:01", "rover-02": "aa:02"},
+                "minions_pre": {"rover-04": "aa:04"},
+                "local": {"master.pem": "ff:ff"},
+            },
             "manage.status": {"up": ["rover-01", "rover-02"], "down": []},
             "cache.grains": {"rover-02": {"os": "Debian", "cached": True}},
             "jobs.list_jobs": {
@@ -167,6 +172,8 @@ async def test_session_syncs_then_processes_events(make_collector: Any, sessions
         returns = {(r.jid, r.minion_id) for r in (await s.scalars(select(JobReturn))).all()}
 
     assert minions["rover-04"].key_state == "pending"
+    assert minions["rover-04"].key_fingerprint == "aa:04"
+    assert minions["rover-01"].key_fingerprint == "aa:01"
     assert minions["rover-05"].key_state == "pending"
     assert minions["rover-01"].connected
     assert not minions["rover-02"].connected  # lost at the end

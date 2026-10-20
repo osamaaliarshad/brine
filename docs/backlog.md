@@ -42,7 +42,7 @@ Follow-ups found along the way:
 - [x] Minion page: connection facts, grains with "as of" (searchable), grains history as diffs, recent jobs, presence timeline; pillar (masked via pillar.obfuscate), beacons, schedules, mine fetched live
 - [ ] Pillar: reveal values (admin role, audited)
 - [x] Jobs page (search, minion/runner filter, load older) + job detail (state-by-state results, missing minions); State runs view (SaltGUI's Highstate)
-- [ ] Keys page (read-only)
+- [x] Keys page (read-only): states, fingerprints (`wheel key.finger`, second migration), pending first
 - [ ] Events page (live) + reactors
 - [ ] Issues page (SaltGUI's detectors + stale/offline)
 - [ ] Settings: active config, presence method, salt-api status

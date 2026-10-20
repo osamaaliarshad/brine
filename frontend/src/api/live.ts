@@ -30,6 +30,7 @@ export function createLiveInvalidator(queryClient: QueryClient, debounceMs = DEB
     switch (message.type) {
       case 'fleet':
         queue(queryKeys.fleet)
+        queue(queryKeys.keys)
         break
       case 'status':
         queue(queryKeys.status)

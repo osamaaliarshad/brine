@@ -37,6 +37,8 @@ class Minion(Base):
 
     id: Mapped[str] = mapped_column(String(255), primary_key=True)
     key_state: Mapped[str] = mapped_column(String(16))
+    # The key's fingerprint as the master reports it (`wheel key.finger`).
+    key_fingerprint: Mapped[str | None] = mapped_column(String(128))
     first_seen_at: Mapped[datetime]
     # Last time brine saw evidence the minion was alive: present in a presence check, a job
     # return, or a start event. None = never.

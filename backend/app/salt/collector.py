@@ -177,9 +177,15 @@ class Collector:
         """Catch up on everything that may have happened while brine wasn't listening."""
         keys = await self.client.wheel("key.list_all")
         self._publish(await self.ingest.keys(keys or {}))
+        await self._sync_fingerprints("*")
         await self._observe_presence(initial=True)
         await self._sync_grains()
         await self._backfill_jobs()
+
+    async def _sync_fingerprints(self, match: str) -> None:
+        finger = await self.client.wheel("key.finger", match=match)
+        if isinstance(finger, dict):
+            self._publish(await self.ingest.fingerprints(finger))
 
     async def _sync_grains(self) -> None:
         # Fresh grains from connected minions arrive as job returns on the event stream.
@@ -359,7 +365,11 @@ class Collector:
                 user=d.get("user"),
             )
         elif tag in ("salt/auth", "salt/key"):
-            changes = await self.ingest.key_event(str(d.get("id", "")), str(d.get("act", "")))
+            mid = str(d.get("id", ""))
+            changes = await self.ingest.key_event(mid, str(d.get("act", "")))
+            if changes and d.get("act") != "delete":
+                # A new or re-keyed minion: fetch its fingerprint too.
+                await self._sync_fingerprints(mid)
         elif m := _MINION_START.match(tag):
             changes = await self.ingest.minion_seen(m["mid"], at=now)
             # A (re)started minion may have new grains.
