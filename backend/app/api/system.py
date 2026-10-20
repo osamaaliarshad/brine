@@ -10,8 +10,19 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import select
 
 from app.api.deps import RuntimeDep, SessionDep
-from app.api.fleet import presence_blind, presence_info
-from app.api.schemas import Key, SaltApiStatus, SystemStatus
+from app.api.fleet import configured_columns, presence_blind, presence_info
+from app.api.schemas import (
+    AuthSettings,
+    DatabaseSettings,
+    FleetSettings,
+    Key,
+    PresenceSettings,
+    SaltApiSettings,
+    SaltApiStatus,
+    SettingsView,
+    SystemStatus,
+)
+from app.db import async_url
 from app.models import Minion
 from app.status import minion_status
 
@@ -88,4 +99,42 @@ async def stream(request: Request, runtime: RuntimeDep) -> StreamingResponse:
         events(),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@router.get("/settings", response_model=SettingsView)
+async def settings_view(request: Request, runtime: RuntimeDep) -> SettingsView:
+    s = runtime.settings
+    db_url = async_url(s.database)
+    return SettingsView(
+        version=request.app.version,
+        salt_api=SaltApiSettings(
+            url=str(s.salt_api.url),
+            username=s.salt_api.username,
+            eauth=s.salt_api.eauth,
+            verify_tls=s.salt_api.verify_tls,
+            timeout_seconds=s.salt_api.timeout_seconds,
+        ),
+        presence=PresenceSettings(
+            method=s.presence.method,
+            active_method=runtime.collector.status.presence_method,
+            poll_seconds=s.presence.poll_seconds,
+        ),
+        fleet=FleetSettings(
+            stale_after_minutes=s.fleet.stale_after_minutes,
+            grains_refresh_minutes=s.fleet.grains_refresh_minutes,
+            columns=configured_columns(runtime),
+        ),
+        jobs_backfill_limit=s.jobs.backfill_limit,
+        database=DatabaseSettings(
+            backend=db_url.get_backend_name(),
+            url=db_url.set(drivername=db_url.get_backend_name()).render_as_string(
+                hide_password=True
+            ),
+        ),
+        auth=AuthSettings(
+            provider=s.auth.provider,
+            issuer=str(s.auth.issuer) if s.auth.issuer else None,
+            configured=bool(s.auth.issuer and s.auth.client_id and s.auth.client_secret),
+        ),
     )

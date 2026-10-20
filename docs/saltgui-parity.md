@@ -8,6 +8,9 @@ SaltGUI is MIT licensed (© 2016–2026 Oliver Dunk, Martijn Jacobs, Erwin Dondo
 reference for salt-api calls. If any code is ever copied, its copyright notice goes in
 `THIRD_PARTY_NOTICES.md`.
 
+**Status (October 2026):** every read-only view below that's marked phase 3 is built. Write
+actions (phase 5) and sign-in (phase 2) are next.
+
 ## How SaltGUI works, in short
 
 - The browser talks to salt-api directly, using the user's own Salt eauth credentials.

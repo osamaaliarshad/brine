@@ -9,7 +9,7 @@
 
 ---
 
-> **Status: early development.** The backend and the Fleet page work against the demo fleet; sign-in and the other pages are next. Follow [docs/backlog.md](docs/backlog.md) for progress.
+> **Status: early development.** Every read-only page works against the demo fleet. Sign-in (OIDC) and roles are next, then running commands. Follow [docs/backlog.md](docs/backlog.md) for progress.
 
 brine plugs into an existing **salt-master + salt-api** and gives your team a clean, fast view of the fleet:
 
@@ -112,6 +112,17 @@ to the minion or job. The count also appears on the Fleet page and in the sideba
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/issues-dark.png">
   <img alt="The Issues page: a failed state on dock-01, rover-03 offline, rover-04 waiting for approval" src="docs/assets/screenshots/issues-light.png">
+</picture>
+
+### Settings
+
+What this brine is running with: the salt-api connection and service account, which presence
+method is active, fleet defaults, database and sign-in. Secrets never leave the server. Plus
+per-browser choices: theme (light, dark or follow the system) and resetting custom columns.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/settings-dark.png">
+  <img alt="The Settings page: connection, presence, fleet and server settings" src="docs/assets/screenshots/settings-light.png">
 </picture>
 
 ## How it fits

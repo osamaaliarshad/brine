@@ -79,3 +79,16 @@ are recorded, with `kind: runner`.
 All database writes go through `Ingest`, which serializes them with a lock and is idempotent:
 the same event twice, or a job seen both live and in a backfill, leaves the database unchanged.
 That's what makes "re-sync everything after every reconnect" safe, and reconnect logic simple.
+
+## 11. Pillar, beacons, schedules and mine are fetched live, not stored
+
+They change rarely and are needed one minion at a time, so the minion page asks the minion when a
+tab is opened (`/api/minions/{id}/live/{kind}`) and shows when it asked. Pillar goes through
+`pillar.obfuscate`, so values never reach the browser; revealing them will need an admin role.
+
+## 12. Don't call a minion offline when presence can't see it
+
+Salt's presence detection matches TCP peers against IP grains in the master's minion data cache.
+A minion missing from that cache is invisible to presence even while it answers jobs. brine
+notes such minions whenever it reads the cache, shows them as stale instead of offline, and
+raises an issue with the fix. Found on the demo fleet when a recreated master lost its cache.

@@ -194,3 +194,13 @@ export type Issue = {
   minion_id: string | null
   jid: string | null
 }
+
+export type Settings = {
+  version: string
+  salt_api: { url: string; username: string; eauth: string; verify_tls: boolean; timeout_seconds: number }
+  presence: { method: string; active_method: string | null; poll_seconds: number }
+  fleet: { stale_after_minutes: number; grains_refresh_minutes: number; columns: Column[] }
+  jobs_backfill_limit: number
+  database: { backend: string; url: string }
+  auth: { provider: string; issuer: string | null; configured: boolean }
+}

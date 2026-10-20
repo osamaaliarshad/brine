@@ -12,6 +12,7 @@ import type {
   LiveView,
   MinionDetail,
   Reactor,
+  Settings,
   StateRuns,
   SystemStatus,
 } from '@/api/types'
@@ -142,4 +143,8 @@ export function useIssues() {
 /** Critical + warning issues: what "need attention" means everywhere. */
 export function attentionCount(issues: Issue[] | undefined): number | undefined {
   return issues?.filter((i) => i.severity !== 'info').length
+}
+
+export function useSettings() {
+  return useQuery({ queryKey: ['settings'], queryFn: () => fetchJson<Settings>('/api/settings') })
 }

@@ -61,6 +61,49 @@ class LiveView(BaseModel):
     data: Any
 
 
+class SaltApiSettings(BaseModel):
+    url: str
+    username: str
+    eauth: str
+    verify_tls: bool
+    timeout_seconds: float
+
+
+class PresenceSettings(BaseModel):
+    method: str  # configured
+    active_method: str | None  # what's providing presence right now
+    poll_seconds: int
+
+
+class FleetSettings(BaseModel):
+    stale_after_minutes: int
+    grains_refresh_minutes: int
+    columns: list[Column]
+
+
+class DatabaseSettings(BaseModel):
+    backend: str
+    url: str  # password removed
+
+
+class AuthSettings(BaseModel):
+    provider: str
+    issuer: str | None
+    configured: bool
+
+
+class SettingsView(BaseModel):
+    """The running configuration, minus every secret."""
+
+    version: str
+    salt_api: SaltApiSettings
+    presence: PresenceSettings
+    fleet: FleetSettings
+    jobs_backfill_limit: int
+    database: DatabaseSettings
+    auth: AuthSettings
+
+
 class Issue(BaseModel):
     key: str  # stable identity, e.g. "offline:rover-03"
     severity: Literal["critical", "warning", "info"]

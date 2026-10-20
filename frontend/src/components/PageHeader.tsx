@@ -19,12 +19,3 @@ export function PageHeader({
     </div>
   )
 }
-
-/** Stand-in body for pages that haven't been built yet. */
-export function ComingSoon({ phase }: { phase: string }) {
-  return (
-    <div className="rounded-2xl border border-dashed bg-surface/50 p-10 text-center text-muted">
-      Coming in {phase}. See <code className="font-mono text-fg">docs/backlog.md</code>.
-    </div>
-  )
-}

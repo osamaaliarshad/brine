@@ -36,6 +36,7 @@ export const PAGES = [
   ['keys', '/keys'],
   ['events', '/events'],
   ['issues', '/issues'],
+  ['settings', '/settings'],
 ]
 
 const THEMES = ['light', 'dark']

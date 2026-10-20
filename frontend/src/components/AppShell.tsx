@@ -11,13 +11,13 @@ import {
   X,
   type LucideIcon,
 } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { NavLink, Outlet } from 'react-router'
 import { useLiveUpdates } from '@/api/live'
 import { attentionCount, useIssues } from '@/api/queries'
 import { Wordmark } from '@/components/Wordmark'
 import { cn } from '@/lib/cn'
-import { getTheme, setTheme, type Theme } from '@/lib/theme'
+import { getTheme, onThemeChange, setTheme, type Theme } from '@/lib/theme'
 
 type NavItem = { to: string; label: string; icon: LucideIcon }
 
@@ -57,14 +57,13 @@ function NavRow({ item, onNavigate, badge }: { item: NavItem; onNavigate?: () =>
 
 function ThemeToggle() {
   const [theme, setThemeState] = useState<Theme>(getTheme)
+  // Settings can change the theme too; keep the toggle's label in step.
+  useEffect(() => onThemeChange(() => setThemeState(getTheme())), [])
   const next: Theme = theme === 'dark' ? 'light' : 'dark'
   return (
     <button
       type="button"
-      onClick={() => {
-        setTheme(next)
-        setThemeState(next)
-      }}
+      onClick={() => setTheme(next)}
       className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-[15px] text-muted transition-colors hover:bg-surface-2 hover:text-fg"
       aria-label={`Switch to ${next} theme`}
     >

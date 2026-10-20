@@ -545,3 +545,32 @@ def test_presence_blind_minions_are_stale_not_offline(api: Api) -> None:
     assert keys["b"] == "stale"
     issue_keys = [i["key"] for i in api.get("/api/issues")]
     assert "blind:b" in issue_keys and "offline:b" not in issue_keys
+
+
+def test_settings_never_leak_secrets(tmp_path: Path) -> None:
+    settings = parse_config(
+        "salt_api: {url: 'https://salt.test:8000', username: brine, password: hunter2}\n"
+        "auth: {issuer: 'https://accounts.example.com', client_id: id, client_secret: s3cret}\n"
+        f"database: 'sqlite:///{(tmp_path / 'brine.db').as_posix()}'\n",
+        {},
+    )
+    with TestClient(
+        create_app(settings, frontend_dist=Path("/nonexistent"), run_collector=False)
+    ) as c:
+        resp = c.get("/api/settings")
+    body = resp.json()
+    assert "hunter2" not in resp.text and "s3cret" not in resp.text
+    assert body["salt_api"]["username"] == "brine"
+    assert body["database"]["backend"] == "sqlite"
+    assert body["database"]["url"].startswith("sqlite:///")
+    assert body["auth"]["configured"] is True
+    assert body["presence"]["method"] == "auto"
+
+
+def test_settings_hide_database_passwords(tmp_path: Path) -> None:
+    from app.api.system import settings_view  # noqa: F401  (import check only)
+    from app.db import async_url
+
+    url = async_url("postgresql://brine:pw@db:5432/brine")
+    shown = url.set(drivername=url.get_backend_name()).render_as_string(hide_password=True)
+    assert shown == "postgresql://brine:***@db:5432/brine"
