@@ -9,7 +9,12 @@
 
 ---
 
-> **Status: early development.** Nothing here is usable yet. Follow [docs/backlog.md](docs/backlog.md) for progress.
+> **Status: early development.** The backend and the Fleet page work against the demo fleet; sign-in and the other pages are next. Follow [docs/backlog.md](docs/backlog.md) for progress.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshot-fleet-dark.png">
+  <img alt="The brine Fleet page: four minions online with site, app version and firmware columns" src="docs/assets/screenshot-fleet-light.png">
+</picture>
 
 brine plugs into an existing **salt-master + salt-api** and gives your team a clean, fast view of the fleet:
 

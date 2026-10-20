@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 import { useState } from 'react'
 import { NavLink, Outlet } from 'react-router'
+import { useLiveUpdates } from '@/api/live'
 import { Wordmark } from '@/components/Wordmark'
 import { cn } from '@/lib/cn'
 import { getTheme, setTheme, type Theme } from '@/lib/theme'
@@ -86,6 +87,7 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
 
 export function AppShell() {
   const [mobileOpen, setMobileOpen] = useState(false)
+  useLiveUpdates()
 
   return (
     <div className="flex h-full">

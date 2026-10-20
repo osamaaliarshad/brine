@@ -35,14 +35,16 @@ Follow-ups found along the way:
 
 ## Phase 3 — Frontend v1 (SaltGUI read-only parity + brine extras)
 
-- [ ] Fleet table (per the mockup): stat cards, status dot, last seen, OS/Salt, grain columns, search, filters, pagination
+- [x] Fleet table (per the mockup): stat cards, status dot, last seen + cached/stale badges, OS/Salt, grain columns (show/hide), search, status tabs, site filter, sort, pagination; view state in the URL
+- [ ] Fleet: "Run command" and row selection (with Phase 5)
 - [ ] Minion page: live/cached badge, grains with "as of" + history diff, pillar (masked), beacons, schedules, mine, jobs, presence timeline
 - [ ] Jobs page + job detail; Highstate view
 - [ ] Keys page (read-only)
 - [ ] Events page (live) + reactors
 - [ ] Issues page (SaltGUI's detectors + stale/offline)
 - [ ] Settings: active config, presence method, salt-api status
-- [ ] Live updates via SSE, dark/light themes, phone layout
+- [x] Live updates via SSE (debounced refetch), dark/light themes
+- [ ] Phone layout: works (table scrolls sideways); a card list would read better on small screens
 
 ## Phase 4 — Release polish
 

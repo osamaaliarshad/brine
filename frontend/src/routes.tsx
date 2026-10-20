@@ -2,19 +2,21 @@ import type { RouteObject } from 'react-router'
 import { AppShell } from '@/components/AppShell'
 import {
   EventsPage,
-  FleetPage,
   IssuesPage,
   JobsPage,
   KeysPage,
+  MinionPage,
   NotFoundPage,
   SettingsPage,
 } from '@/pages'
+import { FleetPage } from '@/pages/fleet/FleetPage'
 
 export const routes: RouteObject[] = [
   {
     element: <AppShell />,
     children: [
       { index: true, element: <FleetPage /> },
+      { path: 'minions/:id', element: <MinionPage /> },
       { path: 'jobs', element: <JobsPage /> },
       { path: 'keys', element: <KeysPage /> },
       { path: 'events', element: <EventsPage /> },

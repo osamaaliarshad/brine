@@ -1,0 +1,145 @@
+import { screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { FakeEventSource } from '@/test/setup'
+import { ago, fleet, minion, mockApi, NOW, renderApp, systemStatus } from '@/test/render'
+
+const FLEET = fleet([
+  minion('rover-01', { ip: '10.0.0.11' }),
+  minion('rover-02', {
+    status: 'offline',
+    connected: false,
+    last_seen_at: ago(2 * 3600),
+    columns: { site: 'site-b', app_version: '2.3.0' },
+  }),
+  minion('dock-01', { grains_source: 'master_cache', grains_at: null, columns: { site: 'site-b' } }),
+])
+
+function rows() {
+  return screen
+    .getAllByRole('row')
+    .slice(1) // header
+    .map((row) => within(row).getAllByRole('cell')[0]!.textContent)
+}
+
+describe('FleetPage', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(NOW)
+  })
+  afterEach(() => vi.useRealTimers())
+
+  it('shows summary cards, freshness, and every minion', async () => {
+    mockApi({ '/api/fleet': FLEET, '/api/status': systemStatus() })
+    renderApp('/')
+
+    await screen.findByText('rover-01')
+    expect(screen.getByText('Total minions').previousSibling).toHaveTextContent('3')
+    expect(screen.getByText('Presence checked 20s ago')).toBeInTheDocument()
+    expect(screen.getByText('4m ago')).toBeInTheDocument() // grains updated
+    expect(rows()).toEqual(['dock-0110.0.0.1', 'rover-0110.0.0.11', 'rover-0210.0.0.1'])
+  })
+
+  it('marks offline and cache-sourced rows as cached', async () => {
+    mockApi({ '/api/fleet': FLEET, '/api/status': systemStatus() })
+    renderApp('/')
+
+    const offline = (await screen.findByText('rover-02')).closest('tr')!
+    expect(within(offline).getByText('Last seen 2h ago')).toBeInTheDocument()
+    expect(within(offline).getByText('Cached')).toBeInTheDocument()
+
+    const cachedGrains = screen.getByText('dock-01').closest('tr')!
+    expect(within(cachedGrains).getByText('Online')).toBeInTheDocument()
+    expect(within(cachedGrains).getByText('Cached')).toBeInTheDocument()
+
+    const live = screen.getByText('rover-01').closest('tr')!
+    expect(within(live).queryByText('Cached')).toBeNull()
+  })
+
+  it('filters by status tab, search, and site', async () => {
+    const user = userEvent.setup()
+    mockApi({ '/api/fleet': FLEET, '/api/status': systemStatus() })
+    const { router } = renderApp('/')
+    await screen.findByText('rover-01')
+
+    await user.click(screen.getByRole('tab', { name: /Offline/ }))
+    expect(rows()).toEqual(['rover-0210.0.0.1'])
+    expect(router.state.location.search).toBe('?status=offline')
+
+    await user.click(screen.getByRole('tab', { name: /All minions/ }))
+    await user.type(screen.getByRole('searchbox', { name: 'Search minions' }), '10.0.0.11')
+    expect(rows()).toEqual(['rover-0110.0.0.11'])
+
+    await user.clear(screen.getByRole('searchbox', { name: 'Search minions' }))
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Filter by Site' }), 'site-b')
+    expect(rows()).toEqual(['dock-0110.0.0.1', 'rover-0210.0.0.1'])
+    expect(screen.getByText('Showing 1–2 of 2 minions')).toBeInTheDocument()
+  })
+
+  it('restores filters from the URL', async () => {
+    mockApi({ '/api/fleet': FLEET, '/api/status': systemStatus() })
+    renderApp('/?q=rover&sort=id&dir=desc')
+    await screen.findByText('rover-01')
+    expect(rows()).toEqual(['rover-0210.0.0.1', 'rover-0110.0.0.11'])
+  })
+
+  it('sorts when a header is clicked, toggling direction', async () => {
+    const user = userEvent.setup()
+    mockApi({ '/api/fleet': FLEET, '/api/status': systemStatus() })
+    renderApp('/')
+    await screen.findByText('rover-01')
+
+    await user.click(screen.getByRole('button', { name: /Connection/ }))
+    expect(rows()[2]).toContain('rover-02') // offline last
+    await user.click(screen.getByRole('button', { name: /Connection/ }))
+    expect(rows()[0]).toContain('rover-02')
+  })
+
+  it('hides columns and remembers the choice', async () => {
+    const user = userEvent.setup()
+    mockApi({ '/api/fleet': FLEET, '/api/status': systemStatus() })
+    renderApp('/')
+    await screen.findByText('rover-01')
+
+    await user.click(screen.getByRole('button', { name: 'Columns' }))
+    await user.click(screen.getByRole('checkbox', { name: 'App version' }))
+    expect(screen.queryByRole('columnheader', { name: /App version/ })).toBeNull()
+    expect(JSON.parse(localStorage.getItem('brine-fleet-hidden-columns')!)).toEqual(['col:app_version'])
+  })
+
+  it('warns when brine has lost salt-api', async () => {
+    mockApi({
+      '/api/fleet': FLEET,
+      '/api/status': systemStatus({ connected: false, since: ago(300), error: 'connection refused' }),
+    })
+    renderApp('/')
+    const banner = await screen.findByRole('status')
+    expect(banner).toHaveTextContent("brine can't reach salt-api")
+    expect(banner).toHaveTextContent('since 5m ago')
+    expect(banner).toHaveTextContent('connection refused')
+  })
+
+  it('refetches when the live stream says the fleet changed', async () => {
+    const api = mockApi({ '/api/fleet': FLEET, '/api/status': systemStatus() })
+    renderApp('/')
+    await screen.findByText('rover-01')
+    const fleetCalls = () => api.mock.calls.filter(([url]) => url === '/api/fleet').length
+    const before = fleetCalls()
+
+    FakeEventSource.instances[0]!.emit({ type: 'fleet' })
+    await waitFor(() => expect(fleetCalls()).toBe(before + 1))
+  })
+
+  it('shows an error with a retry button', async () => {
+    mockApi({ '/api/status': systemStatus() }) // /api/fleet 404s
+    renderApp('/')
+    expect(await screen.findByText(/Couldn't load the fleet/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument()
+  })
+
+  it('explains an empty fleet', async () => {
+    mockApi({ '/api/fleet': fleet([]), '/api/status': systemStatus() })
+    renderApp('/')
+    expect(await screen.findByText(/No minions yet/)).toBeInTheDocument()
+  })
+})
