@@ -13,9 +13,11 @@ config.yaml
 !config.example.yaml
 
 # --- Runtime data --------------------------------------------------------
-/data/
+data/
 *.db
 *.db-journal
+*.db-wal
+*.db-shm
 *.sqlite3
 
 # --- Python --------------------------------------------------------------
