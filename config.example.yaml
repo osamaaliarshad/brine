@@ -10,17 +10,23 @@ salt_api:
   eauth: pam
   verify_tls: true
 
+# How browsers reach brine. The sign-in redirect is <public_url>/api/auth/callback.
+public_url: https://brine.example.com
+
+# Sign-in with your own OIDC provider; docs/oidc-providers.md has Google, Okta, Entra, Keycloak.
+# Register a client of your own: no client ID or secret ships with brine.
 auth:
-  provider: oidc
+  provider: oidc                   # or none: no sign-in, everyone gets anonymous_role (demo only)
   issuer: https://accounts.google.com
   client_id: ${OIDC_CLIENT_ID}
   client_secret: ${OIDC_CLIENT_SECRET}
-  allowed_domains: [example.com]
+  allowed_domains: [example.com]   # optional: refuse every other email domain
+  session_hours: 12
 
-roles:                             # fnmatch-style email patterns
-  viewer:   ["*@example.com"]
+roles:                             # fnmatch-style email patterns; highest match wins
+  viewer:   ["*@example.com"]      # no match, no access
   operator: ["alice@example.com"]
-  admin:    ["bob@example.com"]
+  admin:    ["bob@example.com"]    # admins see the audit log
 
 fleet:
   columns:                         # custom grains shown in the fleet table

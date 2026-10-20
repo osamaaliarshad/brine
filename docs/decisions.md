@@ -92,3 +92,19 @@ Salt's presence detection matches TCP peers against IP grains in the master's mi
 A minion missing from that cache is invisible to presence even while it answers jobs. brine
 notes such minions whenever it reads the cache, shows them as stale instead of offline, and
 raises an issue with the fix. Found on the demo fleet when a recreated master lost its cache.
+
+## 13. Sessions are signed cookies; roles come from the config on every request
+
+The session cookie holds only who signed in (email, name, picture), signed with a secret from
+the config or, if none is set, one brine generates once and keeps in its database, so restarts
+don't sign everyone out. There's no users table: the role is worked out from `roles` on every
+request. Editing the config and restarting is how you grant or take away access, and it applies
+to people who are already signed in. The cost is that a session can't be revoked on its own
+before it expires; removing the person from `roles` does the same job.
+
+## 14. Sign-in off has to be asked for
+
+`auth.provider` defaults to `oidc`, and an OIDC block that's missing its issuer, client ID or
+secret stops brine at startup with a pointer to the setup guide. Running with no sign-in takes an
+explicit `provider: none`, and then every page shows a banner saying who everyone is treated as.
+A typo in the config should never leave a fleet view open to the network.

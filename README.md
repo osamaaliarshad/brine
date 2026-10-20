@@ -9,11 +9,11 @@
 
 ---
 
-> **Status: early development.** Every read-only page works against the demo fleet. Sign-in (OIDC) and roles are next, then running commands. Follow [docs/backlog.md](docs/backlog.md) for progress.
+> **Status: early development.** Every read-only page works against the demo fleet, behind OIDC sign-in and roles. Running commands comes next, starting with key management. Follow [docs/backlog.md](docs/backlog.md) for progress.
 
 brine plugs into an existing **salt-master + salt-api** and gives your team a clean, fast view of the fleet:
 
-- **Single sign-on** through any OIDC provider (Google, GitHub, Okta, Keycloak, Azure AD). No Salt credentials for end users.
+- **Single sign-on** through any OIDC provider: Google, Okta, Microsoft Entra, Keycloak, or GitHub via Dex ([setup](docs/oidc-providers.md)). Viewer, operator and admin roles by email pattern. No Salt credentials for end users.
 - **Live vs. cached, clearly separated.** Online now, or last seen *X* ago, with grains marked "as of" when they were collected.
 - **Per-minion pages** with grains (current and history), recent jobs, and a presence timeline.
 - **Job history that outlives Salt's job cache.**
@@ -149,10 +149,22 @@ to the minion or job. The count also appears on the Fleet page and in the sideba
   <img alt="The Issues page: a failed state on dock-01, rover-03 offline, rover-04 waiting for approval" src="docs/assets/screenshots/issues-light.png">
 </picture>
 
+### Audit log
+
+Admins only. Every sign-in (and every refused one, with the reason), sign-out, and look at
+sensitive data such as a minion's pillar, with who, when and from where. Commands will land here
+too.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/audit-dark.png">
+  <img alt="The Audit log page: sign-ins, refused sign-ins and pillar views" src="docs/assets/screenshots/audit-light.png">
+</picture>
+
 ### Settings
 
 What this brine is running with: the salt-api connection and service account, which presence
-method is active, fleet defaults, database and sign-in. Secrets never leave the server. Plus
+method is active, fleet defaults, database, and how sign-in and roles are set up (pattern
+counts, not who holds them). Secrets never leave the server. Plus
 per-browser choices: theme (light, dark or follow the system) and resetting custom columns.
 
 <picture>
@@ -212,6 +224,15 @@ BRINE_CONFIG=../demo/brine.yaml uv run uvicorn app.main:create_app --factory --r
 cd frontend
 npm install
 npm run dev
+```
+
+The demo config runs with sign-in off: everyone is an admin, and a banner says so. To try real
+sign-in, register an OIDC client ([docs/oidc-providers.md](docs/oidc-providers.md)), put its ID
+and secret in a git-ignored `.env` (see `.env.example`), and point a git-ignored `config.yaml` at
+it:
+
+```bash
+BRINE_CONFIG=../config.yaml uv run --env-file ../.env uvicorn app.main:create_app --factory --reload
 ```
 
 Checks (the same ones CI runs):

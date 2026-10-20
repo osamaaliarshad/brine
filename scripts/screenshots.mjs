@@ -40,6 +40,14 @@ export const PAGES = [
   ['automation', '/automation'],
   ['events', '/events'],
   ['issues', '/issues'],
+  // With sign-in off there are no sign-ins to show; looking at pillar is audited either way.
+  [
+    'audit',
+    async (base) => {
+      for (const id of ['rover-01', 'dock-01']) await fetch(`${base}/api/minions/${id}/live/pillar`)
+      return '/audit'
+    },
+  ],
   ['settings', '/settings'],
 ]
 

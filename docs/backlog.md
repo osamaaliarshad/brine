@@ -28,10 +28,14 @@ Follow-ups found along the way:
 
 ## Phase 2 — Auth and roles
 
-- [ ] OIDC login (Google first), secure cookie sessions, domain/email allowlists
-- [ ] Role mapping (viewer / operator / admin) enforced on every endpoint
-- [ ] Audit: logins and views of sensitive data (pillar)
-- [ ] Docs: OIDC providers, Salt eauth ACL for the service account
+- [x] OIDC login (Google first), signed httpOnly cookie sessions (SameSite=Lax, Secure behind https), domain allowlist
+- [x] Role mapping (viewer / operator / admin) by email pattern, re-checked on every request; every API endpoint locked
+- [x] Sign-in off mode (`auth.provider: none`) for the demo, with a banner; half-configured OIDC refuses to start
+- [x] Audit: sign-ins, refused sign-ins (with reason), sign-outs, pillar views; admin-only Audit log page
+- [x] Sign-in page, user menu with sign-out, Settings › Sign-in
+- [x] Docs: OIDC providers (docs/oidc-providers.md), Salt eauth ACL for the service account
+- [ ] CSRF: require a custom header on every write (before Phase 5's first write)
+- [ ] Audit retention and export
 
 ## Phase 3 — Frontend v1 (SaltGUI read-only parity + brine extras)
 
