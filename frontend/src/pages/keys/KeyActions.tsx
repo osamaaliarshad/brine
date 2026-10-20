@@ -1,5 +1,5 @@
 import { ChevronDown, MoreHorizontal } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import type { Key, KeyAction } from '@/api/types'
 import type { KeyActionTarget } from '@/components/KeyActionDialog'
 import { ACTIONS_FOR } from '@/pages/keys/rules'
@@ -20,11 +20,26 @@ export function KeyActions({
   labelled?: boolean
 }) {
   const [open, setOpen] = useState(false)
+  // The menu is placed against the window, so a table's scroll container can't clip it.
+  const [place, setPlace] = useState<CSSProperties>({})
   const ref = useRef<HTMLDivElement>(null)
+  const button = useRef<HTMLButtonElement>(null)
   const actions = ACTIONS_FOR[k.key_state]
   const pick = (action: KeyAction) => {
     setOpen(false)
     onPick({ id: k.id, state: k.key_state, fingerprint: k.fingerprint, action })
+  }
+
+  const toggle = () => {
+    const rect = button.current?.getBoundingClientRect()
+    if (!open && rect) {
+      const right = window.innerWidth - rect.right
+      // Open upward when there isn't room for the menu below the button.
+      setPlace(
+        window.innerHeight - rect.bottom > 120 ? { top: rect.bottom + 4, right } : { bottom: window.innerHeight - rect.top + 4, right },
+      )
+    }
+    setOpen((o) => !o)
   }
 
   useEffect(() => {
@@ -34,11 +49,17 @@ export function KeyActions({
         event instanceof KeyboardEvent ? event.key === 'Escape' : !ref.current?.contains(event.target as Node)
       if (outside) setOpen(false)
     }
+    // A fixed menu would drift away from its button: close it instead.
+    const closeNow = () => setOpen(false)
     document.addEventListener('mousedown', close)
     document.addEventListener('keydown', close)
+    window.addEventListener('scroll', closeNow, true)
+    window.addEventListener('resize', closeNow)
     return () => {
       document.removeEventListener('mousedown', close)
       document.removeEventListener('keydown', close)
+      window.removeEventListener('scroll', closeNow, true)
+      window.removeEventListener('resize', closeNow)
     }
   }, [open])
 
@@ -55,8 +76,9 @@ export function KeyActions({
         </button>
       )}
       <button
+        ref={button}
         type="button"
-        onClick={() => setOpen((o) => !o)}
+        onClick={toggle}
         aria-expanded={open}
         aria-haspopup="menu"
         aria-label={labelled ? undefined : `More actions for ${k.id}`}
@@ -76,7 +98,7 @@ export function KeyActions({
         )}
       </button>
       {open && (
-        <div role="menu" className="absolute top-full right-0 z-30 mt-1 w-40 rounded-xl border bg-surface p-1.5 shadow-xl">
+        <div role="menu" style={place} className="fixed z-40 w-40 rounded-xl border bg-surface p-1.5 shadow-xl">
           {actions
             .filter((a) => a !== 'accept')
             .map((a) => (
