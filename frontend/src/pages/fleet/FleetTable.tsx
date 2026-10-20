@@ -5,7 +5,11 @@ import { cn } from '@/lib/cn'
 import type { TableColumn } from '@/pages/fleet/columns'
 import type { FleetView, SortKey } from '@/pages/fleet/model'
 
-function SortHeader({ column, view, onSort }: {
+function SortHeader({
+  column,
+  view,
+  onSort,
+}: {
   column: TableColumn
   view: FleetView
   onSort: (key: SortKey) => void
@@ -44,7 +48,15 @@ function pageList(page: number, pages: number): (number | '…')[] {
   return list
 }
 
-function Pagination({ page, pages, onPage }: { page: number; pages: number; onPage: (p: number) => void }) {
+function Pagination({
+  page,
+  pages,
+  onPage,
+}: {
+  page: number
+  pages: number
+  onPage: (p: number) => void
+}) {
   const btn = 'flex size-9 items-center justify-center rounded-lg border text-sm tabular-nums'
   return (
     <nav aria-label="Pages" className="flex items-center gap-1.5">
@@ -105,6 +117,7 @@ export function FleetTable({
   onPage,
   empty,
   loading = false,
+  compact,
 }: {
   columns: TableColumn[]
   minions: MinionSummary[]
@@ -118,37 +131,52 @@ export function FleetTable({
   onPage: (page: number) => void
   empty: ReactNode
   loading?: boolean
+  /** Rendered instead of the table on narrow screens. */
+  compact?: ReactNode
 }) {
   const first = total === 0 ? 0 : (page - 1) * pageSize + 1
   const last = Math.min(total, page * pageSize)
   return (
     <>
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[640px] border-collapse">
-          <thead className="bg-surface-2/40">
-            <tr>
-              {columns.map((column) => (
-                <SortHeader key={column.key} column={column} view={view} onSort={onSort} />
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {minions.map((m) => (
-              <tr key={m.id} className="border-t align-middle transition-colors hover:bg-surface-2/40">
+      {compact && minions.length > 0 ? (
+        compact
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[640px] border-collapse">
+            <thead className="bg-surface-2/40">
+              <tr>
                 {columns.map((column) => (
-                  <td key={column.key} className="whitespace-nowrap px-4 py-3.5 first:pl-6">
-                    {column.render(m, now)}
-                  </td>
+                  <SortHeader key={column.key} column={column} view={view} onSort={onSort} />
                 ))}
               </tr>
-            ))}
-          </tbody>
-        </table>
-        {minions.length === 0 && <div className="border-t px-6 py-12 text-center text-muted">{empty}</div>}
-      </div>
+            </thead>
+            <tbody>
+              {minions.map((m) => (
+                <tr
+                  key={m.id}
+                  className="border-t align-middle transition-colors hover:bg-surface-2/40"
+                >
+                  {columns.map((column) => (
+                    <td key={column.key} className="whitespace-nowrap px-4 py-3.5 first:pl-6">
+                      {column.render(m, now)}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {minions.length === 0 && (
+            <div className="border-t px-6 py-12 text-center text-muted">{empty}</div>
+          )}
+        </div>
+      )}
       <div className="flex flex-wrap items-center justify-between gap-3 border-t px-4 py-3 sm:px-6">
         <span className="text-sm text-muted">
-          {loading ? ' ' : total === 0 ? 'No minions' : `Showing ${first}–${last} of ${total} minions`}
+          {loading
+            ? ' '
+            : total === 0
+              ? 'No minions'
+              : `Showing ${first}–${last} of ${total} minions`}
         </span>
         {pages > 1 && <Pagination page={page} pages={pages} onPage={onPage} />}
       </div>

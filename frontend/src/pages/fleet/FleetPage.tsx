@@ -6,7 +6,9 @@ import type { SystemStatus } from '@/api/types'
 import { PageHeader } from '@/components/PageHeader'
 import { Card } from '@/components/ui'
 import { formatAbsolute, formatRelative, useNow } from '@/lib/time'
+import { useMediaQuery } from '@/lib/useMediaQuery'
 import { ColumnsMenu } from '@/pages/fleet/ColumnsMenu'
+import { FleetCards } from '@/pages/fleet/FleetCards'
 import { type ColumnPrefs, DEFAULT_PREFS, loadPrefs, savePrefs } from '@/pages/fleet/columnPrefs'
 import { baseColumns, grainColumn } from '@/pages/fleet/columns'
 import { FleetTable } from '@/pages/fleet/FleetTable'
@@ -58,6 +60,7 @@ export function FleetPage() {
   const issuesQuery = useIssues()
   const fleet = fleetQuery.data
   const now = useNow()
+  const wide = useMediaQuery('(min-width: 640px)')
   const [params, setParams] = useSearchParams()
   const view = viewFromParams(params)
 
@@ -172,6 +175,16 @@ export function FleetPage() {
             pages={paged.pages}
             pageSize={PAGE_SIZE}
             loading={fleetQuery.isPending}
+            compact={
+              wide ? undefined : (
+                <FleetCards
+                  minions={paged.items}
+                  columns={fleet?.columns ?? []}
+                  showOs={!hidden.has('os')}
+                  now={now}
+                />
+              )
+            }
             onSort={(key) =>
               update({ sort: key, dir: view.sort === key && view.dir === 'asc' ? 'desc' : 'asc' })
             }

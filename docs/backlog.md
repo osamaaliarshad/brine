@@ -49,7 +49,7 @@ Follow-ups found along the way:
 - [ ] Issues: disabled beacons/schedules and CVE warnings (need live calls / a CVE list)
 - [x] Settings: salt-api connection, configured vs active presence method, fleet/jobs defaults, database (password hidden), sign-in; theme (light/dark/system) and column reset
 - [x] Live updates via SSE (debounced refetch), dark/light themes
-- [ ] Phone layout: works (table scrolls sideways); a card list would read better on small screens
+- [x] Phone layout: the Fleet page switches to cards below 640px; other pages stack and scroll their tables
 
 ## Phase 4 — Release polish
 

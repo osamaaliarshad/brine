@@ -27,7 +27,11 @@ describe('FleetPage', () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(NOW)
   })
-  afterEach(() => vi.useRealTimers())
+  afterEach(() => {
+    vi.useRealTimers()
+    // @ts-expect-error -- jsdom doesn't define it; remove the phone stub if a test added one.
+    delete window.matchMedia
+  })
 
   it('shows summary cards, freshness, and every minion', async () => {
     mockApi({ '/api/fleet': FLEET, '/api/status': systemStatus() })
@@ -175,7 +179,25 @@ describe('FleetPage', () => {
     await waitFor(() => expect(fleetCalls()).toBe(before + 1))
   })
 
-  it('shows an error with a retry button', async () => {
+  it('shows cards instead of a table on phone-width screens', async () => {
+    // jsdom has no matchMedia; pretend to be a phone for this test only.
+    window.matchMedia = ((query: string) => ({
+      matches: false,
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    })) as unknown as typeof window.matchMedia
+    mockApi({ '/api/fleet': FLEET, '/api/status': systemStatus() })
+    renderApp('/')
+    const cards = await screen.findByRole('list', { name: 'Minions' })
+    expect(screen.queryByRole('table')).toBeNull()
+    const offline = within(cards).getByText('rover-02').closest('a')!
+    expect(offline).toHaveAttribute('href', '/minions/rover-02')
+    expect(within(offline).getByText('Last seen 2h ago')).toBeInTheDocument()
+    expect(within(offline).getByText('site-b')).toBeInTheDocument()
+  })
+
+    it('shows an error with a retry button', async () => {
     mockApi({ '/api/status': systemStatus() }) // /api/fleet 404s
     renderApp('/')
     expect(await screen.findByText(/Couldn't load the fleet/)).toBeInTheDocument()
