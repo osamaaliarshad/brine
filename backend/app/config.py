@@ -18,7 +18,15 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl, SecretStr, ValidationError
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    HttpUrl,
+    SecretStr,
+    ValidationError,
+    model_validator,
+)
 
 ENV_PREFIX = "BRINE__"
 CONFIG_PATH_VAR = "BRINE_CONFIG"
@@ -43,12 +51,36 @@ class SaltApiConfig(_Strict):
     timeout_seconds: float = Field(default=10.0, gt=0)
 
 
+Role = Literal["viewer", "operator", "admin"]
+
+
 class AuthConfig(_Strict):
-    provider: Literal["oidc"] = "oidc"
+    """Sign-in. ``oidc`` (any OpenID Connect provider) is the default and must be configured;
+    ``none`` turns sign-in off and treats every visitor as ``anonymous_role``: for the demo
+    fleet or a laptop only, and brine says so on every page."""
+
+    provider: Literal["oidc", "none"] = "oidc"
     issuer: HttpUrl | None = None
     client_id: str | None = None
     client_secret: SecretStr | None = None
+    # What the sign-in button says, e.g. "Google". Derived from the issuer when unset.
+    display_name: str | None = None
+    # If set, only these email domains can sign in at all (checked before roles).
     allowed_domains: list[str] = Field(default_factory=list)
+    anonymous_role: Role = "viewer"
+    session_hours: int = Field(default=12, ge=1, le=24 * 30)
+    # Signs session cookies. If unset, brine generates one and keeps it in its database.
+    session_secret: SecretStr | None = None
+
+    @model_validator(mode="after")
+    def _oidc_is_complete(self) -> AuthConfig:
+        if self.provider == "oidc" and not (self.issuer and self.client_id and self.client_secret):
+            raise ValueError(
+                "sign-in is not configured: set auth.issuer, auth.client_id and "
+                "auth.client_secret (see docs/oidc-providers.md), or set auth.provider: none "
+                "to run without sign-in (demo or local use only)"
+            )
+        return self
 
 
 class RolesConfig(_Strict):
@@ -98,6 +130,10 @@ class Settings(_Strict):
     presence: PresenceConfig = Field(default_factory=PresenceConfig)
     jobs: JobsConfig = Field(default_factory=JobsConfig)
     database: str = "sqlite:///data/brine.db"
+    # How browsers reach brine, e.g. https://brine.example.com. Used for the sign-in redirect;
+    # when unset, it's taken from each request (fine locally, or behind a proxy that forwards
+    # the Host header).
+    public_url: HttpUrl | None = None
 
 
 def expand_placeholders(data: Any, env: Mapping[str, str]) -> Any:

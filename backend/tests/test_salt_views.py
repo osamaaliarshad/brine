@@ -44,6 +44,7 @@ class ScriptedSalt:
 def api(tmp_path: Path) -> Iterator[Api]:
     settings = parse_config(
         "salt_api: {url: 'https://salt.test:8000', username: brine, password: x}\n"
+        "auth: {provider: none, anonymous_role: admin}\n"
         f"database: 'sqlite:///{(tmp_path / 'brine.db').as_posix()}'\n",
         {},
     )

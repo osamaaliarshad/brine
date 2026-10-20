@@ -1,3 +1,4 @@
+import json
 from collections.abc import Awaitable, Callable, Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -44,6 +45,7 @@ class Api:
 def api(tmp_path: Path) -> Iterator[Api]:
     settings = parse_config(
         "salt_api: {url: 'https://salt.test:8000', username: brine, password: x}\n"
+        "auth: {provider: none, anonymous_role: admin}\n"
         f"database: 'sqlite:///{(tmp_path / 'brine.db').as_posix()}'\n"
         "fleet:\n"
         "  columns:\n"
@@ -548,22 +550,33 @@ def test_presence_blind_minions_are_stale_not_offline(api: Api) -> None:
 
 
 def test_settings_never_leak_secrets(tmp_path: Path) -> None:
+    from tests.test_auth import FakeIdP, sign_in
+
     settings = parse_config(
         "salt_api: {url: 'https://salt.test:8000', username: brine, password: hunter2}\n"
         "auth: {issuer: 'https://accounts.example.com', client_id: id, client_secret: s3cret}\n"
+        "roles: {viewer: ['*@example.com']}\n"
         f"database: 'sqlite:///{(tmp_path / 'brine.db').as_posix()}'\n",
         {},
     )
-    with TestClient(
-        create_app(settings, frontend_dist=Path("/nonexistent"), run_collector=False)
-    ) as c:
+    idp = FakeIdP()
+    app = create_app(settings, frontend_dist=Path("/nonexistent"), run_collector=False)
+    with TestClient(app) as c:
+        c.app.state.runtime.oidc = idp  # type: ignore[attr-defined]
+        sign_in(c, idp, "alice@example.com")
         resp = c.get("/api/settings")
+        # Nor do the session secret or sign-in tokens appear anywhere.
+        secret = c.app.state.runtime.session_secret  # type: ignore[attr-defined]
     body = resp.json()
-    assert "hunter2" not in resp.text and "s3cret" not in resp.text
+    assert "hunter2" not in resp.text and "s3cret" not in resp.text and secret not in resp.text
     assert body["salt_api"]["username"] == "brine"
     assert body["database"]["backend"] == "sqlite"
     assert body["database"]["url"].startswith("sqlite:///")
     assert body["auth"]["configured"] is True
+    assert body["auth"]["display_name"] == "accounts.example.com"
+    # Counts only: who holds which role isn't shown to every viewer.
+    assert body["auth"]["role_patterns"] == {"viewer": 1, "operator": 0, "admin": 0}
+    assert "@example.com" not in json.dumps(body["auth"])
     assert body["presence"]["method"] == "auto"
 
 

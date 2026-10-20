@@ -15,6 +15,7 @@ from starlette.responses import Response
 from starlette.types import Scope
 
 from app.api import api_router
+from app.auth.session import LazySessionMiddleware
 from app.config import Settings, load_config
 from app.runtime import Runtime
 
@@ -63,6 +64,7 @@ def create_app(
             await runtime.stop()
 
     app = FastAPI(title="brine", version=_app_version(), lifespan=lifespan)
+    app.add_middleware(LazySessionMiddleware)
 
     @app.get("/api/healthz")
     async def healthz() -> dict[str, str]:

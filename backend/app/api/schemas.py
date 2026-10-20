@@ -87,10 +87,22 @@ class DatabaseSettings(BaseModel):
     url: str  # password removed
 
 
+class RoleCounts(BaseModel):
+    viewer: int
+    operator: int
+    admin: int
+
+
 class AuthSettings(BaseModel):
     provider: str
     issuer: str | None
+    display_name: str
     configured: bool
+    allowed_domains: list[str]
+    anonymous_role: str
+    session_hours: int
+    # How many email patterns grant each role; the patterns themselves stay in the config.
+    role_patterns: RoleCounts
 
 
 class SettingsView(BaseModel):

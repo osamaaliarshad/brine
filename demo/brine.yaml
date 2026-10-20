@@ -22,4 +22,10 @@ fleet:
 presence:
   method: auto
 
+# The demo runs without sign-in: every visitor is treated as an admin, and brine shows a
+# banner saying so. Real deployments use OIDC (see config.example.yaml).
+auth:
+  provider: none
+  anonymous_role: admin
+
 database: ${BRINE_DATABASE:-sqlite:///data/brine-demo.db}

@@ -14,6 +14,8 @@ from fastapi import APIRouter, HTTPException
 from app.api.deps import RuntimeDep, SessionDep
 from app.api.fleet import reachable
 from app.api.schemas import LiveView
+from app.audit import record
+from app.auth.users import CurrentUser
 from app.models import Minion
 from app.salt.client import SaltApiError
 
@@ -35,7 +37,7 @@ LIVE_TIMEOUT_SECONDS = 10
 
 @router.get("/minions/{minion_id}/live/{kind}", response_model=LiveView)
 async def live_view(
-    minion_id: str, kind: LiveKind, runtime: RuntimeDep, session: SessionDep
+    minion_id: str, kind: LiveKind, runtime: RuntimeDep, session: SessionDep, user: CurrentUser
 ) -> LiveView:
     if await session.get(Minion, minion_id) is None:
         raise HTTPException(404, f"no minion {minion_id!r}")
@@ -59,6 +61,9 @@ async def live_view(
     fetched_at = datetime.now(UTC)
     if minion_id not in result:
         return LiveView(kind=kind, function=fun, fetched_at=fetched_at, answered=False, data=None)
+    if kind == "pillar":
+        # Values are masked, but which keys a minion's pillar has is still worth an audit trail.
+        await record(runtime.sessions, actor=user.email, action="pillar.view", target=minion_id)
     return LiveView(
         kind=kind, function=fun, fetched_at=fetched_at, answered=True, data=result[minion_id]
     )

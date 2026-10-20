@@ -16,6 +16,8 @@ salt_api:
   url: https://salt.test:8000
   username: svc
   password: ${PW}
+auth:
+  provider: none
 """
 
 

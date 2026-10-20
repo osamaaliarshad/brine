@@ -17,11 +17,13 @@ from app.api.schemas import (
     FleetSettings,
     Key,
     PresenceSettings,
+    RoleCounts,
     SaltApiSettings,
     SaltApiStatus,
     SettingsView,
     SystemStatus,
 )
+from app.auth.oidc import provider_name
 from app.db import async_url
 from app.models import Minion
 from app.status import minion_status
@@ -135,6 +137,15 @@ async def settings_view(request: Request, runtime: RuntimeDep) -> SettingsView:
         auth=AuthSettings(
             provider=s.auth.provider,
             issuer=str(s.auth.issuer) if s.auth.issuer else None,
+            display_name=provider_name(s.auth),
             configured=bool(s.auth.issuer and s.auth.client_id and s.auth.client_secret),
+            allowed_domains=s.auth.allowed_domains,
+            anonymous_role=s.auth.anonymous_role,
+            session_hours=s.auth.session_hours,
+            role_patterns=RoleCounts(
+                viewer=len(s.roles.viewer),
+                operator=len(s.roles.operator),
+                admin=len(s.roles.admin),
+            ),
         ),
     )

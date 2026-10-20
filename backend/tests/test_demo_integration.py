@@ -63,6 +63,7 @@ def statuses(c: TestClient) -> dict[str, str]:
 def settings(tmp_path: Path) -> Settings:
     return parse_config(
         f"salt_api: {{url: '{SALT_API}', username: brine, password: brine-demo, eauth: pam}}\n"
+        "auth: {provider: none, anonymous_role: admin}\n"
         f"database: 'sqlite:///{(tmp_path / 'brine.db').as_posix()}'\n"
         "fleet: {columns: [{grain: site}, {grain: app_version}]}\n"
         "presence: {method: auto, poll_seconds: 10}\n",

@@ -11,6 +11,7 @@ dependencies = [
     "authlib>=1.9.1",
     "fastapi>=0.150.0",
     "httpx>=0.28.1",
+    "itsdangerous>=2.2.0",
     "pyyaml>=6.0.3",
     "sqlalchemy[asyncio]>=2.1.5",
     "uvicorn[standard]>=0.54.0",
@@ -51,6 +52,11 @@ ignore = ["S101"]  # assert is fine in tests
 strict = true
 plugins = ["pydantic.mypy"]
 files = ["app", "tests"]
+
+[[tool.mypy.overrides]]
+# Authlib ships without type hints.
+module = ["authlib.*"]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

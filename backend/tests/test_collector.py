@@ -22,6 +22,7 @@ def settings(**presence: Any) -> Settings:
     return Settings.model_validate(
         {
             "salt_api": {"url": "https://salt.test", "username": "brine", "password": "x"},
+            "auth": {"provider": "none"},
             "presence": presence,
         }
     )
