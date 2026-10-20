@@ -64,3 +64,38 @@ export type LiveMessage =
   | { type: 'resync' }
   | { type: 'minion'; id: string }
   | { type: 'job'; jid: string }
+
+export type PresencePoint = { at: string; connected: boolean }
+
+export type MinionJob = {
+  jid: string
+  fun: string
+  started_at: string
+  returned_at: string
+  success: boolean | null
+  retcode: number | null
+}
+
+export type MinionDetail = MinionSummary & {
+  first_seen_at: string
+  grains: Record<string, unknown> | null
+  presence_history: PresencePoint[]
+  recent_jobs: MinionJob[]
+}
+
+export type GrainsChange = {
+  collected_at: string
+  added: Record<string, unknown>
+  removed: Record<string, unknown>
+  changed: Record<string, { from: unknown; to: unknown }>
+}
+
+export type LiveKind = 'pillar' | 'beacons' | 'schedules' | 'mine'
+
+export type LiveView = {
+  kind: LiveKind
+  function: string
+  fetched_at: string
+  answered: boolean
+  data: unknown
+}

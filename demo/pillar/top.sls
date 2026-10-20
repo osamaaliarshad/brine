@@ -1,0 +1,5 @@
+base:
+  '*':
+    - common
+  'rover-*':
+    - rover

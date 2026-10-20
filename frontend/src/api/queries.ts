@@ -1,12 +1,22 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { fetchJson } from '@/api/client'
-import type { Fleet, GrainKey, SystemStatus } from '@/api/types'
+import type {
+  Fleet,
+  GrainKey,
+  GrainsChange,
+  LiveKind,
+  LiveView,
+  MinionDetail,
+  SystemStatus,
+} from '@/api/types'
 
 export const queryKeys = {
   fleet: ['fleet'] as const,
   status: ['status'] as const,
   grainKeys: ['grain-keys'] as const,
   minion: (id: string) => ['minion', id] as const,
+  // Not under ['minion', id]: live views run a Salt job, so they mustn't refetch on every hint.
+  minionLive: (id: string, kind: LiveKind) => ['minion-live', id, kind] as const,
   jobs: ['jobs'] as const,
 }
 
@@ -41,5 +51,31 @@ export function useSystemStatus() {
   return useQuery({
     queryKey: queryKeys.status,
     queryFn: () => fetchJson<SystemStatus>('/api/status'),
+  })
+}
+
+const enc = encodeURIComponent
+
+export function useMinion(id: string) {
+  return useQuery({
+    queryKey: queryKeys.minion(id),
+    queryFn: () => fetchJson<MinionDetail>(`/api/minions/${enc(id)}`),
+  })
+}
+
+export function useGrainsHistory(id: string, enabled: boolean) {
+  return useQuery({
+    queryKey: [...queryKeys.minion(id), 'grains-history'],
+    queryFn: () => fetchJson<GrainsChange[]>(`/api/minions/${enc(id)}/grains/history`),
+    enabled,
+  })
+}
+
+export function useMinionLive(id: string, kind: LiveKind, enabled: boolean) {
+  return useQuery({
+    queryKey: queryKeys.minionLive(id, kind),
+    queryFn: () => fetchJson<LiveView>(`/api/minions/${enc(id)}/live/${kind}`),
+    enabled,
+    staleTime: Infinity, // refetch only when asked
   })
 }

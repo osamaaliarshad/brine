@@ -127,12 +127,29 @@ class SaltApiClient:
             raise SaltApiError(f"unexpected salt-api response: {resp.text[:200]}") from exc
 
     async def local(
-        self, tgt: str, fun: str, *, arg: list[Any] | None = None, tgt_type: str = "glob"
+        self,
+        tgt: str,
+        fun: str,
+        *,
+        arg: list[Any] | None = None,
+        kwarg: dict[str, Any] | None = None,
+        tgt_type: str = "glob",
+        salt_timeout: int | None = None,
     ) -> dict[str, Any]:
-        """Run an execution module on minions and wait for their returns."""
-        result = await self.run(
-            {"client": "local", "tgt": tgt, "tgt_type": tgt_type, "fun": fun, "arg": arg or []}
-        )
+        """Run an execution module on minions and wait for their returns. Minions that don't
+        answer within `salt_timeout` seconds (Salt's default if None) are simply absent."""
+        lowstate: dict[str, Any] = {
+            "client": "local",
+            "tgt": tgt,
+            "tgt_type": tgt_type,
+            "fun": fun,
+            "arg": arg or [],
+        }
+        if kwarg:
+            lowstate["kwarg"] = kwarg
+        if salt_timeout is not None:
+            lowstate["timeout"] = salt_timeout
+        result = await self.run(lowstate)
         return result if isinstance(result, dict) else {}
 
     async def local_async(

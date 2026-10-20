@@ -1,4 +1,4 @@
-import { Link, useParams } from 'react-router'
+import { Link } from 'react-router'
 import { ComingSoon, PageHeader } from '@/components/PageHeader'
 
 // Placeholder pages. Each moves to its own file as it gets built out.
@@ -43,16 +43,6 @@ export function SettingsPage() {
   return (
     <>
       <PageHeader title="Settings" />
-      <ComingSoon phase="Phase 3" />
-    </>
-  )
-}
-
-export function MinionPage() {
-  const { id = '' } = useParams()
-  return (
-    <>
-      <PageHeader title={id} subtitle="Grains, presence timeline, and recent jobs." />
       <ComingSoon phase="Phase 3" />
     </>
   )

@@ -52,6 +52,14 @@ class Fleet(BaseModel):
     minions: list[MinionSummary]
 
 
+class LiveView(BaseModel):
+    kind: str
+    function: str  # the Salt function that produced `data`
+    fetched_at: datetime
+    answered: bool  # False: the minion didn't reply in time (offline or busy)
+    data: Any
+
+
 class GrainKey(BaseModel):
     key: str
     minions: int

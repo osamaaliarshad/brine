@@ -40,6 +40,17 @@ default). Updates live as minions come and go.
   <img alt="The Fleet page: three minions online, one offline, with site, app version and firmware columns" src="docs/assets/screenshots/fleet-light.png">
 </picture>
 
+### Minion
+
+Everything about one minion: connection and how long it's been that way, every grain with when
+it was collected, grains history as diffs, recent jobs, and an online/offline timeline. Pillar
+(values masked), beacons, schedules and mine are fetched live from the minion on demand.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/minion-dark.png">
+  <img alt="A minion page: connection facts, tabs for grains, history, jobs, timeline, pillar, beacons, schedules and mine" src="docs/assets/screenshots/minion-light.png">
+</picture>
+
 ## How it fits
 
 ```

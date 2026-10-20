@@ -5,11 +5,11 @@ import {
   IssuesPage,
   JobsPage,
   KeysPage,
-  MinionPage,
   NotFoundPage,
   SettingsPage,
 } from '@/pages'
 import { FleetPage } from '@/pages/fleet/FleetPage'
+import { MinionPage } from '@/pages/minion/MinionPage'
 
 export const routes: RouteObject[] = [
   {

@@ -23,7 +23,10 @@ const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const OUT = join(REPO, 'docs', 'assets', 'screenshots')
 
 // [name, path]. Add each page as it's built; the README shows them in this order.
-export const PAGES = [['fleet', '/']]
+export const PAGES = [
+  ['fleet', '/'],
+  ['minion', '/minions/rover-01'],
+]
 
 const THEMES = ['light', 'dark']
 const WIDTH = 1440

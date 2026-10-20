@@ -39,7 +39,8 @@ Follow-ups found along the way:
 - [x] Fleet columns are customisable: add any grain the fleet reports (autocomplete), reorder, remove, reset; saved per browser; `fleet.columns` is the team default
 - [ ] Admins save a column layout as the team default from the UI (needs roles, Phase 2)
 - [ ] Fleet: "Run command" and row selection (with Phase 5)
-- [ ] Minion page: live/cached badge, grains with "as of" + history diff, pillar (masked), beacons, schedules, mine, jobs, presence timeline
+- [x] Minion page: connection facts, grains with "as of" (searchable), grains history as diffs, recent jobs, presence timeline; pillar (masked via pillar.obfuscate), beacons, schedules, mine fetched live
+- [ ] Pillar: reveal values (admin role, audited)
 - [ ] Jobs page + job detail; Highstate view
 - [ ] Keys page (read-only)
 - [ ] Events page (live) + reactors

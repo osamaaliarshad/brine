@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from app.config import parse_config
 from app.ingest import Ingest
 from app.main import create_app
+from app.salt.client import SaltApiUnavailable
 
 NOW = datetime.now(UTC)
 
@@ -295,3 +296,61 @@ def test_grain_keys_lists_top_level_and_nested(api: Api) -> None:
     assert keys["hw:model"] == 2
     assert keys["app_version"] == 1
     assert "hw" in keys
+
+
+class FakeLiveClient:
+    def __init__(self, result: dict[str, Any] | Exception) -> None:
+        self.result = result
+        self.calls: list[tuple[str, str, dict[str, Any]]] = []
+
+    async def close(self) -> None:
+        pass
+
+    async def local(self, tgt: str, fun: str, **kwargs: Any) -> dict[str, Any]:
+        self.calls.append((tgt, fun, kwargs))
+        if isinstance(self.result, Exception):
+            raise self.result
+        return self.result
+
+
+def use_live_client(api: Api, fake: FakeLiveClient) -> None:
+    api.client.app.state.runtime.client = fake  # type: ignore[attr-defined]
+
+
+def test_live_view_returns_what_the_minion_answered(api: Api) -> None:
+    seed_fleet(api)
+    fake = FakeLiveClient({"a": {"db": {"password": "<str>"}}})
+    use_live_client(api, fake)
+    view = api.get("/api/minions/a/live/pillar")
+    assert view["answered"] is True and view["function"] == "pillar.obfuscate"
+    assert view["data"] == {"db": {"password": "<str>"}}
+    assert fake.calls == [
+        ("a", "pillar.obfuscate", {"kwarg": {}, "tgt_type": "list", "salt_timeout": 10})
+    ]
+
+
+def test_live_view_passes_return_yaml_false(api: Api) -> None:
+    seed_fleet(api)
+    fake = FakeLiveClient({"a": {}})
+    use_live_client(api, fake)
+    api.get("/api/minions/a/live/beacons")
+    assert fake.calls[0][1:] == (
+        "beacons.list",
+        {"kwarg": {"return_yaml": False}, "tgt_type": "list", "salt_timeout": 10},
+    )
+
+
+def test_live_view_reports_no_answer(api: Api) -> None:
+    seed_fleet(api)
+    use_live_client(api, FakeLiveClient({}))
+    view = api.get("/api/minions/b/live/schedules")
+    assert view["answered"] is False and view["data"] is None
+
+
+def test_live_view_errors(api: Api) -> None:
+    seed_fleet(api)
+    assert api.client.get("/api/minions/nope/live/mine").status_code == 404
+    assert api.client.get("/api/minions/a/live/secrets").status_code == 422
+    use_live_client(api, FakeLiveClient(SaltApiUnavailable("down")))
+    resp = api.client.get("/api/minions/a/live/mine")
+    assert resp.status_code == 502 and "down" in resp.json()["detail"]

@@ -34,6 +34,8 @@ services:
     volumes:
       - ./demo/master.d:/etc/salt/master.d:ro
       - ./demo/autosign.conf:/demo/autosign.conf:ro
+      - ./demo/states:/srv/salt:ro
+      - ./demo/pillar:/srv/pillar:ro
       - master-pki:/etc/salt/pki/master
     ports:
       - "127.0.0.1:8001:8000"
