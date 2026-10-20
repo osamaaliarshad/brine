@@ -66,7 +66,28 @@ class GrainColumn(_Strict):
 
 class FleetConfig(_Strict):
     columns: list[GrainColumn] = Field(default_factory=list)
+    # Without a presence observation this recent, statuses are shown as stale.
     stale_after_minutes: int = Field(default=15, ge=1)
+    # How often grains are re-collected from connected minions.
+    grains_refresh_minutes: int = Field(default=30, ge=1)
+
+
+class PresenceConfig(_Strict):
+    """How brine learns who is online. See docs/presence-and-status.md.
+
+    * ``events``: listen for ``salt/presence/*`` (needs ``presence_events: True`` on the master).
+    * ``connected``: poll ``wheel minions.connected`` (cheap, same detection as presence events).
+    * ``ping``: poll ``runner manage.status`` (pings every minion; works through NAT).
+    * ``auto``: ``events`` if the master sends them, otherwise ``connected``.
+    """
+
+    method: Literal["auto", "events", "connected", "ping"] = "auto"
+    poll_seconds: int = Field(default=60, ge=5)
+
+
+class JobsConfig(_Strict):
+    # On (re)connect, import up to this many jobs from the master's job cache.
+    backfill_limit: int = Field(default=200, ge=0)
 
 
 class Settings(_Strict):
@@ -74,6 +95,8 @@ class Settings(_Strict):
     auth: AuthConfig = Field(default_factory=AuthConfig)
     roles: RolesConfig = Field(default_factory=RolesConfig)
     fleet: FleetConfig = Field(default_factory=FleetConfig)
+    presence: PresenceConfig = Field(default_factory=PresenceConfig)
+    jobs: JobsConfig = Field(default_factory=JobsConfig)
     database: str = "sqlite:///data/brine.db"
 
 
