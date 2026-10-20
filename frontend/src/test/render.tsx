@@ -78,6 +78,7 @@ export function mockApi(responses: Record<string, Responder>) {
     if (url.pathname in responses) {
       const responder = responses[url.pathname]
       const body = typeof responder === 'function' ? (responder as (u: URL) => unknown)(url) : responder
+      if (body instanceof Response) return body
       return new Response(JSON.stringify(body), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },

@@ -1,6 +1,8 @@
 import { keepPreviousData, useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { fetchJson } from '@/api/client'
 import type {
+  AuditPage,
+  AuthInfo,
   Fleet,
   FleetLiveView,
   GrainDistribution,
@@ -21,6 +23,7 @@ import type {
   StateRuns,
   StateTop,
   SystemStatus,
+  User,
 } from '@/api/types'
 
 export const queryKeys = {
@@ -208,5 +211,31 @@ export function useAutomation(kind: 'schedules' | 'beacons') {
     queryKey: ['automation', kind],
     queryFn: () => fetchJson<FleetLiveView>(`/api/automation/${kind}`),
     staleTime: Infinity,
+  })
+}
+
+export function useMe() {
+  return useQuery({ queryKey: ['me'], queryFn: () => fetchJson<User>('/api/auth/me'), staleTime: 60_000 })
+}
+
+export function useAuthInfo() {
+  return useQuery({
+    queryKey: ['auth-info'],
+    queryFn: () => fetchJson<AuthInfo>('/api/auth/info'),
+    staleTime: Infinity,
+  })
+}
+
+export function useAuditLog(action: string | null) {
+  return useInfiniteQuery({
+    queryKey: ['audit', action],
+    initialPageParam: null as number | null,
+    queryFn: ({ pageParam }) => {
+      const params = new URLSearchParams({ limit: '100' })
+      if (action) params.set('action', action)
+      if (pageParam) params.set('before', String(pageParam))
+      return fetchJson<AuditPage>(`/api/audit?${params}`)
+    },
+    getNextPageParam: (last) => last.next_before,
   })
 }

@@ -204,7 +204,16 @@ export type Settings = {
   fleet: { stale_after_minutes: number; grains_refresh_minutes: number; columns: Column[] }
   jobs_backfill_limit: number
   database: { backend: string; url: string }
-  auth: { provider: string; issuer: string | null; configured: boolean }
+  auth: {
+    provider: 'oidc' | 'none'
+    issuer: string | null
+    display_name: string
+    configured: boolean
+    allowed_domains: string[]
+    anonymous_role: Role
+    session_hours: number
+    role_patterns: Record<Role, number>
+  }
 }
 
 export type GrainDistribution = {
@@ -238,3 +247,26 @@ export type FleetLiveView = {
   missing: string[]
   skipped: string[]
 }
+
+export type Role = 'viewer' | 'operator' | 'admin'
+
+export type User = {
+  email: string
+  name: string
+  picture: string | null
+  role: Role
+  provider: 'oidc' | 'none'
+}
+
+export type AuthInfo = { provider: 'oidc' | 'none'; display_name: string }
+
+export type AuditEntry = {
+  id: number
+  at: string
+  actor: string
+  action: string
+  target: string | null
+  detail: Record<string, unknown> | null
+}
+
+export type AuditPage = { entries: AuditEntry[]; next_before: number | null }

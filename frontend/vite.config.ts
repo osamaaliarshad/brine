@@ -12,7 +12,8 @@ export default defineConfig({
   },
   server: {
     // The backend serves the built app in production; in dev, Vite proxies API calls to it.
-    proxy: { '/api': 'http://localhost:8000' },
+    // Keep the browser's Host header so the sign-in redirect comes back to the dev server.
+    proxy: { '/api': { target: 'http://localhost:8000', changeOrigin: false } },
   },
   test: {
     environment: 'jsdom',

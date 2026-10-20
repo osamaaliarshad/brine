@@ -1,6 +1,7 @@
 import {
   CalendarClock,
   FileCode,
+  History,
   KeyRound,
   LayoutGrid,
   Menu,
@@ -18,7 +19,9 @@ import {
 import { useEffect, useState } from 'react'
 import { NavLink, Outlet } from 'react-router'
 import { useLiveUpdates } from '@/api/live'
-import { attentionCount, useIssues } from '@/api/queries'
+import { attentionCount, useIssues, useMe } from '@/api/queries'
+import type { User } from '@/api/types'
+import { UserMenu } from '@/components/UserMenu'
 import { Wordmark } from '@/components/Wordmark'
 import { cn } from '@/lib/cn'
 import { getTheme, onThemeChange, setTheme, type Theme } from '@/lib/theme'
@@ -37,6 +40,8 @@ const CONFIG_NAV: NavItem[] = [
   { to: '/automation', label: 'Automation', icon: CalendarClock },
   { to: '/keys', label: 'Keys', icon: KeyRound },
 ]
+
+const AUDIT_NAV: NavItem = { to: '/audit', label: 'Audit log', icon: History }
 
 const COLLAPSED_KEY = 'brine-sidebar-collapsed'
 
@@ -126,9 +131,11 @@ function Sidebar({
   onNavigate,
   collapsed = false,
   onToggleCollapsed,
+  user,
 }: {
   onNavigate?: () => void
   collapsed?: boolean
+  user: User | undefined
   /** Only the desktop sidebar can collapse; the phone drawer is always full width. */
   onToggleCollapsed?: () => void
 }) {
@@ -181,6 +188,9 @@ function Sidebar({
         {CONFIG_NAV.map((item) => (
           <NavRow key={item.to} item={item} onNavigate={onNavigate} collapsed={collapsed} />
         ))}
+        {user?.role === 'admin' && (
+          <NavRow item={AUDIT_NAV} onNavigate={onNavigate} collapsed={collapsed} />
+        )}
       </nav>
       <div className="mt-auto flex flex-col gap-1">
         <ThemeToggle collapsed={collapsed} />
@@ -189,6 +199,11 @@ function Sidebar({
           onNavigate={onNavigate}
           collapsed={collapsed}
         />
+        {user && (
+          <div className="mt-2 border-t pt-2">
+            <UserMenu user={user} collapsed={collapsed} />
+          </div>
+        )}
       </div>
     </div>
   )
@@ -204,6 +219,7 @@ function isTyping(target: EventTarget | null): boolean {
 export function AppShell() {
   const [mobileOpen, setMobileOpen] = useState(false)
   const [collapsed, setCollapsed] = useState(loadCollapsed)
+  const user = useMe().data
   useLiveUpdates()
 
   const toggleCollapsed = () =>
@@ -236,7 +252,7 @@ export function AppShell() {
           collapsed ? 'w-[72px]' : 'w-64',
         )}
       >
-        <Sidebar collapsed={collapsed} onToggleCollapsed={toggleCollapsed} />
+        <Sidebar collapsed={collapsed} onToggleCollapsed={toggleCollapsed} user={user} />
       </aside>
 
       {mobileOpen && (
@@ -248,7 +264,7 @@ export function AppShell() {
             onClick={() => setMobileOpen(false)}
           />
           <aside className="absolute inset-y-0 left-0 w-64 border-r bg-surface">
-            <Sidebar onNavigate={() => setMobileOpen(false)} />
+            <Sidebar onNavigate={() => setMobileOpen(false)} user={user} />
           </aside>
         </div>
       )}
@@ -266,6 +282,18 @@ export function AppShell() {
           <Wordmark className="h-6" />
         </header>
         <main className="min-w-0 flex-1 overflow-y-auto px-4 py-6 sm:px-8 lg:py-8">
+          {user?.provider === 'none' && (
+            <div
+              role="note"
+              className="mb-6 rounded-xl border border-warn/40 bg-warn/10 px-4 py-2.5 text-sm"
+            >
+              <span className="font-medium">Sign-in is off.</span>{' '}
+              <span className="text-muted">
+                Everyone who can open brine is treated as {user.role}. Fine for the demo; set up
+                sign-in (docs/oidc-providers.md) for anything real.
+              </span>
+            </div>
+          )}
           <Outlet />
         </main>
       </div>

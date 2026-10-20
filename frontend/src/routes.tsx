@@ -1,5 +1,6 @@
 import type { RouteObject } from 'react-router'
 import { AppShell } from '@/components/AppShell'
+import { AuditPage } from '@/pages/audit/AuditPage'
 import { AutomationPage } from '@/pages/automation/AutomationPage'
 import { EventsPage } from '@/pages/events/EventsPage'
 import { FleetPage } from '@/pages/fleet/FleetPage'
@@ -7,12 +8,14 @@ import { IssuesPage } from '@/pages/issues/IssuesPage'
 import { JobPage } from '@/pages/jobs/JobPage'
 import { JobsPage } from '@/pages/jobs/JobsPage'
 import { KeysPage } from '@/pages/keys/KeysPage'
+import { LoginPage } from '@/pages/LoginPage'
 import { MinionPage } from '@/pages/minion/MinionPage'
 import { NotFoundPage } from '@/pages/NotFoundPage'
 import { SettingsPage } from '@/pages/settings/SettingsPage'
 import { StatesPage } from '@/pages/states/StatesPage'
 
 export const routes: RouteObject[] = [
+  { path: 'login', element: <LoginPage /> },
   {
     element: <AppShell />,
     children: [
@@ -26,6 +29,7 @@ export const routes: RouteObject[] = [
       { path: 'events', element: <EventsPage /> },
       { path: 'issues', element: <IssuesPage /> },
       { path: 'settings', element: <SettingsPage /> },
+      { path: 'audit', element: <AuditPage /> },
       { path: '*', element: <NotFoundPage /> },
     ],
   },

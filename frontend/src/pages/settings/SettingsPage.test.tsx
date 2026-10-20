@@ -11,7 +11,16 @@ const SETTINGS: Settings = {
   fleet: { stale_after_minutes: 15, grains_refresh_minutes: 30, columns: [{ grain: 'site', label: 'Site' }] },
   jobs_backfill_limit: 200,
   database: { backend: 'sqlite', url: 'sqlite:///data/brine.db' },
-  auth: { provider: 'oidc', issuer: null, configured: false },
+  auth: {
+    provider: 'oidc',
+    issuer: 'https://accounts.google.com',
+    display_name: 'Google',
+    configured: true,
+    allowed_domains: ['example.com'],
+    anonymous_role: 'viewer',
+    session_hours: 12,
+    role_patterns: { viewer: 3, operator: 0, admin: 1 },
+  },
 }
 
 describe('SettingsPage', () => {
@@ -22,7 +31,29 @@ describe('SettingsPage', () => {
     expect(screen.getByText('· currently events')).toBeInTheDocument()
     expect(screen.getByText('Connected')).toBeInTheDocument()
     expect(screen.getByText('sqlite:///data/brine.db')).toBeInTheDocument()
-    expect(screen.getByText('Not configured yet')).toBeInTheDocument()
+  })
+
+  it('explains sign-in without listing who holds which role', async () => {
+    mockApi({
+      '/api/settings': SETTINGS,
+      '/api/status': systemStatus(),
+      '/api/auth/me': { email: 'a@example.com', name: 'A', picture: null, role: 'admin', provider: 'oidc' },
+    })
+    renderApp('/settings')
+    expect(await screen.findByText('https://accounts.google.com')).toBeInTheDocument()
+    expect(screen.getByText('Admin: 1 · Viewer: 3')).toBeInTheDocument()
+    expect(screen.getByText('example.com')).toBeInTheDocument()
+    expect(await screen.findByText('a@example.com · Admin')).toBeInTheDocument()
+  })
+
+  it('warns plainly when sign-in is off', async () => {
+    mockApi({
+      '/api/settings': { ...SETTINGS, auth: { ...SETTINGS.auth, provider: 'none', anonymous_role: 'admin' } },
+      '/api/status': systemStatus(),
+    })
+    renderApp('/settings')
+    const off = await screen.findByText('Off')
+    expect(off.parentElement).toHaveTextContent('Off: everyone is treated as Admin')
   })
 
   it('switches theme, including following the system', async () => {

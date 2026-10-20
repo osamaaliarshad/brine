@@ -1,6 +1,7 @@
 import { Monitor, Moon, Sun, type LucideIcon } from 'lucide-react'
 import { type ReactNode, useState } from 'react'
-import { useSettings, useSystemStatus } from '@/api/queries'
+import { useMe, useSettings, useSystemStatus } from '@/api/queries'
+import type { Role, Settings } from '@/api/types'
 import { PageHeader } from '@/components/PageHeader'
 import { Badge, Card, Pill, StatusDot } from '@/components/ui'
 import { cn } from '@/lib/cn'
@@ -89,6 +90,46 @@ function ThisBrowser() {
           </span>
         )}
       </Row>
+    </Section>
+  )
+}
+
+const ROLE_LABEL: Record<Role, string> = { viewer: 'Viewer', operator: 'Operator', admin: 'Admin' }
+
+function SignIn({ auth }: { auth: Settings['auth'] }) {
+  const me = useMe()
+  const counts = (['admin', 'operator', 'viewer'] as const)
+    .filter((r) => auth.role_patterns[r] > 0)
+    .map((r) => `${ROLE_LABEL[r]}: ${auth.role_patterns[r]}`)
+  return (
+    <Section title="Sign-in" description="Who can open brine and what they can do. See docs/oidc-providers.md.">
+      {auth.provider === 'none' ? (
+        <Row label="Method" hint="Set auth.provider: oidc before letting anyone else reach brine.">
+          <span className="text-warn">Off</span>: everyone is treated as {ROLE_LABEL[auth.anonymous_role]}
+        </Row>
+      ) : (
+        <>
+          <Row label="Method">
+            {auth.display_name} <span className="text-muted">(OpenID Connect)</span>
+          </Row>
+          <Row label="Issuer">
+            <code className="font-mono break-all">{auth.issuer}</code>
+          </Row>
+          <Row label="Allowed domains" hint="Accounts outside these can't sign in, whatever their role.">
+            {auth.allowed_domains.length ? auth.allowed_domains.join(', ') : 'Any'}
+          </Row>
+          <Row label="Roles" hint="Email patterns per role, under roles: in the config. Checked on every request.">
+            {counts.length ? counts.join(' · ') : 'None set, so nobody can sign in'}
+          </Row>
+          <Row label="Session length">{auth.session_hours} hours</Row>
+        </>
+      )}
+      {me.data && (
+        <Row label="You">
+          {me.data.provider === 'oidc' ? `${me.data.email} · ` : ''}
+          {ROLE_LABEL[me.data.role]}
+        </Row>
+      )}
     </Section>
   )
 }
@@ -187,10 +228,9 @@ export function SettingsPage() {
                 <Row label="Database">
                   {s.database.backend} · <code className="font-mono break-all">{s.database.url}</code>
                 </Row>
-                <Row label="Sign-in" hint="Single sign-on and roles are next on the roadmap.">
-                  {s.auth.configured ? `OIDC via ${s.auth.issuer}` : 'Not configured yet'}
-                </Row>
               </Section>
+
+              <SignIn auth={s.auth} />
             </>
           )
         )}

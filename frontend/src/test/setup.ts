@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom/vitest'
 import { cleanup } from '@testing-library/react'
 import { afterEach, vi } from 'vitest'
+import { setUnauthorizedHandler } from '@/api/client'
 
 // jsdom has no EventSource; the live-updates hook only needs construct/close.
 class FakeEventSource {
@@ -23,6 +24,10 @@ class FakeEventSource {
   }
 }
 vi.stubGlobal('EventSource', FakeEventSource)
+
+// jsdom can't navigate; record 401 redirects instead.
+export const unauthorized = vi.fn()
+setUnauthorizedHandler(unauthorized)
 
 // Node 25 ships its own (file-backed, experimental) `localStorage` global that shadows jsdom's
 // and has no methods unless started with --localstorage-file. Use a plain in-memory Storage so
@@ -56,6 +61,7 @@ afterEach(() => {
   cleanup()
   FakeEventSource.instances = []
   localStorage.clear()
+  unauthorized.mockClear()
 })
 
 export { FakeEventSource }
