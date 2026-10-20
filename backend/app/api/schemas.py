@@ -7,6 +7,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from app.states import StateResult
 from app.status import Status
 
 
@@ -101,6 +102,7 @@ class JobSummary(BaseModel):
     target_type: str | None
     user: str | None
     started_at: datetime
+    finished_at: datetime | None  # latest return so far
     expected: int
     returned: int
     succeeded: int
@@ -118,6 +120,33 @@ class JobResult(BaseModel):
     success: bool | None
     retcode: int | None
     data: Any
+    states: list[StateResult] | None = None  # parsed, for state.apply/highstate/sls jobs
+
+
+class StateDot(BaseModel):
+    id: str
+    function: str
+    result: bool | None
+    changed: bool
+
+
+class StateRun(BaseModel):
+    minion_id: str
+    jid: str
+    fun: str
+    started_at: datetime
+    returned_at: datetime
+    success: bool | None
+    total: int
+    succeeded: int
+    failed: int
+    changed: int
+    states: list[StateDot]
+
+
+class StateRuns(BaseModel):
+    runs: list[StateRun]
+    never: list[str]  # accepted minions brine has no state run for
 
 
 class JobDetail(JobSummary):

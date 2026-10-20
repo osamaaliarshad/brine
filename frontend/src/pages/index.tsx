@@ -3,15 +3,6 @@ import { ComingSoon, PageHeader } from '@/components/PageHeader'
 
 // Placeholder pages. Each moves to its own file as it gets built out.
 
-export function JobsPage() {
-  return (
-    <>
-      <PageHeader title="Jobs" subtitle="Every job, kept longer than the master's cache." />
-      <ComingSoon phase="Phase 3" />
-    </>
-  )
-}
-
 export function KeysPage() {
   return (
     <>

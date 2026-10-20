@@ -354,3 +354,89 @@ def test_live_view_errors(api: Api) -> None:
     use_live_client(api, FakeLiveClient(SaltApiUnavailable("down")))
     resp = api.client.get("/api/minions/a/live/mine")
     assert resp.status_code == 502 and "down" in resp.json()["detail"]
+
+
+def test_jobs_search_and_kind_filter(api: Api) -> None:
+    seed_jobs(api)
+    api.seed(api.ingest.job_new, jid="r1", kind="runner", fun="manage.up", at=NOW, user="alice")
+    api.seed(
+        api.ingest.job_new,
+        jid="c1",
+        kind="local",
+        fun="cmd.run",
+        at=NOW,
+        user="carol",
+        target="rover-*",
+    )
+    assert [j["jid"] for j in api.get("/api/jobs", kind="runner")["jobs"]] == ["r1"]
+    assert [j["jid"] for j in api.get("/api/jobs", q="ROVER")["jobs"]] == ["c1"]  # target
+    assert [j["jid"] for j in api.get("/api/jobs", q="carol")["jobs"]] == ["c1"]  # user
+    assert {j["jid"] for j in api.get("/api/jobs", q="state.")["jobs"]} == {"j1", "j3", "j4"}
+
+
+def test_job_detail_parses_state_results(api: Api) -> None:
+    out = {
+        "file_|-motd_|-/etc/motd_|-managed": {"result": True, "comment": "ok", "changes": {"x": 1}}
+    }
+    api.seed(
+        api.ingest.job_new,
+        jid="s1",
+        kind="local",
+        fun="state.apply",
+        at=NOW,
+        user="alice",
+        minions=["a"],
+    )
+    api.seed(
+        api.ingest.job_return,
+        jid="s1",
+        kind="local",
+        minion_id="a",
+        fun="state.apply",
+        at=NOW + timedelta(seconds=9),
+        data=out,
+        success=True,
+        retcode=0,
+    )
+    job = api.get("/api/jobs/s1")
+    assert job["finished_at"] is not None
+    (result,) = job["results"]
+    assert result["states"][0]["function"] == "file.managed" and result["states"][0]["changed"]
+
+
+def test_state_runs_shows_each_minions_latest(api: Api) -> None:
+    api.seed(api.ingest.keys, {"minions": ["a", "b", "c"]})
+    ok = {"file_|-motd_|-/etc/motd_|-managed": {"result": True, "comment": "", "changes": {}}}
+    bad = {"pkg_|-curl_|-curl_|-installed": {"result": False, "comment": "no", "changes": {}}}
+    for jid, minion, data, offset in [
+        ("old", "a", bad, 0),
+        ("new", "a", ok, 60),
+        ("b1", "b", bad, 30),
+    ]:
+        api.seed(
+            api.ingest.job_new,
+            jid=jid,
+            kind="local",
+            fun="state.apply",
+            at=NOW + timedelta(seconds=offset),
+            user="alice",
+            minions=[minion],
+        )
+        api.seed(
+            api.ingest.job_return,
+            jid=jid,
+            kind="local",
+            minion_id=minion,
+            fun="state.apply",
+            at=NOW + timedelta(seconds=offset + 5),
+            data=data,
+            success=data is ok,
+            retcode=0 if data is ok else 2,
+        )
+    runs = api.get("/api/jobs/state-runs")
+    by_minion = {r["minion_id"]: r for r in runs["runs"]}
+    assert by_minion["a"]["jid"] == "new" and by_minion["a"]["succeeded"] == 1
+    assert (
+        by_minion["b"]["failed"] == 1 and by_minion["b"]["states"][0]["function"] == "pkg.installed"
+    )
+    assert runs["never"] == ["c"]

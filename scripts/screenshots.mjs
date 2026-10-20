@@ -22,10 +22,17 @@ import { parseArgs } from 'node:util'
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const OUT = join(REPO, 'docs', 'assets', 'screenshots')
 
-// [name, path]. Add each page as it's built; the README shows them in this order.
+const getJson = async (url) => (await fetch(url)).json()
+
+// [name, path or async (base) => path]. Add each page as it's built; the README shows them in
+// this order.
 export const PAGES = [
   ['fleet', '/'],
   ['minion', '/minions/rover-01'],
+  ['jobs', '/jobs'],
+  ['state-runs', '/jobs?tab=states'],
+  // The most recent state.apply: in the demo, dock-01's calibration state fails on purpose.
+  ['job', async (base) => `/jobs/${(await getJson(`${base}/api/jobs?fun=state.apply&limit=1`)).jobs[0].jid}`],
 ]
 
 const THEMES = ['light', 'dark']
@@ -173,7 +180,8 @@ async function main() {
       compose('stop', stop)
       await waitFor(`${stop} to show offline`, async () => (await statusOf(base, stop)) === 'offline', 90_000)
     }
-    for (const [name, path] of PAGES) {
+    for (const [name, page] of PAGES) {
+      const path = typeof page === 'function' ? await page(base) : page
       for (const theme of THEMES) {
         const out = join(OUT, `${name}-${theme}.png`)
         await capture(port, base + path, theme, out)

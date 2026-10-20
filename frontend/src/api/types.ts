@@ -99,3 +99,65 @@ export type LiveView = {
   answered: boolean
   data: unknown
 }
+
+export type JobSummary = {
+  jid: string
+  kind: 'local' | 'runner'
+  fun: string
+  target: string | null
+  target_type: string | null
+  user: string | null
+  started_at: string
+  finished_at: string | null
+  expected: number
+  returned: number
+  succeeded: number
+  failed: number
+}
+
+export type JobPage = { jobs: JobSummary[]; next_before: string | null }
+
+export type StateResult = {
+  id: string
+  name: string
+  function: string
+  sls: string | null
+  result: boolean | null
+  changed: boolean
+  comment: string
+  duration_ms: number | null
+}
+
+export type JobResult = {
+  minion_id: string
+  returned_at: string
+  success: boolean | null
+  retcode: number | null
+  data: unknown
+  states: StateResult[] | null
+}
+
+export type JobDetail = JobSummary & {
+  args: unknown[]
+  minions: string[]
+  missing: string[]
+  results: JobResult[]
+}
+
+export type StateDot = { id: string; function: string; result: boolean | null; changed: boolean }
+
+export type StateRun = {
+  minion_id: string
+  jid: string
+  fun: string
+  started_at: string
+  returned_at: string
+  success: boolean | null
+  total: number
+  succeeded: number
+  failed: number
+  changed: number
+  states: StateDot[]
+}
+
+export type StateRuns = { runs: StateRun[]; never: string[] }

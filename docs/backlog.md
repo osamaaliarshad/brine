@@ -41,7 +41,7 @@ Follow-ups found along the way:
 - [ ] Fleet: "Run command" and row selection (with Phase 5)
 - [x] Minion page: connection facts, grains with "as of" (searchable), grains history as diffs, recent jobs, presence timeline; pillar (masked via pillar.obfuscate), beacons, schedules, mine fetched live
 - [ ] Pillar: reveal values (admin role, audited)
-- [ ] Jobs page + job detail; Highstate view
+- [x] Jobs page (search, minion/runner filter, load older) + job detail (state-by-state results, missing minions); State runs view (SaltGUI's Highstate)
 - [ ] Keys page (read-only)
 - [ ] Events page (live) + reactors
 - [ ] Issues page (SaltGUI's detectors + stale/offline)

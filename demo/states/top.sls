@@ -1,3 +1,5 @@
 base:
   '*':
     - motd
+  'dock-*':
+    - dock

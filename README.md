@@ -51,6 +51,35 @@ it was collected, grains history as diffs, recent jobs, and an online/offline ti
   <img alt="A minion page: connection facts, tabs for grains, history, jobs, timeline, pillar, beacons, schedules and mine" src="docs/assets/screenshots/minion-light.png">
 </picture>
 
+### Jobs
+
+Every job the master runs, recorded as it happens and kept after the master's job cache forgets
+it (plus a backfill of whatever the cache still holds when brine connects). Search by function,
+target, user or job ID; filter minion jobs and runners.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/jobs-dark.png">
+  <img alt="The Jobs page: recent jobs with target, user, start time and per-minion results" src="docs/assets/screenshots/jobs-light.png">
+</picture>
+
+**State runs** shows each minion's latest `state.apply`/highstate as one square per state, like
+SaltGUI's Highstate page:
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/state-runs-dark.png">
+  <img alt="State runs: each minion's latest state run, with a failed state on dock-01" src="docs/assets/screenshots/state-runs-light.png">
+</picture>
+
+### Job
+
+One job in full: the command, who ran it, how long it took, which minions never answered, and each
+minion's result. State runs are broken down state by state; anything else is shown as a tree.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/job-dark.png">
+  <img alt="A state.apply job: dock-01's calibration state failed, the rovers succeeded" src="docs/assets/screenshots/job-light.png">
+</picture>
+
 ## How it fits
 
 ```

@@ -3,12 +3,13 @@ import { AppShell } from '@/components/AppShell'
 import {
   EventsPage,
   IssuesPage,
-  JobsPage,
   KeysPage,
   NotFoundPage,
   SettingsPage,
 } from '@/pages'
 import { FleetPage } from '@/pages/fleet/FleetPage'
+import { JobPage } from '@/pages/jobs/JobPage'
+import { JobsPage } from '@/pages/jobs/JobsPage'
 import { MinionPage } from '@/pages/minion/MinionPage'
 
 export const routes: RouteObject[] = [
@@ -18,6 +19,7 @@ export const routes: RouteObject[] = [
       { index: true, element: <FleetPage /> },
       { path: 'minions/:id', element: <MinionPage /> },
       { path: 'jobs', element: <JobsPage /> },
+      { path: 'jobs/:jid', element: <JobPage /> },
       { path: 'keys', element: <KeysPage /> },
       { path: 'events', element: <EventsPage /> },
       { path: 'issues', element: <IssuesPage /> },

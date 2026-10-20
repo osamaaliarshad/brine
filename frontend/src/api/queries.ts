@@ -1,12 +1,15 @@
-import { keepPreviousData, useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { fetchJson } from '@/api/client'
 import type {
   Fleet,
   GrainKey,
   GrainsChange,
+  JobDetail,
+  JobPage,
   LiveKind,
   LiveView,
   MinionDetail,
+  StateRuns,
   SystemStatus,
 } from '@/api/types'
 
@@ -77,5 +80,39 @@ export function useMinionLive(id: string, kind: LiveKind, enabled: boolean) {
     queryFn: () => fetchJson<LiveView>(`/api/minions/${enc(id)}/live/${kind}`),
     enabled,
     staleTime: Infinity, // refetch only when asked
+  })
+}
+
+export type JobFilters = { q: string; kind: 'local' | 'runner' | null }
+
+// Everything job-related lives under ['jobs', ...] so a live "job" hint refreshes it all.
+export function useJobs(filters: JobFilters) {
+  return useInfiniteQuery({
+    queryKey: [...queryKeys.jobs, 'list', filters],
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }) => {
+      const params = new URLSearchParams({ limit: '50' })
+      if (filters.q.trim()) params.set('q', filters.q.trim())
+      if (filters.kind) params.set('kind', filters.kind)
+      if (pageParam) params.set('before', pageParam)
+      return fetchJson<JobPage>(`/api/jobs?${params}`)
+    },
+    getNextPageParam: (last) => last.next_before,
+    placeholderData: keepPreviousData,
+  })
+}
+
+export function useJob(jid: string) {
+  return useQuery({
+    queryKey: [...queryKeys.jobs, 'detail', jid],
+    queryFn: () => fetchJson<JobDetail>(`/api/jobs/${enc(jid)}`),
+  })
+}
+
+export function useStateRuns(enabled: boolean) {
+  return useQuery({
+    queryKey: [...queryKeys.jobs, 'state-runs'],
+    queryFn: () => fetchJson<StateRuns>('/api/jobs/state-runs'),
+    enabled,
   })
 }
