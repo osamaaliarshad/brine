@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from importlib.metadata import PackageNotFoundError, version
@@ -13,7 +14,9 @@ from starlette.exceptions import HTTPException
 from starlette.responses import Response
 from starlette.types import Scope
 
+from app.api import api_router
 from app.config import Settings, load_config
+from app.runtime import Runtime
 
 FRONTEND_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
 
@@ -38,17 +41,34 @@ class SPAStaticFiles(StaticFiles):
             return await super().get_response("index.html", scope)
 
 
-def create_app(settings: Settings | None = None, frontend_dist: Path | None = None) -> FastAPI:
+def create_app(
+    settings: Settings | None = None,
+    *,
+    frontend_dist: Path | None = None,
+    run_collector: bool = True,
+) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        app.state.settings = settings or load_config()
-        yield
+        if not logging.getLogger().handlers:
+            logging.basicConfig(
+                level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
+            )
+            # One line per salt-api request is noise; failures are logged by the collector.
+            logging.getLogger("httpx").setLevel(logging.WARNING)
+        runtime = await Runtime.start(settings or load_config(), run_collector=run_collector)
+        app.state.runtime = runtime
+        try:
+            yield
+        finally:
+            await runtime.stop()
 
     app = FastAPI(title="brine", version=_app_version(), lifespan=lifespan)
 
     @app.get("/api/healthz")
     async def healthz() -> dict[str, str]:
         return {"status": "ok", "version": app.version}
+
+    app.include_router(api_router)
 
     dist = frontend_dist or FRONTEND_DIST
     if (dist / "index.html").is_file():

@@ -1,0 +1,25 @@
+# brine config for the demo Salt fleet (docker-compose.demo.yml). Demo credentials only.
+#
+#   cd backend
+#   BRINE_CONFIG=../demo/brine.yaml uv run uvicorn app.main:create_app --factory --reload
+
+salt_api:
+  url: ${SALT_API_URL:-http://127.0.0.1:8001}
+  username: brine
+  password: ${SALT_API_PASSWORD:-brine-demo}
+  eauth: pam
+
+fleet:
+  columns:
+    - grain: site
+      label: Site
+    - grain: app_version
+      label: App version
+    - grain: firmware_version
+      label: Firmware
+  stale_after_minutes: 15
+
+presence:
+  method: auto
+
+database: ${BRINE_DATABASE:-sqlite:///data/brine-demo.db}

@@ -1,0 +1,262 @@
+from collections.abc import Awaitable, Callable, Iterator
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from typing import Any
+
+import pytest
+from fastapi.testclient import TestClient
+
+from app.config import parse_config
+from app.ingest import Ingest
+from app.main import create_app
+
+NOW = datetime.now(UTC)
+
+GRAINS = {
+    "os": "Debian",
+    "osrelease": "12",
+    "osfinger": "Debian-12",
+    "saltversion": "3006.28",
+    "ipv4": ["127.0.0.1", "172.18.0.3"],
+    "fqdn_ip4": ["172.18.0.3"],
+    "app_version": "2.4.1",
+    "hw": {"model": "R2"},
+}
+
+
+class Api:
+    def __init__(self, client: TestClient) -> None:
+        self.client = client
+        self.ingest: Ingest = client.app.state.runtime.ingest  # type: ignore[attr-defined]
+
+    def seed(self, fn: Callable[..., Awaitable[Any]], *args: Any, **kwargs: Any) -> Any:
+        assert self.client.portal is not None
+        return self.client.portal.call(lambda: fn(*args, **kwargs))
+
+    def get(self, path: str, **params: Any) -> Any:
+        resp = self.client.get(path, params=params)
+        assert resp.status_code == 200, resp.text
+        return resp.json()
+
+
+@pytest.fixture
+def api(tmp_path: Path) -> Iterator[Api]:
+    settings = parse_config(
+        "salt_api: {url: 'https://salt.test:8000', username: brine, password: x}\n"
+        f"database: 'sqlite:///{(tmp_path / 'brine.db').as_posix()}'\n"
+        "fleet:\n"
+        "  columns:\n"
+        "    - {grain: app_version, label: App version}\n"
+        "    - {grain: 'hw:model'}\n",
+        {},
+    )
+    app = create_app(settings, frontend_dist=Path("/nonexistent"), run_collector=False)
+    with TestClient(app) as client:
+        yield Api(client)
+
+
+def seed_fleet(api: Api, presence_at: datetime = NOW) -> None:
+    api.seed(api.ingest.keys, {"minions": ["a", "b"], "minions_pre": ["c"]})
+    api.seed(
+        api.ingest.presence, ["a", "b"], at=presence_at - timedelta(minutes=1), method="events"
+    )
+    api.seed(api.ingest.presence, ["a"], at=presence_at, method="events")
+    api.seed(api.ingest.grains, "a", GRAINS, at=presence_at, source="minion")
+
+
+def test_fleet_lists_accepted_minions_with_status(api: Api) -> None:
+    seed_fleet(api)
+    fleet = api.get("/api/fleet")
+
+    assert fleet["summary"] == {
+        "total": 2,
+        "online": 1,
+        "offline": 1,
+        "stale": 0,
+        "unknown": 0,
+        "pending_keys": 1,
+    }
+    assert fleet["columns"] == [
+        {"grain": "app_version", "label": "App version"},
+        {"grain": "hw:model", "label": "hw:model"},
+    ]
+    assert fleet["presence"]["method"] == "events"
+    a, b = fleet["minions"]
+    assert a["id"] == "a" and a["status"] == "online"
+    assert a["os"] == "Debian 12" and a["salt_version"] == "3006.28" and a["ip"] == "172.18.0.3"
+    assert a["columns"] == {"app_version": "2.4.1", "hw:model": "R2"}
+    assert a["grains_source"] == "minion" and a["grains_at"] is not None
+    assert b["status"] == "offline" and b["last_seen_at"] is not None
+    assert b["os"] is None and b["columns"] == {"app_version": None, "hw:model": None}
+
+
+def test_old_presence_makes_everyone_stale(api: Api) -> None:
+    seed_fleet(api, presence_at=NOW - timedelta(minutes=30))
+    summary = api.get("/api/fleet")["summary"]
+    assert summary["stale"] == 2 and summary["online"] == 0
+
+
+def test_minion_detail(api: Api) -> None:
+    seed_fleet(api)
+    api.seed(
+        api.ingest.job_new,
+        jid="j1",
+        kind="local",
+        fun="state.apply",
+        at=NOW,
+        user="alice",
+        minions=["a"],
+    )
+    api.seed(
+        api.ingest.job_return,
+        jid="j1",
+        kind="local",
+        minion_id="a",
+        fun="state.apply",
+        at=NOW,
+        data={},
+        success=True,
+        retcode=0,
+    )
+    api.seed(
+        api.ingest.job_return,
+        jid="internal",
+        kind="local",
+        minion_id="a",
+        fun="test.ping",
+        at=NOW,
+        data=True,
+        success=True,
+        retcode=0,
+        user="brine",
+    )
+
+    a = api.get("/api/minions/a")
+    assert a["grains"] == GRAINS
+    assert [p["connected"] for p in a["presence_history"]] == [True]
+    assert [j["jid"] for j in a["recent_jobs"]] == ["j1"]  # brine's own job not recorded
+
+    b = api.get("/api/minions/b")
+    assert [p["connected"] for p in b["presence_history"]] == [False, True]  # newest first
+
+
+def test_unknown_minion_is_404(api: Api) -> None:
+    assert api.client.get("/api/minions/nope").status_code == 404
+    assert api.client.get("/api/minions/nope/grains/history").status_code == 404
+
+
+def test_grains_history_diffs(api: Api) -> None:
+    v1 = {"os": "Debian", "app_version": "1.0", "old": 1}
+    v2 = {"os": "Debian", "app_version": "1.1", "new": 2}
+    api.seed(api.ingest.grains, "a", v1, at=NOW - timedelta(hours=1), source="minion")
+    api.seed(api.ingest.grains, "a", v2, at=NOW, source="minion")
+
+    newest, oldest = api.get("/api/minions/a/grains/history")
+    assert newest["added"] == {"new": 2}
+    assert newest["removed"] == {"old": 1}
+    assert newest["changed"] == {"app_version": {"from": "1.0", "to": "1.1"}}
+    assert oldest["added"] == v1
+
+
+def seed_jobs(api: Api) -> None:
+    for i, (jid, user) in enumerate(
+        [("j1", "alice"), ("j2", "brine"), ("j3", "bob"), ("j4", "bob")]
+    ):
+        api.seed(
+            api.ingest.job_new,
+            jid=jid,
+            kind="local",
+            fun="state.apply",
+            at=NOW + timedelta(seconds=i),
+            user=user,
+            minions=["a", "b"],
+        )
+    api.seed(
+        api.ingest.job_return,
+        jid="j3",
+        kind="local",
+        minion_id="a",
+        fun="state.apply",
+        at=NOW,
+        data={},
+        success=True,
+        retcode=0,
+    )
+    api.seed(
+        api.ingest.job_return,
+        jid="j3",
+        kind="local",
+        minion_id="b",
+        fun="state.apply",
+        at=NOW,
+        data={},
+        success=False,
+        retcode=2,
+    )
+
+
+def test_jobs_list_paginates_newest_first(api: Api) -> None:
+    seed_jobs(api)
+    page1 = api.get("/api/jobs", limit=2)
+    assert [j["jid"] for j in page1["jobs"]] == ["j4", "j3"]
+    assert page1["next_before"] == "j3"
+    page2 = api.get("/api/jobs", limit=2, before="j3")
+    assert [j["jid"] for j in page2["jobs"]] == ["j1"]  # j2 was brine's own: not recorded
+    assert page2["next_before"] is None
+
+    j3 = page1["jobs"][1]
+    assert (j3["expected"], j3["returned"], j3["succeeded"], j3["failed"]) == (2, 2, 1, 1)
+
+
+def test_jobs_filters(api: Api) -> None:
+    seed_jobs(api)
+    assert len(api.get("/api/jobs")["jobs"]) == 3
+    assert [j["jid"] for j in api.get("/api/jobs", minion="b")["jobs"]] == ["j3"]
+    assert api.get("/api/jobs", fun="test.ping")["jobs"] == []
+    assert api.client.get("/api/jobs", params={"before": "nope"}).status_code == 400
+
+
+def test_job_detail(api: Api) -> None:
+    seed_jobs(api)
+    api.seed(
+        api.ingest.job_new,
+        jid="j5",
+        kind="local",
+        fun="test.ping",
+        at=NOW,
+        user="bob",
+        minions=["a", "b"],
+    )
+    api.seed(
+        api.ingest.job_return,
+        jid="j5",
+        kind="local",
+        minion_id="a",
+        fun="test.ping",
+        at=NOW,
+        data=True,
+        success=True,
+        retcode=0,
+    )
+    job = api.get("/api/jobs/j5")
+    assert job["missing"] == ["b"]
+    assert [r["minion_id"] for r in job["results"]] == ["a"]
+    assert job["results"][0]["data"] is True
+    assert api.client.get("/api/jobs/nope").status_code == 404
+
+
+def test_keys(api: Api) -> None:
+    api.seed(api.ingest.keys, {"minions": ["a", "gone"], "minions_pre": ["c"]})
+    api.seed(api.ingest.keys, {"minions": ["a"], "minions_pre": ["c"]})
+    keys = api.get("/api/keys")
+    assert [(k["id"], k["key_state"]) for k in keys] == [("a", "accepted"), ("c", "pending")]
+
+
+def test_status_reports_collector_and_presence(api: Api) -> None:
+    seed_fleet(api)
+    status = api.get("/api/status")
+    assert status["salt_api"]["connected"] is False
+    assert status["salt_api"]["url"] == "https://salt.test:8000/"
+    assert status["presence_method_configured"] == "auto"
+    assert status["presence"]["method"] == "events"
+    assert status["stale_after_minutes"] == 15
