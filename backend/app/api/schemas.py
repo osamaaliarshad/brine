@@ -46,9 +46,15 @@ class PresenceInfo(BaseModel):
 
 class Fleet(BaseModel):
     summary: FleetSummary
-    columns: list[Column]
+    columns: list[Column]  # what `columns` in each minion holds (requested or default)
+    default_columns: list[Column]  # fleet.columns from the config
     presence: PresenceInfo
     minions: list[MinionSummary]
+
+
+class GrainKey(BaseModel):
+    key: str
+    minions: int
 
 
 class PresencePoint(BaseModel):

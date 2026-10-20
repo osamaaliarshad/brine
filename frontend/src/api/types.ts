@@ -32,10 +32,15 @@ export type Fleet = {
     unknown: number
     pending_keys: number
   }
+  /** The grain columns each minion's `columns` holds (as requested, or the defaults). */
   columns: Column[]
+  /** fleet.columns from the server config: the team default. */
+  default_columns: Column[]
   presence: PresenceInfo
   minions: MinionSummary[]
 }
+
+export type GrainKey = { key: string; minions: number }
 
 export type SystemStatus = {
   version: string

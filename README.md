@@ -11,11 +11,6 @@
 
 > **Status: early development.** The backend and the Fleet page work against the demo fleet; sign-in and the other pages are next. Follow [docs/backlog.md](docs/backlog.md) for progress.
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshot-fleet-dark.png">
-  <img alt="The brine Fleet page: four minions online with site, app version and firmware columns" src="docs/assets/screenshot-fleet-light.png">
-</picture>
-
 brine plugs into an existing **salt-master + salt-api** and gives your team a clean, fast view of the fleet:
 
 - **Single sign-on** through any OIDC provider (Google, GitHub, Okta, Keycloak, Azure AD). No Salt credentials for end users.
@@ -27,6 +22,23 @@ brine plugs into an existing **salt-master + salt-api** and gives your team a cl
 - **Parity with [SaltGUI](https://github.com/erwindon/SaltGUI)** as the baseline; see [docs/saltgui-parity.md](docs/saltgui-parity.md).
 
 v1 is read-only. Running commands and applying states come next, behind roles, a targeting preview, and a confirmation step.
+
+## Pages
+
+Screenshots follow your light/dark preference and come from the [demo fleet](#demo-salt-fleet),
+regenerated with `node scripts/screenshots.mjs --stop-minion rover-03`.
+
+### Fleet
+
+Every minion at a glance: online now or last seen when, OS and Salt version, and any grains you
+choose as columns. Search, filter by status or site, sort, and pick columns (add any grain the
+fleet reports, reorder, remove; saved per browser, with the config's `fleet.columns` as the team
+default). Updates live as minions come and go.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/fleet-dark.png">
+  <img alt="The Fleet page: three minions online, one offline, with site, app version and firmware columns" src="docs/assets/screenshots/fleet-light.png">
+</picture>
 
 ## How it fits
 

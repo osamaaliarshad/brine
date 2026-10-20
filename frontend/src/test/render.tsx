@@ -25,6 +25,11 @@ export function minion(id: string, patch: Partial<MinionSummary> = {}): MinionSu
   }
 }
 
+export const DEFAULT_COLUMNS = [
+  { grain: 'site', label: 'Site' },
+  { grain: 'app_version', label: 'App version' },
+]
+
 export function fleet(minions: MinionSummary[], patch: Partial<Fleet> = {}): Fleet {
   const count = (s: MinionSummary['status']) => minions.filter((m) => m.status === s).length
   return {
@@ -36,10 +41,8 @@ export function fleet(minions: MinionSummary[], patch: Partial<Fleet> = {}): Fle
       unknown: count('unknown'),
       pending_keys: 0,
     },
-    columns: [
-      { grain: 'site', label: 'Site' },
-      { grain: 'app_version', label: 'App version' },
-    ],
+    columns: DEFAULT_COLUMNS,
+    default_columns: DEFAULT_COLUMNS,
     presence: { method: 'events', checked_at: ago(20) },
     minions,
     ...patch,
@@ -63,12 +66,19 @@ export function systemStatus(patch: Partial<SystemStatus['salt_api']> = {}): Sys
   }
 }
 
-/** Stub fetch with a path -> JSON body map (anything else 404s). */
-export function mockApi(responses: Record<string, unknown>) {
+type Responder = unknown | ((url: URL) => unknown)
+
+/**
+ * Stub fetch with a pathname -> response map; anything else 404s. A response can be a function
+ * of the full URL, to answer differently per query string.
+ */
+export function mockApi(responses: Record<string, Responder>) {
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-    const path = String(input)
-    if (path in responses) {
-      return new Response(JSON.stringify(responses[path]), {
+    const url = new URL(String(input), 'http://brine.test')
+    if (url.pathname in responses) {
+      const responder = responses[url.pathname]
+      const body = typeof responder === 'function' ? (responder as (u: URL) => unknown)(url) : responder
+      return new Response(JSON.stringify(body), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       })

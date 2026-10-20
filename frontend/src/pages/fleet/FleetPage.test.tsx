@@ -2,7 +2,7 @@ import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { FakeEventSource } from '@/test/setup'
-import { ago, fleet, minion, mockApi, NOW, renderApp, systemStatus } from '@/test/render'
+import { ago, DEFAULT_COLUMNS, fleet, minion, mockApi, NOW, renderApp, systemStatus } from '@/test/render'
 
 const FLEET = fleet([
   minion('rover-01', { ip: '10.0.0.11' }),
@@ -95,16 +95,61 @@ describe('FleetPage', () => {
     expect(rows()[0]).toContain('rover-02')
   })
 
-  it('hides columns and remembers the choice', async () => {
+  it('hides built-in columns and remembers the choice', async () => {
     const user = userEvent.setup()
     mockApi({ '/api/fleet': FLEET, '/api/status': systemStatus() })
     renderApp('/')
     await screen.findByText('rover-01')
 
     await user.click(screen.getByRole('button', { name: 'Columns' }))
-    await user.click(screen.getByRole('checkbox', { name: 'App version' }))
-    expect(screen.queryByRole('columnheader', { name: /App version/ })).toBeNull()
-    expect(JSON.parse(localStorage.getItem('brine-fleet-hidden-columns')!)).toEqual(['col:app_version'])
+    await user.click(screen.getByRole('checkbox', { name: 'OS / Salt' }))
+    expect(screen.queryByRole('columnheader', { name: /OS \/ Salt/ })).toBeNull()
+    expect(JSON.parse(localStorage.getItem('brine-fleet-columns')!)).toEqual({ grains: null, hidden: ['os'] })
+  })
+
+  it('lets you add, reorder, remove, and reset grain columns', async () => {
+    const user = userEvent.setup()
+    // The server answers with whatever columns were asked for.
+    const api = mockApi({
+      '/api/fleet': (url: URL) => {
+        const asked = url.searchParams.getAll('column').filter(Boolean)
+        if (!url.searchParams.has('column')) return FLEET
+        return {
+          ...FLEET,
+          // Like the backend: configured grains keep their configured labels.
+          columns: asked.map((g) => DEFAULT_COLUMNS.find((c) => c.grain === g) ?? { grain: g, label: g }),
+          minions: FLEET.minions.map((m) => ({
+            ...m,
+            columns: Object.fromEntries(asked.map((g) => [g, g === 'osfinger' ? 'Debian-12' : m.columns[g] ?? null])),
+          })),
+        }
+      },
+      '/api/status': systemStatus(),
+      '/api/grains/keys': [{ key: 'osfinger', minions: 3 }],
+    })
+    renderApp('/')
+    await screen.findByText('rover-01')
+    await user.click(screen.getByRole('button', { name: 'Columns' }))
+    const menu = screen.getByRole('dialog', { name: 'Choose columns' })
+
+    await user.type(within(menu).getByRole('combobox', { name: 'Grain to add' }), 'osfinger{Enter}')
+    expect(await screen.findByRole('columnheader', { name: /osfinger/ })).toBeInTheDocument()
+    expect(api).toHaveBeenCalledWith('/api/fleet?column=site&column=app_version&column=osfinger', expect.anything())
+
+    await user.click(within(menu).getByRole('button', { name: 'Move osfinger left' }))
+    await waitFor(() =>
+      expect(screen.getAllByRole('columnheader').map((h) => h.textContent)).toEqual([
+        'Minion', 'Connection', 'OS / Salt', 'Site', 'osfinger', 'App version',
+      ]),
+    )
+
+    await user.click(within(menu).getByRole('button', { name: 'Remove Site' }))
+    await waitFor(() => expect(screen.queryByRole('columnheader', { name: /Site/ })).toBeNull())
+    expect(JSON.parse(localStorage.getItem('brine-fleet-columns')!).grains).toEqual(['osfinger', 'app_version'])
+
+    await user.click(within(menu).getByRole('button', { name: 'Reset to team default' }))
+    expect(await screen.findByRole('columnheader', { name: /Site/ })).toBeInTheDocument()
+    expect(screen.queryByRole('columnheader', { name: /osfinger/ })).toBeNull()
   })
 
   it('warns when brine has lost salt-api', async () => {

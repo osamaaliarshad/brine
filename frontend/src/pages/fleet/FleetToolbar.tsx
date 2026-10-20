@@ -1,11 +1,11 @@
-import { Columns3, RefreshCw, Search } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { RefreshCw, Search } from 'lucide-react'
+import type { ReactNode } from 'react'
 import type { Column, Fleet, MinionStatus } from '@/api/types'
 import { StatusDot } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import type { FleetView, StatusFilter } from '@/pages/fleet/model'
 
-const CONTROL =
+export const CONTROL =
   'flex h-10 items-center gap-2 rounded-lg border bg-surface px-3 text-sm text-fg transition-colors hover:bg-surface-2'
 
 function StatusTabs({ view, summary, onChange }: {
@@ -54,71 +54,13 @@ function StatusTabs({ view, summary, onChange }: {
   )
 }
 
-function ColumnsMenu({ columns, hidden, onToggle }: {
-  columns: { key: string; label: string }[]
-  hidden: Set<string>
-  onToggle: (key: string) => void
-}) {
-  const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    const close = (event: MouseEvent | KeyboardEvent) => {
-      if (event instanceof KeyboardEvent ? event.key === 'Escape' : !ref.current?.contains(event.target as Node))
-        setOpen(false)
-    }
-    document.addEventListener('mousedown', close)
-    document.addEventListener('keydown', close)
-    return () => {
-      document.removeEventListener('mousedown', close)
-      document.removeEventListener('keydown', close)
-    }
-  }, [open])
-
-  return (
-    <div ref={ref} className="relative">
-      <button
-        type="button"
-        className={CONTROL}
-        aria-expanded={open}
-        aria-haspopup="true"
-        onClick={() => setOpen((o) => !o)}
-      >
-        <Columns3 className="size-4" aria-hidden />
-        Columns
-      </button>
-      {open && (
-        <div className="absolute right-0 z-20 mt-2 w-56 rounded-xl border bg-surface p-2 shadow-xl">
-          {columns.map((col) => (
-            <label
-              key={col.key}
-              className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-surface-2"
-            >
-              <input
-                type="checkbox"
-                className="accent-[var(--accent)]"
-                checked={!hidden.has(col.key)}
-                onChange={() => onToggle(col.key)}
-              />
-              {col.label}
-            </label>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
 export function FleetToolbar({
   view,
   fleet,
   groupColumn,
   groupValues,
-  toggleableColumns,
-  hiddenColumns,
+  columnsMenu,
   onChange,
-  onToggleColumn,
   onRefresh,
   refreshing,
 }: {
@@ -126,10 +68,8 @@ export function FleetToolbar({
   fleet: Fleet | undefined
   groupColumn: Column | undefined
   groupValues: string[]
-  toggleableColumns: { key: string; label: string }[]
-  hiddenColumns: Set<string>
+  columnsMenu: ReactNode
   onChange: (patch: Partial<FleetView>) => void
-  onToggleColumn: (key: string) => void
   onRefresh: () => void
   refreshing: boolean
 }) {
@@ -165,7 +105,7 @@ export function FleetToolbar({
         </select>
       )}
 
-      <ColumnsMenu columns={toggleableColumns} hidden={hiddenColumns} onToggle={onToggleColumn} />
+      {columnsMenu}
 
       <button
         type="button"

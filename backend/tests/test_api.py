@@ -260,3 +260,38 @@ def test_status_reports_collector_and_presence(api: Api) -> None:
     assert status["presence_method_configured"] == "auto"
     assert status["presence"]["method"] == "events"
     assert status["stale_after_minutes"] == 15
+
+
+def test_fleet_columns_can_be_chosen_per_request(api: Api) -> None:
+    seed_fleet(api)
+    fleet = api.client.get("/api/fleet", params=[("column", "osfinger"), ("column", "app_version")])
+    body = fleet.json()
+    assert body["columns"] == [
+        {"grain": "osfinger", "label": "osfinger"},
+        {"grain": "app_version", "label": "App version"},  # configured label reused
+    ]
+    assert body["default_columns"][0] == {"grain": "app_version", "label": "App version"}
+    a = next(m for m in body["minions"] if m["id"] == "a")
+    assert a["columns"] == {"osfinger": "Debian-12", "app_version": "2.4.1"}
+
+
+def test_fleet_columns_are_deduplicated_and_capped(api: Api) -> None:
+    seed_fleet(api)
+    params = [("column", "os"), ("column", " os "), ("column", "")]
+    assert [c["grain"] for c in api.client.get("/api/fleet", params=params).json()["columns"]] == [
+        "os"
+    ]
+    too_many = [("column", f"g{i}") for i in range(31)]
+    assert api.client.get("/api/fleet", params=too_many).status_code == 422
+
+
+def test_grain_keys_lists_top_level_and_nested(api: Api) -> None:
+    seed_fleet(api)
+    api.seed(
+        api.ingest.grains, "b", {"os": "Debian", "hw": {"model": "R1"}}, at=NOW, source="minion"
+    )
+    keys = {k["key"]: k["minions"] for k in api.get("/api/grains/keys")}
+    assert keys["os"] == 2
+    assert keys["hw:model"] == 2
+    assert keys["app_version"] == 1
+    assert "hw" in keys

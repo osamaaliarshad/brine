@@ -6,9 +6,11 @@ import type { SystemStatus } from '@/api/types'
 import { PageHeader } from '@/components/PageHeader'
 import { Card } from '@/components/ui'
 import { formatAbsolute, formatRelative, useNow } from '@/lib/time'
+import { ColumnsMenu } from '@/pages/fleet/ColumnsMenu'
+import { type ColumnPrefs, DEFAULT_PREFS, loadPrefs, savePrefs } from '@/pages/fleet/columnPrefs'
 import { baseColumns, grainColumn } from '@/pages/fleet/columns'
 import { FleetTable } from '@/pages/fleet/FleetTable'
-import { FleetToolbar } from '@/pages/fleet/FleetToolbar'
+import { CONTROL, FleetToolbar } from '@/pages/fleet/FleetToolbar'
 import {
   distinctValues,
   filterMinions,
@@ -21,25 +23,6 @@ import {
   viewFromParams,
 } from '@/pages/fleet/model'
 import { StatCards } from '@/pages/fleet/StatCards'
-
-const HIDDEN_COLUMNS_KEY = 'brine-fleet-hidden-columns'
-
-function loadHidden(): Set<string> {
-  try {
-    const saved = JSON.parse(localStorage.getItem(HIDDEN_COLUMNS_KEY) ?? '[]') as unknown
-    return new Set(Array.isArray(saved) ? saved.filter((k): k is string => typeof k === 'string') : [])
-  } catch {
-    return new Set()
-  }
-}
-
-function saveHidden(hidden: Set<string>) {
-  try {
-    localStorage.setItem(HIDDEN_COLUMNS_KEY, JSON.stringify([...hidden]))
-  } catch {
-    // storage unavailable: the choice lasts for this page load only
-  }
-}
 
 function ConnectionBanner({ status, now }: { status: SystemStatus | undefined; now: number }) {
   if (!status || status.salt_api.connected) return null
@@ -65,13 +48,17 @@ function ConnectionBanner({ status, now }: { status: SystemStatus | undefined; n
 }
 
 export function FleetPage() {
-  const fleetQuery = useFleet()
+  const [prefs, setPrefsState] = useState<ColumnPrefs>(loadPrefs)
+  const setPrefs = (next: ColumnPrefs) => {
+    setPrefsState(next)
+    savePrefs(next)
+  }
+  const fleetQuery = useFleet(prefs.grains)
   const statusQuery = useSystemStatus()
   const fleet = fleetQuery.data
   const now = useNow()
   const [params, setParams] = useSearchParams()
   const view = viewFromParams(params)
-  const [hidden, setHidden] = useState(loadHidden)
 
   const update = (patch: Partial<FleetView>) => {
     // Any change other than paging starts again from page 1.
@@ -87,10 +74,8 @@ export function FleetPage() {
     ...baseColumns(),
     ...(fleet?.columns ?? []).map((c) => grainColumn(c.grain, c.label)),
   ]
+  const hidden = new Set(prefs.hidden)
   const columns = allColumns.filter((c) => !hidden.has(c.key))
-  const toggleable = allColumns
-    .filter((c) => c.key !== 'id' && c.key !== 'connection')
-    .map((c) => ({ key: c.key, label: c.label }))
 
   const shown = sortMinions(
     filterMinions(fleet?.minions ?? [], view, groupColumn?.grain),
@@ -136,16 +121,26 @@ export function FleetPage() {
           fleet={fleet}
           groupColumn={groupColumn}
           groupValues={groupValues}
-          toggleableColumns={toggleable}
-          hiddenColumns={hidden}
+          columnsMenu={
+            <ColumnsMenu
+              grainColumns={fleet?.columns ?? []}
+              builtins={[{ key: 'os', label: 'OS / Salt' }]}
+              hidden={hidden}
+              customized={prefs.grains !== null}
+              buttonClassName={CONTROL}
+              onToggleBuiltin={(key) =>
+                setPrefs({
+                  ...prefs,
+                  hidden: hidden.has(key)
+                    ? prefs.hidden.filter((k) => k !== key)
+                    : [...prefs.hidden, key],
+                })
+              }
+              onChangeGrains={(grains) => setPrefs({ ...prefs, grains })}
+              onReset={() => setPrefs({ ...prefs, grains: DEFAULT_PREFS.grains })}
+            />
+          }
           onChange={update}
-          onToggleColumn={(key) => {
-            const next = new Set(hidden)
-            if (next.has(key)) next.delete(key)
-            else next.add(key)
-            setHidden(next)
-            saveHidden(next)
-          }}
           onRefresh={() => {
             void fleetQuery.refetch()
             void statusQuery.refetch()

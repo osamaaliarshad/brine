@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import ipaddress
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import select
@@ -12,6 +12,7 @@ from app.api.schemas import (
     Column,
     Fleet,
     FleetSummary,
+    GrainKey,
     GrainsChange,
     MinionDetail,
     MinionJob,
@@ -25,6 +26,8 @@ from app.runtime import Runtime
 from app.status import Status, minion_status
 
 router = APIRouter()
+
+MAX_COLUMNS = 30
 
 
 def grain_value(grains: dict[str, Any] | None, path: str) -> Any:
@@ -69,8 +72,26 @@ async def presence_info(session: SessionDep) -> PresenceInfo:
     )
 
 
+def configured_columns(runtime: Runtime) -> list[Column]:
+    return [Column(grain=c.grain, label=c.label or c.grain) for c in runtime.settings.fleet.columns]
+
+
+def requested_columns(runtime: Runtime, grains: list[str] | None) -> list[Column]:
+    """The columns a request asked for (`?column=a&column=b:c`), or the configured defaults.
+    Configured labels are reused for configured grains."""
+    if grains is None:
+        return configured_columns(runtime)
+    labels = {c.grain: c.label for c in configured_columns(runtime)}
+    picked = list(dict.fromkeys(g.strip() for g in grains if g.strip()))[:MAX_COLUMNS]
+    return [Column(grain=g, label=labels.get(g, g)) for g in picked]
+
+
 def summarize(
-    minion: Minion, runtime: Runtime, presence: PresenceInfo, now: datetime
+    minion: Minion,
+    runtime: Runtime,
+    presence: PresenceInfo,
+    now: datetime,
+    columns: list[Column] | None = None,
 ) -> MinionSummary:
     stale_after = timedelta(minutes=runtime.settings.fleet.stale_after_minutes)
     return MinionSummary(
@@ -91,17 +112,32 @@ def summarize(
         grains_at=minion.grains_at,
         grains_source=minion.grains_source,
         columns={
-            c.grain: grain_value(minion.grains, c.grain) for c in runtime.settings.fleet.columns
+            c.grain: grain_value(minion.grains, c.grain)
+            for c in (configured_columns(runtime) if columns is None else columns)
         },
     )
 
 
 @router.get("/fleet", response_model=Fleet)
-async def fleet(runtime: RuntimeDep, session: SessionDep) -> Fleet:
+async def fleet(
+    runtime: RuntimeDep,
+    session: SessionDep,
+    column: Annotated[
+        list[str] | None,
+        Query(
+            max_length=MAX_COLUMNS,
+            description="grain columns to include (repeatable; `a:b` for nested); "
+            "defaults to fleet.columns from the config",
+        ),
+    ] = None,
+) -> Fleet:
     now = datetime.now(UTC)
     presence = await presence_info(session)
+    columns = requested_columns(runtime, column)
     rows = (await session.scalars(select(Minion).order_by(Minion.id))).all()
-    accepted = [summarize(m, runtime, presence, now) for m in rows if m.key_state == "accepted"]
+    accepted = [
+        summarize(m, runtime, presence, now, columns) for m in rows if m.key_state == "accepted"
+    ]
     counts = {s: sum(1 for m in accepted if m.status is s) for s in Status}
     return Fleet(
         summary=FleetSummary(
@@ -112,12 +148,27 @@ async def fleet(runtime: RuntimeDep, session: SessionDep) -> Fleet:
             unknown=counts[Status.UNKNOWN],
             pending_keys=sum(1 for m in rows if m.key_state == "pending"),
         ),
-        columns=[
-            Column(grain=c.grain, label=c.label or c.grain) for c in runtime.settings.fleet.columns
-        ],
+        columns=columns,
+        default_columns=configured_columns(runtime),
         presence=presence,
         minions=accepted,
     )
+
+
+@router.get("/grains/keys", response_model=list[GrainKey])
+async def grain_keys(session: SessionDep) -> list[GrainKey]:
+    """Every grain the fleet reports (one level into nested dicts, as `a:b`), with how many
+    minions have it. Feeds the column picker's autocomplete."""
+    counts: dict[str, int] = {}
+    rows = await session.scalars(select(Minion.grains).where(Minion.key_state == "accepted"))
+    for grains in rows:
+        for key, value in (grains or {}).items():
+            counts[key] = counts.get(key, 0) + 1
+            if isinstance(value, dict):
+                for sub in value:
+                    path = f"{key}:{sub}"
+                    counts[path] = counts.get(path, 0) + 1
+    return [GrainKey(key=k, minions=n) for k, n in sorted(counts.items())]
 
 
 @router.get("/minions/{minion_id}", response_model=MinionDetail)

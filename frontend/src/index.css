@@ -6,19 +6,20 @@
 
 /* Theme tokens. Components use the Tailwind names below (bg-surface, text-muted, ...),
    never raw colors, so light and dark stay in sync. */
+/* Light: warm paper tones rather than stark white. */
 :root {
-  --bg: #f6f7f8;
-  --surface: #ffffff;
-  --surface-2: #eff1f3;
-  --border: #e2e5e9;
-  --fg: #111315;
-  --muted: #5d656d;
+  --bg: #f5f2eb;
+  --surface: #fbf9f5;
+  --surface-2: #eeeae1;
+  --border: #e2dccf;
+  --fg: #1e1c18;
+  --muted: #6b6559;
   --accent: #16a34a;
   --accent-fg: #ffffff;
   --online: #16a34a;
-  --offline: #9aa1a8;
-  --warn: #d97706;
-  --danger: #dc2626;
+  --offline: #a39d91;
+  --warn: #c2680a;
+  --danger: #c53030;
 }
 
 [data-theme='dark'] {

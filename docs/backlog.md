@@ -36,6 +36,8 @@ Follow-ups found along the way:
 ## Phase 3 — Frontend v1 (SaltGUI read-only parity + brine extras)
 
 - [x] Fleet table (per the mockup): stat cards, status dot, last seen + cached/stale badges, OS/Salt, grain columns (show/hide), search, status tabs, site filter, sort, pagination; view state in the URL
+- [x] Fleet columns are customisable: add any grain the fleet reports (autocomplete), reorder, remove, reset; saved per browser; `fleet.columns` is the team default
+- [ ] Admins save a column layout as the team default from the UI (needs roles, Phase 2)
 - [ ] Fleet: "Run command" and row selection (with Phase 5)
 - [ ] Minion page: live/cached badge, grains with "as of" + history diff, pillar (masked), beacons, schedules, mine, jobs, presence timeline
 - [ ] Jobs page + job detail; Highstate view
@@ -48,6 +50,7 @@ Follow-ups found along the way:
 
 ## Phase 4 — Release polish
 
+- [x] `scripts/screenshots.mjs`: README screenshots per page, light + dark, from the demo fleet
 - [ ] Dockerfile (frontend build → backend image), `docker-compose.yml`, GHCR publish in CI
 - [ ] README screenshots/GIF (from the demo stack, never real fleet data) and 10-minute quickstart
 - [ ] Docs: setup, presence, permissions; tag v0.1.0
