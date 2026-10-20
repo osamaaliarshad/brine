@@ -1,12 +1,15 @@
 import { Check, Copy, KeyRound } from 'lucide-react'
 import { useState } from 'react'
-import { Link, useSearchParams } from 'react-router'
-import { useKeys } from '@/api/queries'
-import type { Key, KeyState } from '@/api/types'
+import { Link, useLocation, useSearchParams } from 'react-router'
+import { useCapabilities, useKeys, useMe } from '@/api/queries'
+import type { Capability, Key, KeyState } from '@/api/types'
+import { KeyActionDialog, type KeyActionTarget } from '@/components/KeyActionDialog'
 import { PageHeader } from '@/components/PageHeader'
-import { Badge, Card, StatusDot } from '@/components/ui'
+import { Card, StatusDot } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { formatAbsolute, formatRelative, useNow } from '@/lib/time'
+import { KeyActions } from '@/pages/keys/KeyActions'
+import { describeResult } from '@/pages/keys/rules'
 
 const STATES: { value: KeyState | 'all'; label: string }[] = [
   { value: 'all', label: 'All keys' },
@@ -68,9 +71,37 @@ function Seen({ k, now }: { k: Key; now: number }) {
   )
 }
 
+function Footer({ isAdmin, manage }: { isAdmin: boolean; manage: Capability | undefined }) {
+  if (!isAdmin) return <>Admins can accept, reject and delete keys here. Every change is recorded in the audit log.</>
+  if (manage?.allowed === false)
+    return (
+      <>
+        Key management is off: brine's Salt account isn't allowed to run{' '}
+        {manage.missing.map((fun, i) => (
+          <span key={fun}>
+            {i > 0 && ', '}
+            <code className="font-mono">{fun}</code>
+          </span>
+        ))}
+        . Add {manage.missing.length === 1 ? 'it' : 'them'} under <code className="font-mono">@wheel</code> in its
+        external_auth entry (docs/permissions-and-salt-acl.md).
+      </>
+    )
+  return <>Every change is recorded in the audit log.</>
+}
+
 export function KeysPage() {
   const now = useNow()
   const query = useKeys()
+  const isAdmin = useMe().data?.role === 'admin'
+  const capabilities = useCapabilities(isAdmin)
+  const manage = capabilities.data?.manage_keys
+  // Unknown (salt-api unreachable) still offers the buttons; the server has the final say.
+  const canManage = isAdmin && manage?.allowed !== false
+  const [target, setTarget] = useState<KeyActionTarget | null>(null)
+  // A minion page that just changed a key hands over what happened.
+  const handed = (useLocation().state as { notice?: string } | null)?.notice
+  const [notice, setNotice] = useState<string | null>(handed ?? null)
   const [params, setParams] = useSearchParams()
   const filter = STATES.find((s) => s.value === params.get('state'))?.value ?? 'all'
   const keys = query.data ?? []
@@ -95,7 +126,7 @@ export function KeysPage() {
             </span>{' '}
             <span className="text-muted">
               Compare fingerprints with the minion (<code className="font-mono">salt-call --local key.finger</code>)
-              before accepting on the master. Accepting from brine comes with roles and audit logging.
+              before accepting.
             </span>
           </div>
         </div>
@@ -126,6 +157,11 @@ export function KeysPage() {
           ))}
         </div>
 
+        {notice && (
+          <p role="status" className="border-t bg-accent/10 px-4 py-2.5 text-sm sm:px-6">
+            {notice}
+          </p>
+        )}
         {query.isPending ? (
           <div className="border-t px-6 py-12 text-center text-muted">Loading keys…</div>
         ) : query.isError ? (
@@ -141,6 +177,11 @@ export function KeysPage() {
                   <th className="px-4 py-3 font-medium">Key</th>
                   <th className="px-4 py-3 font-medium">Fingerprint</th>
                   <th className="px-4 py-3 font-medium">Seen</th>
+                  {canManage && (
+                    <th className="px-4 py-3 sm:pr-6">
+                      <span className="sr-only">Actions</span>
+                    </th>
+                  )}
                 </tr>
               </thead>
               <tbody>
@@ -166,6 +207,11 @@ export function KeysPage() {
                     <td className="px-4 py-3 whitespace-nowrap">
                       <Seen k={k} now={now} />
                     </td>
+                    {canManage && (
+                      <td className="px-4 py-2 sm:pr-6">
+                        <KeyActions k={k} onPick={setTarget} />
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
@@ -173,9 +219,16 @@ export function KeysPage() {
           </div>
         )}
         <div className="border-t px-4 py-3 text-xs text-muted sm:px-6">
-          Read-only for now. <Badge>Coming</Badge> Accept, reject and delete keys, gated by role and recorded in the audit log.
+          <Footer isAdmin={isAdmin} manage={manage} />
         </div>
       </Card>
+      {target && (
+        <KeyActionDialog
+          target={target}
+          onClose={() => setTarget(null)}
+          onDone={(result) => setNotice(describeResult(result))}
+        />
+      )}
     </>
   )
 }

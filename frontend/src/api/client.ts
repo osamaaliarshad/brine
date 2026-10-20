@@ -8,6 +8,9 @@ export class ApiError extends Error {
   }
 }
 
+/** Sent with every request; the server refuses writes without it (CSRF). */
+const CSRF_HEADERS = { 'X-Requested-With': 'brine' }
+
 function goToLogin() {
   if (window.location.pathname === '/login') return
   const next = window.location.pathname + window.location.search
@@ -26,7 +29,7 @@ export async function fetchJson<T>(path: string, init?: RequestInit): Promise<T>
   try {
     resp = await fetch(path, {
       ...init,
-      headers: { Accept: 'application/json', ...init?.headers },
+      headers: { Accept: 'application/json', ...CSRF_HEADERS, ...init?.headers },
       credentials: 'same-origin',
     })
   } catch {
@@ -47,9 +50,17 @@ export async function fetchJson<T>(path: string, init?: RequestInit): Promise<T>
   return (await resp.json()) as T
 }
 
+export function postJson<T>(path: string, body: unknown): Promise<T> {
+  return fetchJson<T>(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
 export async function signOut(): Promise<void> {
   try {
-    await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' })
+    await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin', headers: CSRF_HEADERS })
   } finally {
     window.location.assign('/login')
   }

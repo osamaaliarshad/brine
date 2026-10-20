@@ -1,8 +1,9 @@
-import { keepPreviousData, useInfiniteQuery, useQuery } from '@tanstack/react-query'
-import { fetchJson } from '@/api/client'
+import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { fetchJson, postJson } from '@/api/client'
 import type {
   AuditPage,
   AuthInfo,
+  Capabilities,
   Fleet,
   FleetLiveView,
   GrainDistribution,
@@ -12,6 +13,9 @@ import type {
   JobDetail,
   JobPage,
   Key,
+  KeyAction,
+  KeyActionRequest,
+  KeyActionResult,
   LiveKind,
   LiveView,
   MinionDetail,
@@ -134,6 +138,28 @@ export function useStateRuns(enabled: boolean) {
 
 export function useKeys() {
   return useQuery({ queryKey: queryKeys.keys, queryFn: () => fetchJson<Key[]>('/api/keys') })
+}
+
+/** What Salt lets brine's service account do; asked only for admins. */
+export function useCapabilities(enabled: boolean) {
+  return useQuery({
+    queryKey: ['capabilities'],
+    queryFn: () => fetchJson<Capabilities>('/api/capabilities'),
+    enabled,
+    staleTime: 60_000,
+  })
+}
+
+export function useKeyAction() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, action, ...body }: KeyActionRequest & { id: string; action: KeyAction }) =>
+      postJson<KeyActionResult>(`/api/keys/${encodeURIComponent(id)}/${action}`, body),
+    onSettled: () => {
+      for (const queryKey of [queryKeys.keys, queryKeys.fleet, queryKeys.issues, queryKeys.status, ['minion'], ['audit']])
+        void client.invalidateQueries({ queryKey })
+    },
+  })
 }
 
 export function useReactors(enabled: boolean) {

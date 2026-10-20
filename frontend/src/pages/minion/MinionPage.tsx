@@ -1,14 +1,17 @@
 import { ChevronLeft } from 'lucide-react'
-import type { ReactNode } from 'react'
-import { Link, useParams } from 'react-router'
+import { useState, type ReactNode } from 'react'
+import { Link, useNavigate, useParams } from 'react-router'
 import { ApiError } from '@/api/client'
-import { useMinion } from '@/api/queries'
-import type { MinionDetail } from '@/api/types'
+import { useCapabilities, useMe, useMinion } from '@/api/queries'
+import type { KeyState, MinionDetail } from '@/api/types'
+import { KeyActionDialog, type KeyActionTarget } from '@/components/KeyActionDialog'
 import { Card } from '@/components/ui'
 import { Tabs } from '@/components/Tabs'
 import { type TabDef, useTab } from '@/lib/useTab'
 import { formatAbsolute, formatRelative, useNow } from '@/lib/time'
 import { ConnectionCell } from '@/pages/fleet/ConnectionCell'
+import { KeyActions } from '@/pages/keys/KeyActions'
+import { ACTIONS_FOR, describeResult } from '@/pages/keys/rules'
 import {
   GrainsPanel,
   HistoryPanel,
@@ -67,6 +70,12 @@ export function MinionPage() {
   const query = useMinion(id)
   const [tab, setTab] = useTab<TabKey>(TABS, 'grains')
   const minion = query.data
+  const navigate = useNavigate()
+  const isAdmin = useMe().data?.role === 'admin'
+  const capabilities = useCapabilities(isAdmin)
+  const canManage = isAdmin && capabilities.data?.manage_keys.allowed !== false
+  const [target, setTarget] = useState<KeyActionTarget | null>(null)
+  const keyState = minion && minion.key_state in ACTIONS_FOR ? (minion.key_state as KeyState) : null
 
   const subtitle = minion
     ? [minion.ip, minion.os, minion.salt_version && `Salt ${minion.salt_version}`, minion.key_state !== 'accepted' && `key ${minion.key_state}`]
@@ -82,10 +91,25 @@ export function MinionPage() {
           Fleet
         </Link>
       </nav>
-      <div className="mb-6">
-        <h1 className="text-4xl font-semibold tracking-tight break-all">{id}</h1>
-        {subtitle && <p className="mt-1 text-lg text-muted">{subtitle}</p>}
+      <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
+        <div className="min-w-0">
+          <h1 className="text-4xl font-semibold tracking-tight break-all">{id}</h1>
+          {subtitle && <p className="mt-1 text-lg text-muted">{subtitle}</p>}
+        </div>
+        {canManage && keyState && (
+          <KeyActions labelled k={{ id, key_state: keyState, fingerprint: null }} onPick={setTarget} />
+        )}
       </div>
+      {target && (
+        <KeyActionDialog
+          target={target}
+          onClose={() => setTarget(null)}
+          onDone={(result) => {
+            if (result.key_state !== 'accepted')
+              void navigate('/keys', { state: { notice: describeResult(result) } })
+          }}
+        />
+      )}
 
       {query.isPending ? (
         <p className="text-muted">Loading {id}…</p>

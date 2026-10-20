@@ -66,18 +66,19 @@ export function systemStatus(patch: Partial<SystemStatus['salt_api']> = {}): Sys
   }
 }
 
-type Responder = unknown | ((url: URL) => unknown)
+type Responder = unknown | ((url: URL, init?: RequestInit) => unknown)
 
 /**
  * Stub fetch with a pathname -> response map; anything else 404s. A response can be a function
- * of the full URL, to answer differently per query string.
+ * of the full URL (and the request, for writes), to answer differently per query string.
  */
 export function mockApi(responses: Record<string, Responder>) {
-  const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+  const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input), 'http://brine.test')
     if (url.pathname in responses) {
       const responder = responses[url.pathname]
-      const body = typeof responder === 'function' ? (responder as (u: URL) => unknown)(url) : responder
+      const body =
+        typeof responder === 'function' ? (responder as (u: URL, i?: RequestInit) => unknown)(url, init) : responder
       if (body instanceof Response) return body
       return new Response(JSON.stringify(body), {
         status: 200,

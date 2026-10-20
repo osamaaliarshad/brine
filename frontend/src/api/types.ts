@@ -175,6 +175,21 @@ export type Key = {
   status: MinionStatus | null
 }
 
+export type KeyAction = 'accept' | 'reject' | 'delete'
+
+export type KeyActionRequest = {
+  state: KeyState
+  /** Accepting: the fingerprint the admin checked. */
+  fingerprint?: string | null
+  /** Deleting, or rejecting an accepted key: the minion's name, typed. */
+  confirm?: string
+}
+
+export type KeyActionResult = { id: string; key_state: KeyState | 'deleted' }
+
+export type Capability = { allowed: boolean | null; missing: string[] }
+export type Capabilities = { manage_keys: Capability }
+
 /** One raw Salt event from /api/events/stream. */
 export type SaltEventEntry = {
   seq: number

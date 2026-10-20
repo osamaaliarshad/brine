@@ -11,11 +11,15 @@ const ACTIONS: Record<string, string> = {
   'auth.login_denied': 'Sign-in refused',
   'auth.logout': 'Signed out',
   'pillar.view': 'Viewed pillar',
+  'key.accept': 'Accepted key',
+  'key.reject': 'Rejected key',
+  'key.delete': 'Deleted key',
 }
 
 const FILTERS = [
   { value: null, label: 'Everything' },
   { value: 'auth.', label: 'Sign-ins' },
+  { value: 'key.', label: 'Keys' },
   { value: 'pillar.', label: 'Data access' },
 ] as const
 
@@ -95,7 +99,12 @@ export function AuditPage() {
                     </td>
                     <td className="px-4 py-3">{e.actor}</td>
                     <td className="px-4 py-3">
-                      <span className={cn(e.action.endsWith('_denied') && 'text-danger')}>
+                      <span
+                        className={cn(
+                          (e.action.endsWith('_denied') || e.action === 'key.reject' || e.action === 'key.delete') &&
+                            'text-danger',
+                        )}
+                      >
                         {ACTIONS[e.action] ?? e.action}
                       </span>
                       {e.target && <span className="text-muted"> · {e.target}</span>}
