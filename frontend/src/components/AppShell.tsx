@@ -133,9 +133,34 @@ function Sidebar({
   onToggleCollapsed?: () => void
 }) {
   const attention = attentionCount(useIssues().data)
+  const toggle = onToggleCollapsed && (
+    <button
+      type="button"
+      onClick={onToggleCollapsed}
+      className="rounded-lg p-2 text-muted transition-colors hover:bg-surface-2 hover:text-fg"
+      aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+      title={`${collapsed ? 'Expand' : 'Collapse'} sidebar ( [ )`}
+    >
+      {collapsed ? (
+        <PanelLeftOpen className="size-5" strokeWidth={1.75} />
+      ) : (
+        <PanelLeftClose className="size-5" strokeWidth={1.75} />
+      )}
+    </button>
+  )
   return (
     <div className={cn('flex h-full flex-col gap-6 py-6', collapsed ? 'px-2' : 'px-3')}>
-      <Wordmark mark={collapsed} className={cn('mx-auto', collapsed ? 'h-9' : 'h-10')} />
+      {collapsed ? (
+        <div className="flex flex-col items-center gap-3">
+          <Wordmark mark className="h-9" />
+          {toggle}
+        </div>
+      ) : (
+        <div className="flex items-center justify-between gap-2 pl-3">
+          <Wordmark className="h-10" />
+          {toggle}
+        </div>
+      )}
       <nav aria-label="Main" className="flex flex-col gap-1">
         {MAIN_NAV.map((item) => (
           <NavRow
@@ -164,22 +189,6 @@ function Sidebar({
           onNavigate={onNavigate}
           collapsed={collapsed}
         />
-        {onToggleCollapsed && (
-          <button
-            type="button"
-            onClick={onToggleCollapsed}
-            className={cn(ROW, 'w-full', collapsed ? 'justify-center px-0' : 'px-3')}
-            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            title={`${collapsed ? 'Expand' : 'Collapse'} sidebar ( [ )`}
-          >
-            {collapsed ? (
-              <PanelLeftOpen className="size-5 shrink-0" strokeWidth={1.75} />
-            ) : (
-              <PanelLeftClose className="size-5 shrink-0" strokeWidth={1.75} />
-            )}
-            {!collapsed && 'Collapse'}
-          </button>
-        )}
       </div>
     </div>
   )
