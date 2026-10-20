@@ -31,13 +31,13 @@ actions (phase 5) and sign-in (phase 2) are next.
 | `saltgui_pages` (per-user menus) | Roles (viewer / operator / admin) | 2 | Enforced server-side, unlike SaltGUI's cosmetic filter |
 | Minions | Fleet table | 3 | Adds stat cards, live/stale/offline, last seen, grain columns, pagination |
 | Minions: version / CVE warnings | Fleet + Issues | 3 | From `manage.versions` |
-| Grains (+ `saltgui_preview_grains`) | Fleet columns (`fleet.columns` in config) | 3 | |
+| Grains (+ `saltgui_preview_grains`) | Fleet columns + Fleet › Grains explorer | 3 ✅ | Columns customisable per browser; explorer shows each grain's distribution |
 | Grains per minion | Minion › Grains | 3 | Adds "as of" timestamp and history diff |
 | Pillars (masked, `saltgui_public_pillars`) | Minion › Pillar | 3 | Masked by default; unmasking is audited |
 | Mine | Minion › Mine | 3 | |
-| Beacons | Minion › Beacons | 3 | Live values from `salt/beacon/*` events |
-| Schedules | Minion › Schedules | 3 | |
-| Nodegroups | Fleet filter / group-by | 3 | |
+| Beacons | Minion › Beacons + Automation › Beacons (fleet-wide) | 3 ✅ | |
+| Schedules | Minion › Schedules + Automation › Schedules (fleet-wide) | 3 ✅ | |
+| Nodegroups | Fleet › Nodegroups | 3 ✅ | Members from the master cache, so offline members count |
 | Keys | Keys page | 3 / 5 | View in 3; accept / reject / delete in 5 |
 | Jobs | Jobs page | 3 | From brine's own DB, so history outlives the master's job cache |
 | Job detail | Job page | 3 / 5 | Re-run / terminate / kill in 5 |

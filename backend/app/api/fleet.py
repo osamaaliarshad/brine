@@ -1,19 +1,23 @@
 from __future__ import annotations
 
 import ipaddress
+import json
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import RuntimeDep, SessionDep
 from app.api.schemas import (
     Column,
     Fleet,
     FleetSummary,
+    GrainDistribution,
     GrainKey,
     GrainsChange,
+    GrainValue,
     MinionDetail,
     MinionJob,
     MinionSummary,
@@ -70,6 +74,27 @@ async def presence_info(session: SessionDep) -> PresenceInfo:
         method=value.get("method") if isinstance(value, dict) else None,
         checked_at=datetime.fromisoformat(at) if at else None,
     )
+
+
+async def reachable(runtime: Runtime, session: AsyncSession) -> tuple[list[str], list[str]]:
+    """Accepted minions worth asking live, and those skipped because a fresh presence check says
+    they're offline (asking them would only wait out Salt's timeout). Without fresh presence, or
+    for minions presence can't see, brine can't tell, so it asks."""
+    presence = await presence_info(session)
+    blind = await presence_blind(session)
+    stale_after = timedelta(minutes=runtime.settings.fleet.stale_after_minutes)
+    fresh = (
+        presence.checked_at is not None and datetime.now(UTC) - presence.checked_at <= stale_after
+    )
+    rows = (
+        await session.execute(
+            select(Minion.id, Minion.connected)
+            .where(Minion.key_state == "accepted")
+            .order_by(Minion.id)
+        )
+    ).all()
+    ask = [mid for mid, connected in rows if connected or not fresh or mid in blind]
+    return ask, [mid for mid, _ in rows if mid not in ask]
 
 
 async def presence_blind(session: SessionDep) -> set[str]:
@@ -179,6 +204,43 @@ async def grain_keys(session: SessionDep) -> list[GrainKey]:
                     path = f"{key}:{sub}"
                     counts[path] = counts.get(path, 0) + 1
     return [GrainKey(key=k, minions=n) for k, n in sorted(counts.items())]
+
+
+def grain_text(value: Any) -> str:
+    if isinstance(value, list):
+        return ", ".join(grain_text(v) for v in value)
+    if isinstance(value, dict):
+        return json.dumps(value, sort_keys=True, default=str)
+    return str(value)
+
+
+@router.get("/grains/values", response_model=GrainDistribution)
+async def grain_values(
+    session: SessionDep,
+    grain: str = Query(..., min_length=1, description="grain name, or `a:b` for nested"),
+) -> GrainDistribution:
+    """How one grain's values are spread across the fleet (the Grains explorer)."""
+    groups: dict[str, GrainValue] = {}
+    missing: list[str] = []
+    rows = (
+        await session.execute(
+            select(Minion.id, Minion.grains)
+            .where(Minion.key_state == "accepted")
+            .order_by(Minion.id)
+        )
+    ).all()
+    for mid, grains in rows:
+        value = grain_value(grains, grain)
+        if value is None:
+            missing.append(mid)
+            continue
+        key = json.dumps(value, sort_keys=True, default=str)
+        group = groups.get(key)
+        if group is None:
+            group = groups[key] = GrainValue(value=value, text=grain_text(value), minions=[])
+        group.minions.append(mid)
+    values = sorted(groups.values(), key=lambda g: (-len(g.minions), g.text))
+    return GrainDistribution(grain=grain, total=len(rows), values=values, missing=missing)
 
 
 @router.get("/minions/{minion_id}", response_model=MinionDetail)

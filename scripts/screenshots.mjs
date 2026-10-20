@@ -28,12 +28,16 @@ const getJson = async (url) => (await fetch(url)).json()
 // this order.
 export const PAGES = [
   ['fleet', '/'],
+  ['grains', '/?tab=grains&grain=app_version'],
+  ['nodegroups', '/?tab=nodegroups'],
   ['minion', '/minions/rover-01'],
   ['jobs', '/jobs'],
   ['state-runs', '/jobs?tab=states'],
   // The most recent state.apply: in the demo, dock-01's calibration state fails on purpose.
   ['job', async (base) => `/jobs/${(await getJson(`${base}/api/jobs?fun=state.apply&limit=1`)).jobs[0].jid}`],
   ['keys', '/keys'],
+  ['states', '/states'],
+  ['automation', '/automation'],
   ['events', '/events'],
   ['issues', '/issues'],
   ['settings', '/settings'],
@@ -46,7 +50,7 @@ const HEIGHT = 900
 // The page is ready once the main area has rendered and nothing says it's still loading.
 const READY = `(() => {
   const main = document.querySelector('main')
-  return !!main && main.innerText.length > 0 && !/Loading/.test(main.innerText)
+  return !!main && main.innerText.length > 0 && !/Loading|Asking/.test(main.innerText)
     && document.fonts.status === 'loaded'
 })()`
 
@@ -128,7 +132,7 @@ async function capture(port, url, theme, out) {
     await waitFor(`${url} to load`, async () => {
       const { result } = await page.send('Runtime.evaluate', { expression: READY, returnByValue: true })
       return result.value === true
-    }, 20_000)
+    }, 40_000)
     await sleep(800) // let transitions and streamed content settle
     const { data } = await page.send('Page.captureScreenshot', { format: 'png' })
     writeFileSync(out, Buffer.from(data, 'base64'))

@@ -6,10 +6,20 @@ import type { SystemStatus } from '@/api/types'
 import { PageHeader } from '@/components/PageHeader'
 import { Card } from '@/components/ui'
 import { formatAbsolute, formatRelative, useNow } from '@/lib/time'
+import { Tabs } from '@/components/Tabs'
 import { useMediaQuery } from '@/lib/useMediaQuery'
+import { useTab } from '@/lib/useTab'
 import { ColumnsMenu } from '@/pages/fleet/ColumnsMenu'
 import { FleetCards } from '@/pages/fleet/FleetCards'
-import { type ColumnPrefs, DEFAULT_PREFS, loadPrefs, savePrefs } from '@/pages/fleet/columnPrefs'
+import { GrainsExplorer } from '@/pages/fleet/GrainsExplorer'
+import { NodegroupsView } from '@/pages/fleet/NodegroupsView'
+import {
+  addGrain,
+  type ColumnPrefs,
+  DEFAULT_PREFS,
+  loadPrefs,
+  savePrefs,
+} from '@/pages/fleet/columnPrefs'
 import { baseColumns, grainColumn } from '@/pages/fleet/columns'
 import { FleetTable } from '@/pages/fleet/FleetTable'
 import { CONTROL, FleetToolbar } from '@/pages/fleet/FleetToolbar'
@@ -42,12 +52,19 @@ function ConnectionBanner({ status, now }: { status: SystemStatus | undefined; n
             (since {formatRelative(status.salt_api.since, now)})
           </span>
         )}
-        . Showing the last known state; statuses turn stale after {status.stale_after_minutes} minutes.
+        . Showing the last known state; statuses turn stale after {status.stale_after_minutes}{' '}
+        minutes.
         {status.salt_api.error && <div className="mt-1 text-muted">{status.salt_api.error}</div>}
       </div>
     </div>
   )
 }
+
+const FLEET_TABS = [
+  { key: 'minions', label: 'Minions' },
+  { key: 'grains', label: 'Grains' },
+  { key: 'nodegroups', label: 'Nodegroups' },
+] as const
 
 export function FleetPage() {
   const [prefs, setPrefsState] = useState<ColumnPrefs>(loadPrefs)
@@ -63,6 +80,8 @@ export function FleetPage() {
   const wide = useMediaQuery('(min-width: 640px)')
   const [params, setParams] = useSearchParams()
   const view = viewFromParams(params)
+  const [tab, setTab] = useTab(FLEET_TABS, 'minions')
+  const statusOf = Object.fromEntries((fleet?.minions ?? []).map((m) => [m.id, m.status]))
 
   const update = (patch: Partial<FleetView>) => {
     // Any change other than paging starts again from page 1.
@@ -120,83 +139,109 @@ export function FleetPage() {
       <StatCards summary={fleet?.summary} attention={attentionCount(issuesQuery.data)} />
 
       <Card className="mt-4 overflow-hidden sm:mt-6">
-        <FleetToolbar
-          view={view}
-          fleet={fleet}
-          groupColumn={groupColumn}
-          groupValues={groupValues}
-          columnsMenu={
-            <ColumnsMenu
-              grainColumns={fleet?.columns ?? []}
-              builtins={[{ key: 'os', label: 'OS / Salt' }]}
-              hidden={hidden}
-              customized={prefs.grains !== null}
-              buttonClassName={CONTROL}
-              onToggleBuiltin={(key) =>
-                setPrefs({
-                  ...prefs,
-                  hidden: hidden.has(key)
-                    ? prefs.hidden.filter((k) => k !== key)
-                    : [...prefs.hidden, key],
-                })
-              }
-              onChangeGrains={(grains) => setPrefs({ ...prefs, grains })}
-              onReset={() => setPrefs({ ...prefs, grains: DEFAULT_PREFS.grains })}
-            />
-          }
-          onChange={update}
-          onRefresh={() => {
-            void fleetQuery.refetch()
-            void statusQuery.refetch()
-          }}
-          refreshing={fleetQuery.isFetching}
-        />
-
-        {fleetQuery.isError ? (
-          <div className="flex flex-col items-center gap-3 border-t px-6 py-12 text-center">
-            <CircleAlert className="size-6 text-danger" aria-hidden />
-            <p>Couldn't load the fleet: {fleetQuery.error.message}</p>
-            <button
-              type="button"
-              className="rounded-lg border px-3 py-1.5 text-sm hover:bg-surface-2"
-              onClick={() => void fleetQuery.refetch()}
-            >
-              Try again
-            </button>
-          </div>
-        ) : (
-          <FleetTable
-            columns={columns}
-            minions={paged.items}
-            view={view}
-            now={now}
-            total={shown.length}
-            page={paged.page}
-            pages={paged.pages}
-            pageSize={PAGE_SIZE}
-            loading={fleetQuery.isPending}
-            compact={
-              wide ? undefined : (
-                <FleetCards
-                  minions={paged.items}
-                  columns={fleet?.columns ?? []}
-                  showOs={!hidden.has('os')}
-                  now={now}
-                />
-              )
-            }
-            onSort={(key) =>
-              update({ sort: key, dir: view.sort === key && view.dir === 'asc' ? 'desc' : 'asc' })
-            }
-            onPage={(page) => update({ page })}
-            empty={
-              fleetQuery.isPending
-                ? 'Loading the fleet…'
-                : fleet?.minions.length
-                  ? 'No minions match these filters.'
-                  : 'No minions yet. brine adds them as soon as salt-api reports accepted keys.'
+        <div className="px-2 sm:px-4">
+          <Tabs tabs={FLEET_TABS} active={tab} onSelect={setTab} label="Fleet views" />
+        </div>
+        {tab === 'grains' && (
+          <GrainsExplorer
+            statusOf={statusOf}
+            columnGrains={(fleet?.columns ?? []).map((c) => c.grain)}
+            onAddColumn={(grain) =>
+              setPrefs({
+                ...prefs,
+                grains: addGrain(
+                  prefs.grains ?? (fleet?.default_columns ?? []).map((c) => c.grain),
+                  grain,
+                ),
+              })
             }
           />
+        )}
+        {tab === 'nodegroups' && <NodegroupsView statusOf={statusOf} />}
+        {tab === 'minions' && (
+          <>
+            <FleetToolbar
+              view={view}
+              fleet={fleet}
+              groupColumn={groupColumn}
+              groupValues={groupValues}
+              columnsMenu={
+                <ColumnsMenu
+                  grainColumns={fleet?.columns ?? []}
+                  builtins={[{ key: 'os', label: 'OS / Salt' }]}
+                  hidden={hidden}
+                  customized={prefs.grains !== null}
+                  buttonClassName={CONTROL}
+                  onToggleBuiltin={(key) =>
+                    setPrefs({
+                      ...prefs,
+                      hidden: hidden.has(key)
+                        ? prefs.hidden.filter((k) => k !== key)
+                        : [...prefs.hidden, key],
+                    })
+                  }
+                  onChangeGrains={(grains) => setPrefs({ ...prefs, grains })}
+                  onReset={() => setPrefs({ ...prefs, grains: DEFAULT_PREFS.grains })}
+                />
+              }
+              onChange={update}
+              onRefresh={() => {
+                void fleetQuery.refetch()
+                void statusQuery.refetch()
+              }}
+              refreshing={fleetQuery.isFetching}
+            />
+
+            {fleetQuery.isError ? (
+              <div className="flex flex-col items-center gap-3 border-t px-6 py-12 text-center">
+                <CircleAlert className="size-6 text-danger" aria-hidden />
+                <p>Couldn't load the fleet: {fleetQuery.error.message}</p>
+                <button
+                  type="button"
+                  className="rounded-lg border px-3 py-1.5 text-sm hover:bg-surface-2"
+                  onClick={() => void fleetQuery.refetch()}
+                >
+                  Try again
+                </button>
+              </div>
+            ) : (
+              <FleetTable
+                columns={columns}
+                minions={paged.items}
+                view={view}
+                now={now}
+                total={shown.length}
+                page={paged.page}
+                pages={paged.pages}
+                pageSize={PAGE_SIZE}
+                loading={fleetQuery.isPending}
+                compact={
+                  wide ? undefined : (
+                    <FleetCards
+                      minions={paged.items}
+                      columns={fleet?.columns ?? []}
+                      showOs={!hidden.has('os')}
+                      now={now}
+                    />
+                  )
+                }
+                onSort={(key) =>
+                  update({
+                    sort: key,
+                    dir: view.sort === key && view.dir === 'asc' ? 'desc' : 'asc',
+                  })
+                }
+                onPage={(page) => update({ page })}
+                empty={
+                  fleetQuery.isPending
+                    ? 'Loading the fleet…'
+                    : fleet?.minions.length
+                      ? 'No minions match these filters.'
+                      : 'No minions yet. brine adds them as soon as salt-api reports accepted keys.'
+                }
+              />
+            )}
+          </>
         )}
       </Card>
     </>

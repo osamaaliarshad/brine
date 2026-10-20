@@ -2,6 +2,8 @@ import { keepPreviousData, useInfiniteQuery, useQuery } from '@tanstack/react-qu
 import { fetchJson } from '@/api/client'
 import type {
   Fleet,
+  FleetLiveView,
+  GrainDistribution,
   GrainKey,
   GrainsChange,
   Issue,
@@ -11,9 +13,13 @@ import type {
   LiveKind,
   LiveView,
   MinionDetail,
+  Nodegroups,
   Reactor,
   Settings,
+  StateFile,
+  StateFileContent,
   StateRuns,
+  StateTop,
   SystemStatus,
 } from '@/api/types'
 
@@ -147,4 +153,60 @@ export function attentionCount(issues: Issue[] | undefined): number | undefined 
 
 export function useSettings() {
   return useQuery({ queryKey: ['settings'], queryFn: () => fetchJson<Settings>('/api/settings') })
+}
+
+export function useGrainValues(grain: string | null) {
+  return useQuery({
+    queryKey: ['grain-values', grain],
+    queryFn: () => fetchJson<GrainDistribution>(`/api/grains/values?grain=${enc(grain ?? '')}`),
+    enabled: !!grain,
+    staleTime: 30_000,
+    placeholderData: keepPreviousData,
+  })
+}
+
+export function useNodegroups(enabled: boolean) {
+  return useQuery({
+    queryKey: ['nodegroups'],
+    queryFn: () => fetchJson<Nodegroups>('/api/nodegroups'),
+    enabled,
+    staleTime: 60_000,
+  })
+}
+
+// Live views below run Salt functions on minions: fetch on open and on Refresh only.
+
+export function useStateTop(enabled: boolean) {
+  return useQuery({
+    queryKey: ['states', 'top'],
+    queryFn: () => fetchJson<StateTop>('/api/states/top'),
+    enabled,
+    staleTime: Infinity,
+  })
+}
+
+export function useStateFiles(enabled: boolean) {
+  return useQuery({
+    queryKey: ['states', 'files'],
+    queryFn: () => fetchJson<StateFile[]>('/api/states/files'),
+    enabled,
+    staleTime: 60_000,
+  })
+}
+
+export function useStateFile(path: string | null) {
+  return useQuery({
+    queryKey: ['states', 'file', path],
+    queryFn: () => fetchJson<StateFileContent>(`/api/states/file?path=${enc(path ?? '')}`),
+    enabled: !!path,
+    staleTime: 60_000,
+  })
+}
+
+export function useAutomation(kind: 'schedules' | 'beacons') {
+  return useQuery({
+    queryKey: ['automation', kind],
+    queryFn: () => fetchJson<FleetLiveView>(`/api/automation/${kind}`),
+    staleTime: Infinity,
+  })
 }

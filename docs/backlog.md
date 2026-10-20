@@ -39,6 +39,11 @@ Follow-ups found along the way:
 - [x] Fleet columns are customisable: add any grain the fleet reports (autocomplete), reorder, remove, reset; saved per browser; `fleet.columns` is the team default
 - [ ] Admins save a column layout as the team default from the UI (needs roles, Phase 2)
 - [ ] Fleet: "Run command" and row selection (with Phase 5)
+- [x] Collapsible sidebar (button or `[`), "b" mark when collapsed; Configuration group
+- [x] Fleet › Grains explorer (distribution of any grain, add as column) and Fleet › Nodegroups
+- [x] States page (top file per state, state files) and Automation page (schedules, beacons fleet-wide)
+- [x] Live views ask only minions presence says are online (offline ones listed as not asked)
+- [x] docs/permissions-and-salt-acl.md: the read-only ACL brine needs
 - [x] Minion page: connection facts, grains with "as of" (searchable), grains history as diffs, recent jobs, presence timeline; pillar (masked via pillar.obfuscate), beacons, schedules, mine fetched live
 - [ ] Pillar: reveal values (admin role, audited)
 - [ ] Mask returns of `pillar.*` functions run from the CLI (jobs and events) for non-admins: they contain real secrets
@@ -60,6 +65,7 @@ Follow-ups found along the way:
 
 ## Phase 5 — Commands (SaltGUI write parity)
 
+- [ ] **First, right after sign-in:** key management (accept / reject / delete a minion's key), admin-only, type-to-confirm, audited
 - [ ] Run command box: local / async / runner / wheel, glob / list / compound / nodegroup targeting
 - [ ] Targeting preview (exact minion list) + confirmation step; operator role; every run audited
 - [ ] Key accept / reject / delete

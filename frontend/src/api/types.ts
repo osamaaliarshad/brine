@@ -97,6 +97,8 @@ export type LiveView = {
   function: string
   fetched_at: string
   answered: boolean
+  /** Not asked: presence says the minion is offline. */
+  offline?: boolean
   data: unknown
 }
 
@@ -203,4 +205,36 @@ export type Settings = {
   jobs_backfill_limit: number
   database: { backend: string; url: string }
   auth: { provider: string; issuer: string | null; configured: boolean }
+}
+
+export type GrainDistribution = {
+  grain: string
+  total: number
+  values: { value: unknown; text: string; minions: string[] }[]
+  missing: string[]
+}
+
+export type Nodegroups = {
+  groups: { name: string; expression: string; members: string[] }[]
+  ungrouped: string[]
+}
+
+export type StateTop = {
+  fetched_at: string
+  minions: Record<string, Record<string, string[]>>
+  missing: string[]
+  skipped: string[]
+}
+
+export type StateFile = { root: string; path: string }
+
+export type StateFileContent = { path: string; full_path: string; content: string; truncated: boolean }
+
+export type FleetLiveView = {
+  kind: 'schedules' | 'beacons'
+  function: string
+  fetched_at: string
+  results: Record<string, unknown>
+  missing: string[]
+  skipped: string[]
 }

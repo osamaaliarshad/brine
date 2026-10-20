@@ -12,6 +12,7 @@ from typing import Any, Literal
 from fastapi import APIRouter, HTTPException
 
 from app.api.deps import RuntimeDep, SessionDep
+from app.api.fleet import reachable
 from app.api.schemas import LiveView
 from app.models import Minion
 from app.salt.client import SaltApiError
@@ -39,6 +40,16 @@ async def live_view(
     if await session.get(Minion, minion_id) is None:
         raise HTTPException(404, f"no minion {minion_id!r}")
     fun, kwarg = LIVE_CALLS[kind]
+    _, offline = await reachable(runtime, session)
+    if minion_id in offline:
+        return LiveView(
+            kind=kind,
+            function=fun,
+            fetched_at=datetime.now(UTC),
+            answered=False,
+            offline=True,
+            data=None,
+        )
     try:
         result = await runtime.client.local(
             minion_id, fun, kwarg=kwarg, tgt_type="list", salt_timeout=LIVE_TIMEOUT_SECONDS

@@ -1,4 +1,6 @@
 import {
+  CalendarClock,
+  FileCode,
   KeyRound,
   LayoutGrid,
   Menu,
@@ -26,9 +28,14 @@ type NavItem = { to: string; label: string; icon: LucideIcon }
 const MAIN_NAV: NavItem[] = [
   { to: '/', label: 'Fleet', icon: LayoutGrid },
   { to: '/jobs', label: 'Jobs', icon: Play },
-  { to: '/keys', label: 'Keys', icon: KeyRound },
   { to: '/events', label: 'Events', icon: ScrollText },
   { to: '/issues', label: 'Issues', icon: TriangleAlert },
+]
+
+const CONFIG_NAV: NavItem[] = [
+  { to: '/states', label: 'States', icon: FileCode },
+  { to: '/automation', label: 'Automation', icon: CalendarClock },
+  { to: '/keys', label: 'Keys', icon: KeyRound },
 ]
 
 const COLLAPSED_KEY = 'brine-sidebar-collapsed'
@@ -138,6 +145,16 @@ function Sidebar({
             collapsed={collapsed}
             badge={item.to === '/issues' ? attention : undefined}
           />
+        ))}
+        {collapsed ? (
+          <hr className="mx-3 my-2" />
+        ) : (
+          <div className="mt-4 mb-1 px-3 text-xs font-medium uppercase tracking-wider text-muted">
+            Configuration
+          </div>
+        )}
+        {CONFIG_NAV.map((item) => (
+          <NavRow key={item.to} item={item} onNavigate={onNavigate} collapsed={collapsed} />
         ))}
       </nav>
       <div className="mt-auto flex flex-col gap-1">

@@ -20,6 +20,7 @@ brine plugs into an existing **salt-master + salt-api** and gives your team a cl
 - **An audit log** of who did what, on which minions, and when.
 - **Configurable columns.** Show any grain (`app_version`, `firmware_version`, ...) in the fleet table, no code changes.
 - **Parity with [SaltGUI](https://github.com/erwindon/SaltGUI)** as the baseline; see [docs/saltgui-parity.md](docs/saltgui-parity.md).
+- **Least privilege.** brine needs only a read-only Salt account; the exact ACL is in [docs/permissions-and-salt-acl.md](docs/permissions-and-salt-acl.md).
 
 v1 is read-only. Running commands and applying states come next, behind roles, a targeting preview, and a confirmation step.
 
@@ -38,6 +39,21 @@ default). Updates live as minions come and go.
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/fleet-dark.png">
   <img alt="The Fleet page: three minions online, one offline, with site, app version and firmware columns" src="docs/assets/screenshots/fleet-light.png">
+</picture>
+
+**Grains** shows how any grain is spread across the fleet (which robots run which app or firmware
+version) and adds it as a column in one click:
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/grains-dark.png">
+  <img alt="Grains explorer: app_version values across the fleet with counts and shares" src="docs/assets/screenshots/grains-light.png">
+</picture>
+
+**Nodegroups** lists the master's nodegroups with their members and how many are online:
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/nodegroups-dark.png">
+  <img alt="Nodegroups: docks, rovers and site-a with member minions and online counts" src="docs/assets/screenshots/nodegroups-light.png">
 </picture>
 
 ### Minion
@@ -89,6 +105,25 @@ audit log.)
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/keys-dark.png">
   <img alt="The Keys page: rover-04 waiting for approval, four accepted keys with fingerprints" src="docs/assets/screenshots/keys-light.png">
+</picture>
+
+### States
+
+What the master tells each minion to be: which states the top file assigns to which minions
+(asked live, skipping minions that are offline), and the state files themselves.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/states-dark.png">
+  <img alt="States: motd and dock states with the minions they apply to" src="docs/assets/screenshots/states-light.png">
+</picture>
+
+### Automation
+
+What runs on its own: every minion's schedules and beacons in one place, asked live.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/automation-dark.png">
+  <img alt="Automation: a refresh-grains schedule on each minion" src="docs/assets/screenshots/automation-light.png">
 </picture>
 
 ### Events

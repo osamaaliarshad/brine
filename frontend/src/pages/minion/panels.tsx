@@ -243,6 +243,8 @@ export function LivePanel({ minionId, kind, now }: { minionId: string; kind: Liv
         <Empty>Asking {minionId}…</Empty>
       ) : live.isError ? (
         <Empty>Couldn't ask {minionId}: {live.error.message}</Empty>
+      ) : live.data.offline ? (
+        <Empty>{minionId} is offline, so brine didn't ask it. This loads when it's back.</Empty>
       ) : !live.data.answered ? (
         <Empty>{minionId} didn't answer within 10 seconds. It may be offline.</Empty>
       ) : isEmpty(live.data.data) ? (

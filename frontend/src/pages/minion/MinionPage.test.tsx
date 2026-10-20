@@ -101,6 +101,16 @@ describe('MinionPage', () => {
     expect(await screen.findByText(/didn't answer within 10 seconds/)).toBeInTheDocument()
   })
 
+  it('says when a live view was skipped because the minion is offline', async () => {
+    api({
+      '/api/minions/rover-01/live/mine': {
+        kind: 'mine', function: 'mine.valid', fetched_at: ago(1), answered: false, offline: true, data: null,
+      },
+    })
+    renderApp('/minions/rover-01?tab=mine')
+    expect(await screen.findByText(/is offline, so brine didn't ask it/)).toBeInTheDocument()
+  })
+
   it('explains an unknown minion', async () => {
     mockApi({ '/api/status': systemStatus() })
     renderApp('/minions/ghost')

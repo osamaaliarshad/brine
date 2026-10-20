@@ -58,6 +58,7 @@ class LiveView(BaseModel):
     function: str  # the Salt function that produced `data`
     fetched_at: datetime
     answered: bool  # False: the minion didn't reply in time (offline or busy)
+    offline: bool = False  # not asked: presence says it's offline
     data: Any
 
 
@@ -119,9 +120,61 @@ class Reactor(BaseModel):
     sls: list[str]  # reactor SLS files it runs
 
 
+class Nodegroup(BaseModel):
+    name: str
+    expression: str  # the compound target that defines it
+    members: list[str]
+
+
+class Nodegroups(BaseModel):
+    groups: list[Nodegroup]
+    ungrouped: list[str]  # accepted minions in no nodegroup
+
+
+class StateTop(BaseModel):
+    fetched_at: datetime
+    minions: dict[str, dict[str, list[str]]]  # minion -> saltenv -> SLS names
+    missing: list[str]  # asked, but didn't answer
+    skipped: list[str]  # offline per presence, so not asked
+
+
+class StateFile(BaseModel):
+    root: str  # the file_roots directory it lives in
+    path: str  # relative to that root
+
+
+class StateFileContent(BaseModel):
+    path: str
+    full_path: str
+    content: str
+    truncated: bool
+
+
+class FleetLiveView(BaseModel):
+    kind: str
+    function: str
+    fetched_at: datetime
+    results: dict[str, Any]  # minion -> what it answered
+    missing: list[str]  # asked, but didn't answer in time
+    skipped: list[str]  # offline per presence, so not asked
+
+
 class GrainKey(BaseModel):
     key: str
     minions: int
+
+
+class GrainValue(BaseModel):
+    value: Any  # the grain's value as reported
+    text: str  # how it reads in a table (lists joined, objects as JSON)
+    minions: list[str]
+
+
+class GrainDistribution(BaseModel):
+    grain: str
+    total: int  # accepted minions
+    values: list[GrainValue]  # most common first
+    missing: list[str]  # accepted minions that don't report this grain
 
 
 class PresencePoint(BaseModel):

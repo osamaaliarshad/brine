@@ -574,3 +574,27 @@ def test_settings_hide_database_passwords(tmp_path: Path) -> None:
     url = async_url("postgresql://brine:pw@db:5432/brine")
     shown = url.set(drivername=url.get_backend_name()).render_as_string(hide_password=True)
     assert shown == "postgresql://brine:***@db:5432/brine"
+
+
+def test_grain_values_groups_the_fleet(api: Api) -> None:
+    api.seed(api.ingest.keys, {"minions": ["a", "b", "c", "d"], "minions_pre": ["p"]})
+    for mid, grains in [
+        ("a", {"app_version": "2.4.1", "roles": ["rover", "lidar"], "hw": {"model": "R2"}}),
+        ("b", {"app_version": "2.4.1", "roles": ["rover", "lidar"], "hw": {"model": "R2"}}),
+        ("c", {"app_version": "2.3.0", "roles": ["dock"], "hw": {"model": "D1"}}),
+    ]:
+        api.seed(api.ingest.grains, mid, grains, at=NOW, source="minion")
+
+    dist = api.get("/api/grains/values", grain="app_version")
+    assert dist["total"] == 4
+    assert [(v["text"], v["minions"]) for v in dist["values"]] == [
+        ("2.4.1", ["a", "b"]),
+        ("2.3.0", ["c"]),
+    ]
+    assert dist["missing"] == ["d"]  # never reported grains; pending keys aren't counted
+
+    roles = api.get("/api/grains/values", grain="roles")["values"]
+    assert roles[0]["text"] == "rover, lidar" and roles[0]["value"] == ["rover", "lidar"]
+    nested = api.get("/api/grains/values", grain="hw:model")["values"]
+    assert [v["text"] for v in nested] == ["R2", "D1"]
+    assert api.client.get("/api/grains/values").status_code == 422
