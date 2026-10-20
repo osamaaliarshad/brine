@@ -1,8 +1,12 @@
 # Permissions: brine's Salt service account
 
 brine talks to salt-api with **one dedicated account**. People never use Salt credentials; their
-access is decided by brine's own roles (coming with sign-in). This page lists exactly what that
-account needs on the master, so you can grant no more than that.
+access is decided by brine's own roles ([sign-in](oidc-providers.md)). This page lists exactly
+what that account needs on the master, so you can grant no more than that.
+
+Two layers decide every write: Salt's ACL (what the account may do at all) and brine's roles
+(which people may ask it to). brine reads the account's ACL when it logs in and only offers what
+Salt will allow, saying what's missing otherwise.
 
 ## 1. Create the account
 
@@ -65,13 +69,16 @@ external_auth:
       - '@jobs'
 ```
 
-The demo fleet uses exactly this list: [demo/master.d/brine-demo.conf](../demo/master.d/brine-demo.conf).
+The demo fleet uses this list plus key management (below):
+[demo/master.d/brine-demo.conf](../demo/master.d/brine-demo.conf).
 
 ### What brine never asks for
 
 - `pillar.items`: pillar is only read through `pillar.obfuscate`, so secret values never reach
   brine, let alone a browser. (Revealing values, for admins and audited, is planned.)
-- Any execution or state function (`cmd.*`, `state.apply`, ...): v1 is read-only.
+- Any execution or state function (`cmd.*`, `state.apply`, ...): there's no command box yet.
+- `key.accept`, `key.reject`, `key.delete`: they take a glob, so a minion ID with `*` or `?` in
+  it could match others. brine uses the `_dict` versions, which match exact IDs.
 
 ### Things to know
 
@@ -80,9 +87,31 @@ The demo fleet uses exactly this list: [demo/master.d/brine-demo.conf](../demo/m
 - `file_roots.read` lets brine read files under your `file_roots` (states, templates). Keep
   secrets in pillar, not in state files.
 
-## 4. Later: write actions
+## 4. Optional: key management
 
-When commands land (behind brine roles, a target preview, confirmation and the audit log), they
-need their own additions: for example `@wheel: key.accept, key.reject, key.delete` for managing
-keys, and the specific execution functions you want operators to run. Grant those only when you
-turn the features on.
+Lets admins accept, reject and delete minion keys on the Keys page and minion pages. Add to the
+`@wheel` list:
+
+```yaml
+      - '@wheel':
+        # ...the read-only entries above, then:
+        - key.accept_dict
+        - key.reject_dict
+        - key.delete_dict
+```
+
+Leave them out and brine stays read-only for keys: the buttons don't appear, and the Keys page
+says which functions are missing. With them, every change still needs:
+
+- the **admin** role in brine;
+- a confirmation: the fingerprint for accepting (brine refuses if the key changed since the page
+  loaded), the minion's name typed for deleting or for rejecting an accepted key;
+- brine checking the key is still where the admin saw it, right before acting.
+
+Each change is in the audit log with who, when, and the key's fingerprint.
+
+## 5. Later: commands
+
+Running commands and states (behind roles, a target preview, confirmation and the audit log)
+will need the specific execution functions you want operators to run. Grant those only when you
+turn the feature on.

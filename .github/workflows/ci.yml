@@ -55,7 +55,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        salt: ["3006", "3008"]
+        salt: ["3006", "3007", "3008"]  # every release Salt supports: docs/salt-versions.md
     env:
       SALT_VERSION: ${{ matrix.salt }}
     steps:

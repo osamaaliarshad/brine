@@ -9,7 +9,7 @@
 
 ---
 
-> **Status: early development.** Every read-only page works against the demo fleet, behind OIDC sign-in and roles. Running commands comes next, starting with key management. Follow [docs/backlog.md](docs/backlog.md) for progress.
+> **Status: early development.** Every read-only page works against the demo fleet, behind OIDC sign-in and roles, and admins can manage minion keys. Running commands comes next. Follow [docs/backlog.md](docs/backlog.md) for progress.
 
 brine plugs into an existing **salt-master + salt-api** and gives your team a clean, fast view of the fleet:
 
@@ -20,9 +20,10 @@ brine plugs into an existing **salt-master + salt-api** and gives your team a cl
 - **An audit log** of who did what, on which minions, and when.
 - **Configurable columns.** Show any grain (`app_version`, `firmware_version`, ...) in the fleet table, no code changes.
 - **Parity with [SaltGUI](https://github.com/erwindon/SaltGUI)** as the baseline; see [docs/saltgui-parity.md](docs/saltgui-parity.md).
-- **Least privilege.** brine needs only a read-only Salt account; the exact ACL is in [docs/permissions-and-salt-acl.md](docs/permissions-and-salt-acl.md).
+- **Least privilege.** brine needs only a read-only Salt account (plus three functions if you want key management); the exact ACL is in [docs/permissions-and-salt-acl.md](docs/permissions-and-salt-acl.md).
+- **Every supported Salt release**, tested end to end in CI against a real master: [docs/salt-versions.md](docs/salt-versions.md).
 
-v1 is read-only. Running commands and applying states come next, behind roles, a targeting preview, and a confirmation step.
+Running commands and applying states come next, behind roles, a targeting preview, and a confirmation step.
 
 ## Pages
 
@@ -99,8 +100,10 @@ minion's result. State runs are broken down state by state; anything else is sho
 ### Keys
 
 Every minion key the master knows, with its fingerprint and whether that minion is around. Keys
-waiting for approval come first. (Accepting and rejecting from brine arrives with roles and the
-audit log.)
+waiting for approval come first. Admins accept, reject and delete keys here (or from a minion's
+page): accepting shows the fingerprint to check, deleting takes typing the minion's name, and
+every change lands in the audit log. Needs [three more Salt functions](docs/permissions-and-salt-acl.md#4-optional-key-management);
+without them brine stays read-only for keys and says so.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/keys-dark.png">
@@ -209,7 +212,7 @@ uv run --project backend python demo/smoke_test.py --presence   # checks salt-ap
 ```
 
 salt-api listens on `http://127.0.0.1:8001` (user `brine`, password `brine-demo`, eauth `pam`).
-Use `SALT_VERSION=3008` to run a newer Salt. Stop a minion to watch it go offline:
+Use `SALT_VERSION=3007` or `3008` to run a newer Salt ([docs/salt-versions.md](docs/salt-versions.md)). Stop a minion to watch it go offline:
 `docker compose -f docker-compose.demo.yml stop rover-03`.
 
 ### brine

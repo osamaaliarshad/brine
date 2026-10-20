@@ -108,3 +108,16 @@ before it expires; removing the person from `roles` does the same job.
 secret stops brine at startup with a pointer to the setup guide. Running with no sign-in takes an
 explicit `provider: none`, and then every page shows a banner saying who everyone is treated as.
 A typo in the config should never leave a fleet view open to the network.
+
+## 15. Key actions re-check, match exactly, and follow the Salt ACL
+
+Accepting the wrong key hands a machine your fleet's states and pillar, so key actions are
+careful: brine re-reads the key from the master right before acting and refuses if it moved, or
+(when accepting) if its fingerprint isn't the one the admin was shown. It calls Salt's
+`key.*_dict` functions, which take exact IDs within one key state, because `key.accept` and
+friends take a glob. Deleting a key, or rejecting an accepted one, takes typing the minion's name,
+checked by the server as well as the UI.
+
+brine's roles decide which people may ask; Salt's ACL decides what brine's account may do at all.
+brine reads that ACL from the salt-api login and offers only what it allows, so a read-only
+install never shows buttons that would fail.

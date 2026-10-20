@@ -24,6 +24,9 @@ Follow-ups found along the way:
 
 - [ ] Retention: prune old jobs/returns/presence changes (`jobs.keep_days`)
 - [ ] Large fleets: the fleet endpoint loads full grains for every minion; denormalize column values if it gets slow
+- [x] CI end-to-end on Salt 3006, 3007 and 3008 ([docs/salt-versions.md](salt-versions.md))
+- [ ] CI: a master with minions on an older Salt release (mixed fleets)
+- [ ] Keys: "Waiting since" counts from first seen; track when a key last changed state, so a re-sent key shows its own wait
 - [ ] Half-open connections: the event stream has no read timeout, so a silent network partition isn't noticed until a poll fails
 
 ## Phase 2 — Auth and roles
@@ -34,7 +37,7 @@ Follow-ups found along the way:
 - [x] Audit: sign-ins, refused sign-ins (with reason), sign-outs, pillar views; admin-only Audit log page
 - [x] Sign-in page, user menu with sign-out, Settings › Sign-in
 - [x] Docs: OIDC providers (docs/oidc-providers.md), Salt eauth ACL for the service account
-- [ ] CSRF: require a custom header on every write (before Phase 5's first write)
+- [x] CSRF: every write needs the `X-Requested-With` header
 - [ ] Audit retention and export
 
 ## Phase 3 — Frontend v1 (SaltGUI read-only parity + brine extras)
@@ -69,10 +72,9 @@ Follow-ups found along the way:
 
 ## Phase 5 — Commands (SaltGUI write parity)
 
-- [ ] **First, right after sign-in:** key management (accept / reject / delete a minion's key), admin-only, type-to-confirm, audited
+- [x] Key management: accept / reject / delete from the Keys page and minion pages; admin-only, fingerprint check to accept, typed name to delete or cut off an accepted minion, audited; exact-match `key.*_dict`; offered only when the Salt ACL allows (read at login); end-to-end test on the demo master
 - [ ] Run command box: local / async / runner / wheel, glob / list / compound / nodegroup targeting
 - [ ] Targeting preview (exact minion list) + confirmation step; operator role; every run audited
-- [ ] Key accept / reject / delete
 - [ ] Grains, beacons, schedules, mine actions; job re-run / terminate / kill
 - [ ] Templates, orchestrations
 
