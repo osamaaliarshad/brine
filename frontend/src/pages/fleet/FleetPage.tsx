@@ -1,7 +1,7 @@
-import { CircleAlert, Unplug } from 'lucide-react'
+import { CircleAlert, TerminalSquare, Unplug } from 'lucide-react'
 import { useState } from 'react'
-import { useSearchParams } from 'react-router'
-import { attentionCount, useFleet, useIssues, useSystemStatus } from '@/api/queries'
+import { Link, useSearchParams } from 'react-router'
+import { attentionCount, useCapabilities, useFleet, useIssues, useMe, useSystemStatus } from '@/api/queries'
 import type { SystemStatus } from '@/api/types'
 import { PageHeader } from '@/components/PageHeader'
 import { Card } from '@/components/ui'
@@ -107,6 +107,8 @@ export function FleetPage() {
   )
   const paged = paginate(shown, view.page)
 
+  const role = useMe().data?.role
+  const canRun = !!useCapabilities(!!role && role !== 'viewer').data?.commands.length
   const presence = fleet?.presence
   const grainsAt = fleet ? latestGrainsAt(fleet.minions) : null
 
@@ -129,6 +131,12 @@ export function FleetPage() {
                   {formatRelative(grainsAt, now)}
                 </span>
               </span>
+              {canRun && (
+                <Link to="/run" className={CONTROL}>
+                  <TerminalSquare className="size-4 text-muted" aria-hidden />
+                  Run command
+                </Link>
+              )}
             </div>
           )
         }

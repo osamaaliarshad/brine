@@ -12,6 +12,7 @@ import {
   ScrollText,
   Settings,
   Sun,
+  TerminalSquare,
   TriangleAlert,
   X,
   type LucideIcon,
@@ -19,7 +20,7 @@ import {
 import { useEffect, useState } from 'react'
 import { NavLink, Outlet } from 'react-router'
 import { useLiveUpdates } from '@/api/live'
-import { attentionCount, useIssues, useMe } from '@/api/queries'
+import { attentionCount, useCapabilities, useIssues, useMe } from '@/api/queries'
 import type { User } from '@/api/types'
 import { UserMenu } from '@/components/UserMenu'
 import { Wordmark } from '@/components/Wordmark'
@@ -42,6 +43,7 @@ const CONFIG_NAV: NavItem[] = [
 ]
 
 const AUDIT_NAV: NavItem = { to: '/audit', label: 'Audit log', icon: History }
+const RUN_NAV: NavItem = { to: '/run', label: 'Run', icon: TerminalSquare }
 
 const COLLAPSED_KEY = 'brine-sidebar-collapsed'
 
@@ -140,6 +142,10 @@ function Sidebar({
   onToggleCollapsed?: () => void
 }) {
   const attention = attentionCount(useIssues().data)
+  // Run sits under Jobs, for people whose role may run something.
+  const mayRun = !!user && user.role !== 'viewer'
+  const canRun = !!useCapabilities(mayRun).data?.commands.length
+  const mainNav = canRun ? [...MAIN_NAV.slice(0, 2), RUN_NAV, ...MAIN_NAV.slice(2)] : MAIN_NAV
   const toggle = onToggleCollapsed && (
     <button
       type="button"
@@ -169,7 +175,7 @@ function Sidebar({
         </div>
       )}
       <nav aria-label="Main" className="flex flex-col gap-1">
-        {MAIN_NAV.map((item) => (
+        {mainNav.map((item) => (
           <NavRow
             key={item.to}
             item={item}

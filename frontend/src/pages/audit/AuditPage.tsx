@@ -1,4 +1,4 @@
-import { useSearchParams } from 'react-router'
+import { Link, useSearchParams } from 'react-router'
 import { useAuditLog, useMe } from '@/api/queries'
 import type { AuditEntry } from '@/api/types'
 import { PageHeader } from '@/components/PageHeader'
@@ -14,11 +14,13 @@ const ACTIONS: Record<string, string> = {
   'key.accept': 'Accepted key',
   'key.reject': 'Rejected key',
   'key.delete': 'Deleted key',
+  'command.run': 'Ran command',
 }
 
 const FILTERS = [
   { value: null, label: 'Everything' },
   { value: 'auth.', label: 'Sign-ins' },
+  { value: 'command.', label: 'Commands' },
   { value: 'key.', label: 'Keys' },
   { value: 'pillar.', label: 'Data access' },
 ] as const
@@ -29,6 +31,28 @@ function details(entry: AuditEntry): string {
     .filter(([, v]) => v !== null && v !== undefined)
     .map(([k, v]) => `${k}: ${typeof v === 'string' ? v : JSON.stringify(v)}`)
     .join(' · ')
+}
+
+/** A command reads as what was typed, with its job one click away. */
+function Details({ entry }: { entry: AuditEntry }) {
+  const d = entry.detail ?? {}
+  if (entry.action !== 'command.run' || typeof d.command !== 'string') return <>{details(entry) || '—'}</>
+  const args = Array.isArray(d.args) ? d.args.map(String) : []
+  return (
+    <>
+      <code className="font-mono text-[13px] text-fg">{[d.command, ...args].join(' ')}</code>
+      {typeof d.minions === 'number' && ` · ${d.minions} minion${d.minions === 1 ? '' : 's'}`}
+      {d.success === false && ' · failed'}
+      {typeof d.jid === 'string' && (
+        <>
+          {' · '}
+          <Link to={`/jobs/${d.jid}`} className="text-accent hover:underline">
+            job
+          </Link>
+        </>
+      )}
+    </>
+  )
 }
 
 export function AuditPage() {
@@ -109,7 +133,9 @@ export function AuditPage() {
                       </span>
                       {e.target && <span className="text-muted"> · {e.target}</span>}
                     </td>
-                    <td className="px-4 py-3 text-muted">{details(e) || '—'}</td>
+                    <td className="px-4 py-3 text-muted">
+                      <Details entry={e} />
+                    </td>
                   </tr>
                 ))}
               </tbody>

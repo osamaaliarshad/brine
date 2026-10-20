@@ -1,4 +1,4 @@
-import { ChevronLeft } from 'lucide-react'
+import { ChevronLeft, TerminalSquare } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { ApiError } from '@/api/client'
@@ -71,9 +71,11 @@ export function MinionPage() {
   const [tab, setTab] = useTab<TabKey>(TABS, 'grains')
   const minion = query.data
   const navigate = useNavigate()
-  const isAdmin = useMe().data?.role === 'admin'
-  const capabilities = useCapabilities(isAdmin)
+  const role = useMe().data?.role
+  const isAdmin = role === 'admin'
+  const capabilities = useCapabilities(!!role && role !== 'viewer')
   const canManage = isAdmin && capabilities.data?.manage_keys.allowed !== false
+  const canRun = !!capabilities.data?.commands.length
   const [target, setTarget] = useState<KeyActionTarget | null>(null)
   const keyState = minion && minion.key_state in ACTIONS_FOR ? (minion.key_state as KeyState) : null
 
@@ -96,9 +98,20 @@ export function MinionPage() {
           <h1 className="text-4xl font-semibold tracking-tight break-all">{id}</h1>
           {subtitle && <p className="mt-1 text-lg text-muted">{subtitle}</p>}
         </div>
-        {canManage && keyState && (
-          <KeyActions labelled k={{ id, key_state: keyState, fingerprint: null }} onPick={setTarget} />
-        )}
+        <div className="flex flex-wrap gap-2">
+          {canRun && minion?.key_state === 'accepted' && (
+            <Link
+              to={`/run?type=list&target=${encodeURIComponent(id)}`}
+              className="flex h-10 items-center gap-1.5 rounded-lg border px-3 text-sm hover:bg-surface-2"
+            >
+              <TerminalSquare className="size-4 text-muted" aria-hidden />
+              Run command
+            </Link>
+          )}
+          {canManage && keyState && (
+            <KeyActions labelled k={{ id, key_state: keyState, fingerprint: null }} onPick={setTarget} />
+          )}
+        </div>
       </div>
       {target && (
         <KeyActionDialog

@@ -6,7 +6,7 @@ import { ago, minion, mockApi, NOW, renderApp, systemStatus } from '@/test/rende
 
 const ADMIN: User = { email: 'a@example.com', name: 'Ada Admin', picture: null, role: 'admin', provider: 'oidc' }
 const VIEWER: User = { ...ADMIN, name: 'Val Viewer', role: 'viewer' }
-const ALLOWED: Capabilities = { manage_keys: { allowed: true, missing: [] } }
+const ALLOWED: Capabilities = { manage_keys: { allowed: true, missing: [] }, commands: ['*'] }
 
 const KEYS: Key[] = [
   { id: 'rover-01', key_state: 'accepted', fingerprint: 'aa:01', first_seen_at: ago(86400), last_seen_at: ago(5), status: 'online' },
@@ -101,7 +101,7 @@ describe('key management', () => {
 
   it("explains what to add when Salt's ACL doesn't allow it", async () => {
     api(ADMIN, {
-      '/api/capabilities': { manage_keys: { allowed: false, missing: ['key.accept_dict', 'key.delete_dict'] } },
+      '/api/capabilities': { manage_keys: { allowed: false, missing: ['key.accept_dict', 'key.delete_dict'] }, commands: ['*'] },
     })
     renderApp('/keys')
     expect(await screen.findByText(/Key management is off/)).toHaveTextContent(

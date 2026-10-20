@@ -4,6 +4,9 @@ import type {
   AuditPage,
   AuthInfo,
   Capabilities,
+  CommandPreview,
+  CommandRequest,
+  CommandResult,
   Fleet,
   FleetLiveView,
   GrainDistribution,
@@ -147,6 +150,22 @@ export function useCapabilities(enabled: boolean) {
     queryFn: () => fetchJson<Capabilities>('/api/capabilities'),
     enabled,
     staleTime: 60_000,
+  })
+}
+
+export function useCommandPreview() {
+  return useMutation({
+    mutationFn: (request: CommandRequest) => postJson<CommandPreview>('/api/commands/preview', request),
+  })
+}
+
+export function useRunCommand() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (request: CommandRequest) => postJson<CommandResult>('/api/commands/run', request),
+    onSettled: () => {
+      for (const queryKey of [queryKeys.jobs, ['audit']]) void client.invalidateQueries({ queryKey })
+    },
   })
 }
 

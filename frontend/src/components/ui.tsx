@@ -34,14 +34,14 @@ export function Pill({ children, title }: { children: ReactNode; title?: string 
 export function Badge({ children, title, tone = 'muted' }: {
   children: ReactNode
   title?: string
-  tone?: 'muted' | 'warn'
+  tone?: 'muted' | 'warn' | 'danger'
 }) {
   return (
     <span
       title={title}
       className={cn(
         'inline-block rounded-md px-1.5 py-px text-xs',
-        tone === 'warn' ? 'bg-warn/15 text-warn' : 'bg-surface-2 text-muted',
+        tone === 'warn' ? 'bg-warn/15 text-warn' : tone === 'danger' ? 'bg-danger/15 text-danger' : 'bg-surface-2 text-muted',
       )}
     >
       {children}

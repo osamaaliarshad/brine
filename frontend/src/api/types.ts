@@ -188,7 +188,40 @@ export type KeyActionRequest = {
 export type KeyActionResult = { id: string; key_state: KeyState | 'deleted' }
 
 export type Capability = { allowed: boolean | null; missing: string[] }
-export type Capabilities = { manage_keys: Capability }
+export type Capabilities = {
+  manage_keys: Capability
+  /** What the signed-in person may run (patterns like test.*); empty: no command box. */
+  commands: string[]
+}
+
+export type TargetType = 'glob' | 'list' | 'compound' | 'grain' | 'nodegroup' | 'pcre'
+
+export type CommandRequest = {
+  command: string
+  target: string
+  target_type: TargetType
+  /** Running: the minions the preview showed. */
+  expect?: string[]
+}
+
+export type CommandPreview = {
+  client: 'local' | 'runner' | 'wheel'
+  fun: string
+  qualified: string
+  args: string[]
+  minions: string[]
+  offline: string[]
+  unknown: string[]
+  from_cache: boolean
+}
+
+export type CommandResult = {
+  client: 'local' | 'runner' | 'wheel'
+  jid: string | null
+  minions: string[]
+  result: unknown
+  success: boolean | null
+}
 
 /** One raw Salt event from /api/events/stream. */
 export type SaltEventEntry = {
