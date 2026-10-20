@@ -32,3 +32,21 @@ The wordmark SVG has a fixed light fill. In the app it's used as a mask painted 
 
 Local development works on newer Node versions, but CI and the container build pin the current
 LTS line.
+
+## 6. Demo fleet runs the official Salt packages
+
+The demo image installs the Salt Project's own Debian packages from packages.broadcom.com, not pip,
+so it behaves like real fleets: the master runs as the `salt` user and Salt brings its own
+Python. It defaults to 3006 LTS, the most widely deployed line, and CI also runs it on the newest
+release (3008). Three things the slim base image needed, each found the hard way:
+
+- `usermod -aG shadow salt`: PAM eauth runs inside the unprivileged master and must read `/etc/shadow`.
+- `auth.pam.python` pointed at Salt's bundled Python, because there's no `/usr/bin/python3`.
+- `iproute2`: without it minions report no IP grains and presence detection sees nobody
+  (see [presence-and-status.md](presence-and-status.md)).
+
+The autosign file is copied in at startup rather than bind-mounted. Mounts from Windows hosts look
+world-writable, and Salt ignores world-writable autosign files.
+
+salt-api is published on `127.0.0.1:8001` so it doesn't collide with brine's own port 8000 in
+development.

@@ -49,6 +49,22 @@ YOUR EXISTING SETUP                 BRINE (docker compose up)
 
 Requirements: Python 3.12+ with [uv](https://docs.astral.sh/uv/), Node 22+, and Docker (for the demo Salt stack).
 
+### Demo Salt fleet
+
+A salt-master with salt-api, four minions with custom grains, and one minion waiting for key
+approval. Nothing to configure:
+
+```bash
+docker compose -f docker-compose.demo.yml up -d --build --wait
+uv run --project backend python demo/smoke_test.py --presence   # checks salt-api end to end
+```
+
+salt-api listens on `http://127.0.0.1:8001` (user `brine`, password `brine-demo`, eauth `pam`).
+Use `SALT_VERSION=3008` to run a newer Salt. Stop a minion to watch it go offline:
+`docker compose -f docker-compose.demo.yml stop rover-03`.
+
+### brine
+
 ```bash
 # backend: http://localhost:8000
 cd backend

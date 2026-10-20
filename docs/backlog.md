@@ -3,14 +3,14 @@
 Short and prioritized. Top of each section is next. SaltGUI page-by-page mapping lives in
 [saltgui-parity.md](saltgui-parity.md).
 
-## Phase 0 — Environment and demo stack (now)
+## Phase 0 — Environment and demo stack ✅
 
 - [x] Repo scaffold: backend, frontend, CI, license, README
-- [ ] Docker Desktop installed on the dev machine
-- [ ] `docker-compose.demo.yml`: salt-master + salt-api (demo eauth user) + 4 minions with custom grains, `presence_events: True`
-- [ ] Verify from the host: login, `test.ping`, `grains.items`, `/events` stream; stopping a minion is visible
+- [x] Docker Desktop installed on the dev machine
+- [x] `docker-compose.demo.yml`: salt-master + salt-api (PAM user `brine`) + 4 accepted minions with custom grains + 1 pending, `presence_events: True`
+- [x] `demo/smoke_test.py`: login, `test.ping`, grains, keys, `manage.status`, `/events`; stopping a minion shows up as `salt/presence/change`. Runs in CI on Salt 3006 and 3008
 
-## Phase 1 — Backend core (read-only)
+## Phase 1 — Backend core (read-only) (next)
 
 - [x] Config loading (YAML + `${VAR}` + `BRINE__` env overrides)
 - [ ] Async salt-api client: token handling, re-login on 401, timeouts

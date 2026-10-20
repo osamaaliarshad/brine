@@ -1,0 +1,84 @@
+# Demo Salt fleet: a salt-master with salt-api and five minions (four accepted, one pending).
+#
+#   docker compose -f docker-compose.demo.yml up -d --build
+#
+# salt-api is published on http://127.0.0.1:8001 (localhost only) with user `brine`,
+# eauth `pam`, password $SALT_API_PASSWORD (default: brine-demo).
+# Stop a minion to watch it go offline:  docker compose -f docker-compose.demo.yml stop rover-03
+
+name: brine-demo
+
+x-salt-image: &salt-image
+  build:
+    context: demo
+    args:
+      SALT_VERSION: ${SALT_VERSION:-3006}
+  image: brine-demo-salt:${SALT_VERSION:-3006}
+  init: true
+  restart: unless-stopped
+
+x-minion: &minion
+  <<: *salt-image
+  entrypoint: ["entrypoint-minion.sh"]
+  depends_on:
+    salt-master:
+      condition: service_healthy
+
+services:
+  salt-master:
+    <<: *salt-image
+    hostname: salt-master
+    entrypoint: ["entrypoint-master.sh"]
+    environment:
+      SALT_API_PASSWORD: ${SALT_API_PASSWORD:-brine-demo}
+    volumes:
+      - ./demo/master.d:/etc/salt/master.d:ro
+      - ./demo/autosign.conf:/demo/autosign.conf:ro
+      - master-pki:/etc/salt/pki/master
+    ports:
+      - "127.0.0.1:8001:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  rover-01:
+    <<: *minion
+    hostname: rover-01
+    environment: { MINION_ID: rover-01, SITE: site-a, ROLE: rover, APP_VERSION: "2.4.1", FIRMWARE_VERSION: "1.8.0" }
+    volumes: [rover-01-pki:/etc/salt/pki/minion]
+
+  rover-02:
+    <<: *minion
+    hostname: rover-02
+    environment: { MINION_ID: rover-02, SITE: site-a, ROLE: rover, APP_VERSION: "2.4.1", FIRMWARE_VERSION: "1.7.2" }
+    volumes: [rover-02-pki:/etc/salt/pki/minion]
+
+  rover-03:
+    <<: *minion
+    hostname: rover-03
+    environment: { MINION_ID: rover-03, SITE: site-b, ROLE: rover, APP_VERSION: "2.3.0", FIRMWARE_VERSION: "1.7.2" }
+    volumes: [rover-03-pki:/etc/salt/pki/minion]
+
+  dock-01:
+    <<: *minion
+    hostname: dock-01
+    environment: { MINION_ID: dock-01, SITE: site-b, ROLE: dock, APP_VERSION: "1.1.0", FIRMWARE_VERSION: "0.9.4" }
+    volumes: [dock-01-pki:/etc/salt/pki/minion]
+
+  # Not in autosign.conf, so its key waits for approval (shows up in Keys and Issues).
+  rover-04:
+    <<: *minion
+    hostname: rover-04
+    environment: { MINION_ID: rover-04, SITE: site-b, ROLE: rover, APP_VERSION: "2.4.1", FIRMWARE_VERSION: "1.8.0" }
+    volumes: [rover-04-pki:/etc/salt/pki/minion]
+
+# Keys are kept in volumes so recreating one container doesn't break its trust with the others.
+volumes:
+  master-pki:
+  rover-01-pki:
+  rover-02-pki:
+  rover-03-pki:
+  dock-01-pki:
+  rover-04-pki:

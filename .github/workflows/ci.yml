@@ -46,3 +46,22 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+
+  # Integration: bring up the demo Salt fleet and prove salt-api gives brine what it needs,
+  # including a minion going offline and coming back.
+  demo-stack:
+    name: demo stack (Salt ${{ matrix.salt }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        salt: ["3006", "3008"]
+    env:
+      SALT_VERSION: ${{ matrix.salt }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.0  # no floating major tag upstream
+      - run: docker compose -f docker-compose.demo.yml up -d --build --wait
+      - run: uv run --project backend python demo/smoke_test.py --presence
+      - if: failure()
+        run: docker compose -f docker-compose.demo.yml logs --no-color --tail 100
