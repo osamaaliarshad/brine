@@ -41,9 +41,10 @@ Follow-ups found along the way:
 - [ ] Fleet: "Run command" and row selection (with Phase 5)
 - [x] Minion page: connection facts, grains with "as of" (searchable), grains history as diffs, recent jobs, presence timeline; pillar (masked via pillar.obfuscate), beacons, schedules, mine fetched live
 - [ ] Pillar: reveal values (admin role, audited)
+- [ ] Mask returns of `pillar.*` functions run from the CLI (jobs and events) for non-admins: they contain real secrets
 - [x] Jobs page (search, minion/runner filter, load older) + job detail (state-by-state results, missing minions); State runs view (SaltGUI's Highstate)
 - [x] Keys page (read-only): states, fingerprints (`wheel key.finger`, second migration), pending first
-- [ ] Events page (live) + reactors
+- [x] Events page: live bus with summaries, pause, filter, presence toggle, expandable data; Reactors tab (only the `reactor` key leaves the server)
 - [ ] Issues page (SaltGUI's detectors + stale/offline)
 - [ ] Settings: active config, presence method, salt-api status
 - [x] Live updates via SSE (debounced refetch), dark/light themes

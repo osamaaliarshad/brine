@@ -440,3 +440,35 @@ def test_state_runs_shows_each_minions_latest(api: Api) -> None:
         by_minion["b"]["failed"] == 1 and by_minion["b"]["states"][0]["function"] == "pkg.installed"
     )
     assert runs["never"] == ["c"]
+
+
+class FakeWheelClient(FakeLiveClient):
+    async def wheel(self, fun: str, **kwargs: Any) -> Any:
+        self.calls.append(("", fun, kwargs))
+        if isinstance(self.result, Exception):
+            raise self.result
+        return self.result
+
+
+def test_reactors_returns_only_the_reactor_setting(api: Api) -> None:
+    config = {
+        "reactor": [
+            {"salt/minion/*/start": ["/srv/reactor/start.sls"]},
+            {"custom/tag": "/srv/reactor/one.sls"},
+        ],
+        "external_auth": {"pam": {"brine": ["secret stuff"]}},
+    }
+    use_live_client(api, FakeWheelClient(config))
+    resp = api.client.get("/api/reactors")
+    assert resp.json() == [
+        {"tag": "salt/minion/*/start", "sls": ["/srv/reactor/start.sls"]},
+        {"tag": "custom/tag", "sls": ["/srv/reactor/one.sls"]},
+    ]
+    assert "secret" not in resp.text
+
+
+def test_reactors_handles_none_configured_and_errors(api: Api) -> None:
+    use_live_client(api, FakeWheelClient({}))
+    assert api.get("/api/reactors") == []
+    use_live_client(api, FakeWheelClient(SaltApiUnavailable("down")))
+    assert api.client.get("/api/reactors").status_code == 502

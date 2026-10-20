@@ -91,6 +91,17 @@ audit log.)
   <img alt="The Keys page: rover-04 waiting for approval, four accepted keys with fingerprints" src="docs/assets/screenshots/keys-light.png">
 </picture>
 
+### Events
+
+The Salt event bus as it happens: each event with a plain-language summary, expandable to its
+full data. Pause, filter, and hide the presence heartbeat. A Reactors tab lists the master's
+reactor configuration.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/events-dark.png">
+  <img alt="The Events page: job, auth and wheel events with one-line summaries" src="docs/assets/screenshots/events-light.png">
+</picture>
+
 ## How it fits
 
 ```

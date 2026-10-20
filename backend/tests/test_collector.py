@@ -192,6 +192,8 @@ async def test_session_syncs_then_processes_events(make_collector: Any, sessions
     grains_calls = [c for c in api.calls if c[1] == "grains.items"]
     assert [c[2]["tgt"] for c in grains_calls] == ["*", "rover-02"]
     assert collector.status.presence_method == "events"
+    # Every event is also kept for the Events page.
+    assert [e["tag"] for e in collector.event_log.recent()] == [e.tag for e in LIVE_EVENTS]
 
 
 async def test_initial_presence_uses_minions_connected_in_auto_mode(

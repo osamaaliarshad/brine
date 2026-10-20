@@ -34,6 +34,7 @@ export const PAGES = [
   // The most recent state.apply: in the demo, dock-01's calibration state fails on purpose.
   ['job', async (base) => `/jobs/${(await getJson(`${base}/api/jobs?fun=state.apply&limit=1`)).jobs[0].jid}`],
   ['keys', '/keys'],
+  ['events', '/events'],
 ]
 
 const THEMES = ['light', 'dark']
@@ -126,7 +127,7 @@ async function capture(port, url, theme, out) {
       const { result } = await page.send('Runtime.evaluate', { expression: READY, returnByValue: true })
       return result.value === true
     }, 20_000)
-    await sleep(300) // let transitions settle
+    await sleep(800) // let transitions and streamed content settle
     const { data } = await page.send('Page.captureScreenshot', { format: 'png' })
     writeFileSync(out, Buffer.from(data, 'base64'))
   } finally {

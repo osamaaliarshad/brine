@@ -10,6 +10,7 @@ import type {
   LiveKind,
   LiveView,
   MinionDetail,
+  Reactor,
   StateRuns,
   SystemStatus,
 } from '@/api/types'
@@ -121,4 +122,13 @@ export function useStateRuns(enabled: boolean) {
 
 export function useKeys() {
   return useQuery({ queryKey: queryKeys.keys, queryFn: () => fetchJson<Key[]>('/api/keys') })
+}
+
+export function useReactors(enabled: boolean) {
+  return useQuery({
+    queryKey: ['reactors'],
+    queryFn: () => fetchJson<Reactor[]>('/api/reactors'),
+    enabled,
+    staleTime: 60_000,
+  })
 }

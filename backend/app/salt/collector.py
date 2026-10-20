@@ -26,6 +26,7 @@ from typing import Any, Protocol
 
 from app.bus import EventBus
 from app.config import Settings
+from app.eventlog import EventLog
 from app.ingest import Changes, Ingest
 from app.salt.client import SaltApiAuthError, SaltApiError
 from app.salt.events import SaltEvent, parse_job_start_time
@@ -88,6 +89,7 @@ class Collector:
         *,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
         backoff_sleep: Callable[[float], Any] = asyncio.sleep,
+        event_log: EventLog | None = None,
     ) -> None:
         self.client = client
         self.ingest = ingest
@@ -96,6 +98,7 @@ class Collector:
         self.clock = clock
         # Only the reconnect wait is injectable (tests skip it); the poll loops use real time.
         self.backoff_sleep = backoff_sleep
+        self.event_log = event_log or EventLog()
         self.status = CollectorStatus(since=clock())
         self._presence_event_at: datetime | None = None
 
@@ -301,6 +304,7 @@ class Collector:
     async def handle(self, event: SaltEvent) -> None:
         now = self.clock()
         self.status.last_event_at = now
+        self.event_log.append(event)
         at = event.stamp or now
         tag, d = event.tag, event.data
         changes = Changes()

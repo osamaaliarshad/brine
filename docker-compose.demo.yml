@@ -36,6 +36,7 @@ services:
       - ./demo/autosign.conf:/demo/autosign.conf:ro
       - ./demo/states:/srv/salt:ro
       - ./demo/pillar:/srv/pillar:ro
+      - ./demo/reactor:/srv/reactor:ro
       - master-pki:/etc/salt/pki/master
     ports:
       - "127.0.0.1:8001:8000"

@@ -61,6 +61,11 @@ class LiveView(BaseModel):
     data: Any
 
 
+class Reactor(BaseModel):
+    tag: str  # event tag pattern
+    sls: list[str]  # reactor SLS files it runs
+
+
 class GrainKey(BaseModel):
     key: str
     minions: int

@@ -5,9 +5,10 @@ Phase 2 adds authentication as a dependency on `api_router`, which covers every 
 
 from fastapi import APIRouter
 
-from app.api import fleet, jobs, live, system
+from app.api import events, fleet, jobs, live, system
 
 api_router = APIRouter(prefix="/api")
+api_router.include_router(events.router, tags=["events"])
 api_router.include_router(fleet.router, tags=["fleet"])
 api_router.include_router(jobs.router, tags=["jobs"])
 api_router.include_router(live.router, tags=["live"])

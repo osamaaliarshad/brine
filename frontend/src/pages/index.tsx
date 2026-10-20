@@ -3,15 +3,6 @@ import { ComingSoon, PageHeader } from '@/components/PageHeader'
 
 // Placeholder pages. Each moves to its own file as it gets built out.
 
-export function EventsPage() {
-  return (
-    <>
-      <PageHeader title="Events" subtitle="The live Salt event bus." />
-      <ComingSoon phase="Phase 3" />
-    </>
-  )
-}
-
 export function IssuesPage() {
   return (
     <>

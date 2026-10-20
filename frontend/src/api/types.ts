@@ -172,3 +172,13 @@ export type Key = {
   last_seen_at: string | null
   status: MinionStatus | null
 }
+
+/** One raw Salt event from /api/events/stream. */
+export type SaltEventEntry = {
+  seq: number
+  received_at: string
+  tag: string
+  data: Record<string, unknown>
+}
+
+export type Reactor = { tag: string; sls: string[] }
