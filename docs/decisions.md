@@ -121,3 +121,22 @@ checked by the server as well as the UI.
 brine's roles decide which people may ask; Salt's ACL decides what brine's account may do at all.
 brine reads that ACL from the salt-api login and offers only what it allows, so a read-only
 install never shows buttons that would fail.
+
+## 16. Commands: preview first, allowlist per role, jobs belong to the person
+
+The Run page never runs anything on Enter: it previews the exact minions a target matches (from
+brine's key list for glob, list and regex targets; from the master's cache for grain, compound
+and nodegroup ones) and running is a separate click. If the target matches other minions by
+then, the run is refused and the preview shown again.
+
+Two layers decide what runs. Salt's external_auth limits brine's account; `commands:` in brine's
+config lists what each role may run (fnmatch, `runners.`/`wheel.` prefixes for master-side
+functions). Admins default to everything the ACL allows, operators to nothing, viewers never.
+
+Salt sees brine's service account as every job's user. brine tags the jobs it starts with
+`metadata: {"brine": {"actor": <email>}}`, which Salt copies into every return event and the job
+cache, so the jobs are recorded under the person even when a return arrives before brine has
+written the job down, or while brine was restarting.
+
+Words after the function are sent as typed, so Salt parses `key=value` and YAML values exactly as
+the salt CLI does, rather than brine guessing.

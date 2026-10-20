@@ -110,8 +110,28 @@ says which functions are missing. With them, every change still needs:
 
 Each change is in the audit log with who, when, and the key's fingerprint.
 
-## 5. Later: commands
+## 5. Optional: the Run page (commands)
 
-Running commands and states (behind roles, a target preview, confirmation and the audit log)
-will need the specific execution functions you want operators to run. Grant those only when you
-turn the feature on.
+The Run page runs whatever functions brine's account is allowed, so list exactly the ones your
+team should be able to run through brine, for example:
+
+```yaml
+      - '*':
+        - test.*
+        - state.apply
+        - service.restart
+      - '@runner':
+        - manage.*
+```
+
+Then decide who in brine may run which of them, under `commands:` in brine's config:
+
+```yaml
+commands:
+  operator: ["test.*", "state.apply"]   # operators: only these
+  admin: ["*"]                          # admins: anything the ACL above allows (the default)
+```
+
+Viewers never run commands. Every run shows its exact target first, needs a click to confirm,
+and goes in the audit log; minion jobs are recorded under the person who ran them (brine tags
+each job with Salt job metadata). If Salt refuses a function, brine says which one to add.

@@ -45,7 +45,8 @@ Follow-ups found along the way:
 - [x] Fleet table (per the mockup): stat cards, status dot, last seen + cached/stale badges, OS/Salt, grain columns (show/hide), search, status tabs, site filter, sort, pagination; view state in the URL
 - [x] Fleet columns are customisable: add any grain the fleet reports (autocomplete), reorder, remove, reset; saved per browser; `fleet.columns` is the team default
 - [ ] Admins save a column layout as the team default from the UI (needs roles, Phase 2)
-- [ ] Fleet: "Run command" and row selection (with Phase 5)
+- [x] Fleet: "Run command" button
+- [ ] Fleet: row selection to run on the selected minions
 - [x] Collapsible sidebar (button or `[`), "b" mark when collapsed; Configuration group
 - [x] Fleet › Grains explorer (distribution of any grain, add as column) and Fleet › Nodegroups
 - [x] States page (top file per state, state files) and Automation page (schedules, beacons fleet-wide)
@@ -73,8 +74,11 @@ Follow-ups found along the way:
 ## Phase 5 — Commands (SaltGUI write parity)
 
 - [x] Key management: accept / reject / delete from the Keys page and minion pages; admin-only, fingerprint check to accept, typed name to delete or cut off an accepted minion, audited; exact-match `key.*_dict`; offered only when the Salt ACL allows (read at login); end-to-end test on the demo master
-- [ ] Run command box: local / async / runner / wheel, glob / list / compound / nodegroup targeting
-- [ ] Targeting preview (exact minion list) + confirmation step; operator role; every run audited
+- [x] Run page: minion functions (async, results on the job page) and `runners.` / `wheel.` on the master; glob, list, compound, grain, nodegroup and regex targets; recent commands (per browser); shareable links that open previewed
+- [x] Target preview (exact minion list, offline ones marked) before a separate Run click; the run is refused if the target matches other minions by then
+- [x] Who may run what: `commands:` allowlist per role (admins default to anything the Salt ACL allows; viewers never); every run audited; jobs recorded under the person via Salt job metadata (end-to-end test on the demo)
+- [ ] Function help in the command box (`sys.doc`) and autocomplete
+- [ ] Long runners (orchestrations) as async jobs with live progress (`runner_async`), instead of waiting on the request
 - [ ] Grains, beacons, schedules, mine actions; job re-run / terminate / kill
 - [ ] Templates, orchestrations
 

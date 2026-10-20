@@ -9,7 +9,7 @@
 
 ---
 
-> **Status: early development.** Every read-only page works against the demo fleet, behind OIDC sign-in and roles, and admins can manage minion keys. Running commands comes next. Follow [docs/backlog.md](docs/backlog.md) for progress.
+> **Status: early development.** Every SaltGUI view has a brine page, and commands and key management work, all behind OIDC sign-in and roles. Still to come: SaltGUI's templates, orchestrations and job re-run/kill, and packaging (a Docker image and a quickstart). Follow [docs/backlog.md](docs/backlog.md) for progress.
 
 brine plugs into an existing **salt-master + salt-api** and gives your team a clean, fast view of the fleet:
 
@@ -17,13 +17,14 @@ brine plugs into an existing **salt-master + salt-api** and gives your team a cl
 - **Live vs. cached, clearly separated.** Online now, or last seen *X* ago, with grains marked "as of" when they were collected.
 - **Per-minion pages** with grains (current and history), recent jobs, and a presence timeline.
 - **Job history that outlives Salt's job cache.**
+- **Run commands safely.** See exactly which minions a command reaches before it runs; a per-role allowlist decides who may run what.
 - **An audit log** of who did what, on which minions, and when.
 - **Configurable columns.** Show any grain (`app_version`, `firmware_version`, ...) in the fleet table, no code changes.
 - **Parity with [SaltGUI](https://github.com/erwindon/SaltGUI)** as the baseline; see [docs/saltgui-parity.md](docs/saltgui-parity.md).
 - **Least privilege.** brine needs only a read-only Salt account (plus three functions if you want key management); the exact ACL is in [docs/permissions-and-salt-acl.md](docs/permissions-and-salt-acl.md).
 - **Every supported Salt release**, tested end to end in CI against a real master: [docs/salt-versions.md](docs/salt-versions.md).
 
-Running commands and applying states come next, behind roles, a targeting preview, and a confirmation step.
+Commands run from the Run page, behind roles, an exact target preview and a confirmation click.
 
 ## Pages
 
@@ -95,6 +96,20 @@ minion's result. State runs are broken down state by state; anything else is sho
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/job-dark.png">
   <img alt="A state.apply job: dock-01's calibration state failed, the rovers succeeded" src="docs/assets/screenshots/job-light.png">
+</picture>
+
+### Run
+
+SaltGUI's command box, with a safety catch. Type a target and a command the way you would after
+`salt` on the master (`state.apply motd test=True`), or `runners.` / `wheel.` ones for the master
+itself. brine first shows exactly which minions it reaches, and which of those are offline;
+running is a separate click, and the results land on the job page as they arrive. Who may run
+what is a per-role allowlist in brine's config, every run is in the audit log, and links like
+`/run?target=rover-*&command=test.ping` open already previewed.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/run-dark.png">
+  <img alt="The Run page: state.apply motd test=True previewed on rover-01, rover-02 and rover-03" src="docs/assets/screenshots/run-light.png">
 </picture>
 
 ### Keys

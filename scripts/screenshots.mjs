@@ -35,6 +35,8 @@ export const PAGES = [
   ['state-runs', '/jobs?tab=states'],
   // The most recent state.apply: in the demo, dock-01's calibration state fails on purpose.
   ['job', async (base) => `/jobs/${(await getJson(`${base}/api/jobs?fun=state.apply&limit=1`)).jobs[0].jid}`],
+  // A shared link opens previewed (nothing runs).
+  ['run', `/run?target=${encodeURIComponent('rover-*')}&command=${encodeURIComponent('state.apply motd test=True')}`],
   ['keys', '/keys'],
   ['states', '/states'],
   ['automation', '/automation'],
@@ -58,7 +60,7 @@ const HEIGHT = 900
 // The page is ready once the main area has rendered and nothing says it's still loading.
 const READY = `(() => {
   const main = document.querySelector('main')
-  return !!main && main.innerText.length > 0 && !/Loading|Asking/.test(main.innerText)
+  return !!main && main.innerText.length > 0 && !/Loading|Asking|Checking/.test(main.innerText)
     && document.fonts.status === 'loaded'
 })()`
 

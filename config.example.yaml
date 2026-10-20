@@ -28,6 +28,11 @@ roles:                             # fnmatch-style email patterns; highest match
   operator: ["alice@example.com"]
   admin:    ["bob@example.com"]    # admins see the audit log
 
+commands:                          # what each role may run from the Run page (fnmatch)
+  operator: ["test.*", "state.apply", "service.restart", "runners.manage.*"]
+  admin: ["*"]                     # the default: anything brine's Salt account may run
+                                   # viewers never run commands
+
 fleet:
   columns:                         # custom grains shown in the fleet table
     - grain: app_version

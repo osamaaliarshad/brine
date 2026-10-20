@@ -38,7 +38,7 @@ actions (phase 5) and sign-in (phase 2) are next.
 | Beacons | Minion › Beacons + Automation › Beacons (fleet-wide) | 3 ✅ | |
 | Schedules | Minion › Schedules + Automation › Schedules (fleet-wide) | 3 ✅ | |
 | Nodegroups | Fleet › Nodegroups | 3 ✅ | Members from the master cache, so offline members count |
-| Keys | Keys page | 3 / 5 | View in 3; accept / reject / delete in 5 |
+| Keys | Keys page (+ minion page) | 3 / 5 ✅ | Accept / reject / delete: admins, fingerprint check, typed name, audited |
 | Jobs | Jobs page | 3 | From brine's own DB, so history outlives the master's job cache |
 | Job detail | Job page | 3 / 5 | Re-run / terminate / kill in 5 |
 | Highstate | Jobs › Highstate | 3 | Latest state run per minion, one dot per state |
@@ -46,7 +46,7 @@ actions (phase 5) and sign-in (phase 2) are next.
 | Reactors | Events › Reactors | 3 | Read-only |
 | Issues | Issues page | 3 | SaltGUI's detectors (below) plus stale / never-reported minions |
 | Options + `/stats` | Settings | 3 | Active config, presence method, salt-api health |
-| Command box | Run command | 5 | Adds targeting preview, confirmation, role check, audit |
+| Command box | Run (sidebar), Run command on Fleet and minion pages | 5 ✅ | Exact target preview, then a click to run; per-role allowlist; audited; results on the job page |
 | Grains / beacons / schedules / mine actions | Minion page actions | 5 | |
 | Templates (`saltgui_templates`) | Run command › Templates | 5 | |
 | Orchestrations | Run command › Orchestrations | 5 | |
