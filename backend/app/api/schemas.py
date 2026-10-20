@@ -288,6 +288,29 @@ class Key(BaseModel):
     status: Status | None  # accepted keys only
 
 
+KeyState = Literal["pending", "accepted", "rejected", "denied"]
+
+
+class KeyActionRequest(BaseModel):
+    state: KeyState  # the state the admin saw; the action is refused if Salt's differs
+    fingerprint: str | None = None  # required to accept: the fingerprint the admin checked
+    confirm: str | None = None  # the minion's name, typed, for deletes and rejecting accepted keys
+
+
+class KeyActionResult(BaseModel):
+    id: str
+    key_state: str  # where the key is now: accepted, rejected, pending (re-sent), or deleted
+
+
+class Capability(BaseModel):
+    allowed: bool | None  # None: salt-api can't be asked right now
+    missing: list[str]  # Salt functions the service account's external_auth lacks
+
+
+class Capabilities(BaseModel):
+    manage_keys: Capability
+
+
 class SaltApiStatus(BaseModel):
     url: str
     connected: bool

@@ -17,6 +17,8 @@ from app.auth.roles import role_for
 from app.config import ConfigError, Settings, parse_config
 from app.main import create_app
 
+CSRF = {"X-Requested-With": "brine"}
+
 OIDC = """
 salt_api: {url: 'https://salt.test:8000', username: brine, password: x}
 auth:
@@ -161,9 +163,17 @@ def test_provider_errors_go_back_to_the_login_page(client: TestClient, idp: Fake
 
 def test_logout(client: TestClient, idp: FakeIdP) -> None:
     sign_in(client, idp, "alice@example.com")
-    assert client.post("/api/auth/logout").status_code == 204
+    assert client.post("/api/auth/logout", headers=CSRF).status_code == 204
     assert client.get("/api/fleet").status_code == 401
     assert ("auth.logout", "alice@example.com") in audit_actions(client, idp)
+
+
+def test_writes_need_the_csrf_header(client: TestClient, idp: FakeIdP) -> None:
+    # A form on another site can POST with the cookie, but can't add a custom header.
+    sign_in(client, idp, "alice@example.com")
+    resp = client.post("/api/auth/logout")
+    assert resp.status_code == 403 and "X-Requested-With" in resp.json()["detail"]
+    assert client.get("/api/fleet").status_code == 200  # still signed in
 
 
 def test_tampered_session_cookie_is_ignored(client: TestClient, idp: FakeIdP) -> None:

@@ -134,3 +134,47 @@ def test_demo_fleet_end_to_end(settings: Settings) -> None:
         assert {m["id"] for m in get(c, "/api/fleet")["minions"]} == ACCEPTED
         assert any(j["fun"] == "test.ping" for j in get(c, "/api/jobs")["jobs"])
         assert get(c, "/api/minions/rover-03")["presence_history"]
+
+
+def test_demo_key_lifecycle(settings: Settings) -> None:
+    """rover-04 waits for approval: reject it, accept it after all, delete it, and see it ask
+    again once restarted. Leaves rover-04 pending, as the demo expects."""
+    csrf = {"X-Requested-With": "brine"}
+
+    def key(c: TestClient) -> dict[str, Any] | None:
+        return next((k for k in get(c, "/api/keys") if k["id"] == "rover-04"), None)
+
+    def act(c: TestClient, action: str, **body: Any) -> Any:
+        resp = c.post(f"/api/keys/rover-04/{action}", json=body, headers=csrf)
+        assert resp.status_code == 200, resp.text
+        return resp.json()["key_state"]
+
+    app = create_app(settings, frontend_dist=Path("/nonexistent"))
+    try:
+        with TestClient(app) as c:
+            assert get(c, "/api/capabilities")["manage_keys"]["allowed"] is True
+            wait_until("rover-04's key", lambda: bool((key(c) or {}).get("fingerprint")), 60)
+            fingerprint = key(c)["fingerprint"]  # type: ignore[index]
+
+            assert act(c, "reject", state="pending") == "rejected"
+            assert act(c, "accept", state="rejected", fingerprint=fingerprint) == "accepted"
+            assert (key(c) or {})["key_state"] == "accepted"
+            assert act(c, "delete", state="accepted", confirm="rover-04") in ("deleted", "pending")
+
+            # A running minion whose key is deleted stays quiet until it restarts.
+            compose("restart", "rover-04")
+            wait_until(
+                "rover-04 to ask again", lambda: (key(c) or {}).get("key_state") == "pending", 60
+            )
+            actions = [
+                (e["action"], e["target"]) for e in get(c, "/api/audit", action="key.")["entries"]
+            ]
+            assert actions == [
+                ("key.delete", "rover-04"),
+                ("key.accept", "rover-04"),
+                ("key.reject", "rover-04"),
+            ]
+    finally:
+        # Whatever happened, put rover-04 back to pending for the rest of the demo.
+        compose("exec", "-T", "salt-master", "salt-key", "-y", "-d", "rover-04")
+        compose("restart", "rover-04")

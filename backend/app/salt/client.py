@@ -39,6 +39,10 @@ class SaltApiAuthError(SaltApiError):
     """The service account was rejected (wrong password, or no permissions)."""
 
 
+class SaltApiForbidden(SaltApiAuthError):
+    """Logged in fine, but external_auth doesn't let the service account do this."""
+
+
 class SaltApiClient:
     def __init__(
         self,
@@ -58,6 +62,7 @@ class SaltApiClient:
         )
         self._token: str | None = None
         self._expires_at = 0.0
+        self._perms: list[Any] = []
         self._login_lock = asyncio.Lock()
 
     @property
@@ -90,6 +95,7 @@ class SaltApiClient:
             )
         self._token = str(info["token"])
         self._expires_at = float(info["expire"])
+        self._perms = list(info["perms"])
         log.info("logged in to salt-api as %s", self._config.username)
 
     async def _get_token(self, *, force: bool = False) -> str:
@@ -99,6 +105,11 @@ class SaltApiClient:
                 await self._login()
             assert self._token is not None
             return self._token
+
+    async def permissions(self) -> list[Any]:
+        """The service account's external_auth entries, as salt-api reported them at login."""
+        await self._get_token()
+        return self._perms
 
     # --- requests -------------------------------------------------------------------------
 
@@ -115,6 +126,9 @@ class SaltApiClient:
             # Token revoked or salt-api restarted: log in again once.
             token = await self._get_token(force=True)
             resp = await self._send(method, path, headers={"X-Auth-Token": token}, **kwargs)
+            if resp.status_code == 401:
+                # A fresh token refused too: external_auth doesn't allow this call.
+                raise SaltApiForbidden("salt-api refused: the service account isn't allowed", 403)
         _raise_for_status(resp)
         return resp
 
@@ -172,8 +186,15 @@ class SaltApiClient:
         return await self.run({"client": "runner", "fun": fun, **kwargs})
 
     async def wheel(self, fun: str, **kwargs: Any) -> Any:
-        result = await self.run({"client": "wheel", "fun": fun, **kwargs})
-        data = result.get("data", {}) if isinstance(result, dict) else {}
+        try:
+            result = await self.run({"client": "wheel", "fun": fun, **kwargs})
+        except SaltApiForbidden as exc:
+            raise SaltApiForbidden(
+                f"brine's Salt account isn't allowed to run wheel {fun}", 403
+            ) from exc
+        if not isinstance(result, dict):  # salt-api reports some failures as a bare string
+            raise SaltApiError(f"wheel {fun} failed: {result!r:.200}")
+        data = result.get("data", {})
         if not data.get("success", False):
             raise SaltApiError(f"wheel {fun} failed: {data.get('return')!r:.200}")
         return data.get("return")

@@ -3,19 +3,16 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import AsyncIterator
-from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select
 
 from app.api.deps import RuntimeDep, SessionDep
-from app.api.fleet import configured_columns, presence_blind, presence_info
+from app.api.fleet import configured_columns, presence_info
 from app.api.schemas import (
     AuthSettings,
     DatabaseSettings,
     FleetSettings,
-    Key,
     PresenceSettings,
     RoleCounts,
     SaltApiSettings,
@@ -25,43 +22,10 @@ from app.api.schemas import (
 )
 from app.auth.oidc import provider_name
 from app.db import async_url
-from app.models import Minion
-from app.status import minion_status
 
 router = APIRouter()
 
 KEEPALIVE_SECONDS = 15
-
-
-@router.get("/keys", response_model=list[Key])
-async def keys(runtime: RuntimeDep, session: SessionDep) -> list[Key]:
-    presence = await presence_info(session)
-    blind = await presence_blind(session)
-    now = datetime.now(UTC)
-    stale_after = timedelta(minutes=runtime.settings.fleet.stale_after_minutes)
-    rows = await session.scalars(
-        select(Minion).where(Minion.key_state != "deleted").order_by(Minion.id)
-    )
-    return [
-        Key(
-            id=m.id,
-            key_state=m.key_state,
-            fingerprint=m.key_fingerprint,
-            first_seen_at=m.first_seen_at,
-            last_seen_at=m.last_seen_at,
-            status=minion_status(
-                connected=m.connected,
-                last_seen_at=m.last_seen_at,
-                presence_at=presence.checked_at,
-                now=now,
-                stale_after=stale_after,
-                observable=m.id not in blind,
-            )
-            if m.key_state == "accepted"
-            else None,
-        )
-        for m in rows
-    ]
 
 
 @router.get("/status", response_model=SystemStatus)

@@ -8,7 +8,13 @@ import pytest
 import respx
 
 from app.config import SaltApiConfig
-from app.salt.client import SaltApiAuthError, SaltApiClient, SaltApiError, SaltApiUnavailable
+from app.salt.client import (
+    SaltApiAuthError,
+    SaltApiClient,
+    SaltApiError,
+    SaltApiForbidden,
+    SaltApiUnavailable,
+)
 from app.salt.events import SaltEvent, parse_job_start_time, parse_sse, parse_stamp
 
 API = "https://salt.test:8000"
@@ -135,6 +141,37 @@ async def test_wheel_unwraps_data_and_reports_failure(client: SaltApiClient) -> 
     assert await client.wheel("key.list_all") == {"minions": ["m1"]}
     with pytest.raises(SaltApiError, match="boom"):
         await client.wheel("key.list_all")
+
+
+@respx.mock
+async def test_wheel_keeps_salt_api_error_strings(client: SaltApiClient) -> None:
+    respx.post(f"{API}/login").mock(return_value=login_ok("t"))
+    respx.post(f"{API}/").mock(
+        return_value=httpx.Response(200, json={"return": ["Exception occurred in wheel"]})
+    )
+    with pytest.raises(SaltApiError, match="Exception occurred in wheel"):
+        await client.wheel("key.accept_dict", match={"minions_pre": ["m1"]})
+
+
+@respx.mock
+async def test_refused_after_a_fresh_login_means_not_allowed(client: SaltApiClient) -> None:
+    # salt-api answers a call the ACL doesn't allow with 401, like an expired token. If a fresh
+    # token is refused too, it's the ACL, and the error says which function.
+    login = respx.post(f"{API}/login").mock(return_value=login_ok("t"))
+    respx.post(f"{API}/").mock(return_value=httpx.Response(401, text="<html>401</html>"))
+    with pytest.raises(SaltApiForbidden, match=r"isn't allowed to run wheel key.delete_dict"):
+        await client.wheel("key.delete_dict", match={"minions": ["m1"]})
+    assert login.call_count == 2
+
+
+@respx.mock
+async def test_permissions_come_from_the_login(client: SaltApiClient) -> None:
+    perms = [{"@wheel": ["key.list_all"]}, "@jobs"]
+    body = {"return": [{"token": "t", "expire": 1_043_200.0, "perms": perms, "user": "brine"}]}
+    login = respx.post(f"{API}/login").mock(return_value=httpx.Response(200, json=body))
+    assert await client.permissions() == perms
+    assert await client.permissions() == perms
+    assert login.call_count == 1
 
 
 @respx.mock
