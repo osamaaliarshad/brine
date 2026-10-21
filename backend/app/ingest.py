@@ -83,9 +83,15 @@ def _later(current: datetime | None, candidate: datetime) -> datetime:
     return candidate if current is None or candidate > current else current
 
 
-def _meet_want(read: InventoryRead) -> None:
-    """An answer meets a want (a start, a job) only if brine asked at or after it."""
-    if read.wanted_at is not None and read.asked_at is not None and read.asked_at >= read.wanted_at:
+def _asked_at(read: InventoryRead, jid: str | None) -> datetime | None:
+    """When brine made the ask an answer (from job `jid`) is to, if it's brine's latest ask.
+    None for anything else: a person's own call, or an older ask answering late."""
+    return read.asked_at if jid is not None and jid == read.asked_jid else None
+
+
+def _meet_want(read: InventoryRead, asked: datetime | None) -> None:
+    """An answer meets a want (a start, a job) only if it's to an ask made at or after it."""
+    if read.wanted_at is not None and asked is not None and asked >= read.wanted_at:
         read.wanted_at = None
 
 
@@ -264,10 +270,14 @@ class Ingest:
             s.add(read)
         return read
 
-    async def inventory_asked(self, mids: Iterable[str], source: str, *, at: datetime) -> None:
+    async def inventory_asked(
+        self, mids: Iterable[str], source: str, *, at: datetime, jid: str | None
+    ) -> None:
+        """brine asked these minions at `at`, in job `jid` (None: no minion matched)."""
         async with self._lock, self._sessions() as s, s.begin():
             for mid in mids:
-                (await self._read_row(s, mid, source)).asked_at = at
+                read = await self._read_row(s, mid, source)
+                read.asked_at, read.asked_jid = at, jid
 
     async def inventory_wanted(self, mid: str, *, at: datetime) -> None:
         """The minion started: read each source again from `at` on. A minion never read has no
@@ -295,24 +305,21 @@ class Ingest:
         *,
         at: datetime,
         truncated: bool = False,
+        jid: str | None = None,
     ) -> Changes:
         """A good answer: these are all the entries `mid` has for `source`, as of `at`. Each
         difference from the last read is a change; the first read records what's there without
-        any ("already there when brine first looked")."""
+        any ("already there when brine first looked"). `jid` is the job that carried it."""
         async with self._lock, self._sessions() as s, s.begin():
             read = await self._read_row(s, mid, source)
             if read.read_at is not None and at <= read.read_at:
                 return Changes()  # an older answer arriving late, or a duplicate
             first, since = read.first_read_at is None, read.read_at
-            # Changes go to the job only if brine asked after it: an answer to an older ask may
-            # show a change made before the job. Otherwise the credit waits for the next answer.
-            credited = (
-                read.after_at is not None
-                and read.asked_at is not None
-                and read.asked_at >= read.after_at
-                and at >= read.after_at
-            )
-            jid, user = (read.after_jid, read.after_user) if credited else (None, None)
+            # Changes go to the job only in the answer to brine's latest ask, made after the job:
+            # any other answer may show a change made before the job. Then the credit waits.
+            asked = _asked_at(read, jid)
+            credited = asked is not None and read.after_at is not None and asked >= read.after_at
+            job, user = (read.after_jid, read.after_user) if credited else (None, None)
             current = {
                 item.name: item
                 for item in await s.scalars(
@@ -345,7 +352,7 @@ class Ingest:
                         new=new,
                         at=at,
                         since=since,
-                        jid=jid,
+                        jid=job,
                         user=user,
                     )
                     for name, old, new in moved
@@ -357,18 +364,20 @@ class Ingest:
             # A failed answer from after this one (it arrived first) stays the latest answer.
             if read.answered_at is None or at >= read.answered_at:
                 read.answered_at, read.error = at, None
-            _meet_want(read)
+            _meet_want(read, asked)
         return Changes(fleet=bool(moved), minions={mid})
 
-    async def inventory_failed(self, mid: str, source: str, error: str, *, at: datetime) -> Changes:
+    async def inventory_failed(
+        self, mid: str, source: str, error: str, *, at: datetime, jid: str | None = None
+    ) -> Changes:
         """The minion answered but couldn't say (a locked package database, a failing check).
-        The last good entries stay, as of when they were read."""
+        The last good entries stay, as of when they were read. `jid` is the job that carried it."""
         async with self._lock, self._sessions() as s, s.begin():
             read = await self._read_row(s, mid, source)
             if read.answered_at is not None and at <= read.answered_at:
                 return Changes()  # an older answer arriving late, or a duplicate
             read.answered_at, read.error = at, error
-            _meet_want(read)
+            _meet_want(read, _asked_at(read, jid))
         return Changes(minions={mid})
 
     # --- jobs -----------------------------------------------------------------------------

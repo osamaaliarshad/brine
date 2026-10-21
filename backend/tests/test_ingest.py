@@ -345,16 +345,19 @@ async def test_changes_after_a_job_are_credited_to_it(ingest: Ingest, sessions: 
     await ingest.inventory_read("a", "packages", {"agent": "2.3.0"}, at=T0)
     job_at = T0 + timedelta(hours=1)
     await ingest.inventory_job_done("a", jid="J1", user="alice@example.com", at=job_at)
-    await ingest.inventory_asked(["a"], "packages", at=job_at + timedelta(seconds=61))
+    await ingest.inventory_asked(["a"], "packages", at=job_at + timedelta(seconds=61), jid="A1")
     await ingest.inventory_read(
-        "a", "packages", {"agent": "2.4.1"}, at=job_at + timedelta(minutes=2)
+        "a", "packages", {"agent": "2.4.1"}, at=job_at + timedelta(minutes=2), jid="A1"
     )
     (change,) = await changes_of(sessions, "a")
     assert (change.jid, change.user) == ("J1", "alice@example.com")
     read = await read_row(sessions, "a")
     assert read.after_jid is None and read.after_user is None and read.after_at is None
     # The credit is used up: the next change isn't the job's.
-    await ingest.inventory_read("a", "packages", {"agent": "2.5.0"}, at=T0 + timedelta(hours=8))
+    await ingest.inventory_asked(["a"], "packages", at=T0 + timedelta(hours=7), jid="A2")
+    await ingest.inventory_read(
+        "a", "packages", {"agent": "2.5.0"}, at=T0 + timedelta(hours=8), jid="A2"
+    )
     assert (await changes_of(sessions, "a"))[-1].jid is None
 
 
@@ -363,19 +366,72 @@ async def test_an_answer_to_an_ask_before_the_job_is_not_credited(
 ) -> None:
     minute = timedelta(minutes=1)
     await ingest.inventory_read("a", "packages", {"agent": "2.3.0"}, at=T0)
-    await ingest.inventory_asked(["a"], "packages", at=T0 + timedelta(hours=1))
+    await ingest.inventory_asked(["a"], "packages", at=T0 + timedelta(hours=1), jid="A1")
     job_at = T0 + timedelta(hours=1) + minute
     await ingest.inventory_job_done("a", jid="J1", user="alice", at=job_at)
-    # The answer to the earlier ask: what changed may predate the job.
-    await ingest.inventory_read("a", "packages", {"agent": "2.4.0"}, at=job_at + minute)
+    # The answer to brine's latest ask, but that ask came before the job: what changed may
+    # predate it.
+    await ingest.inventory_read("a", "packages", {"agent": "2.4.0"}, at=job_at + minute, jid="A1")
     assert (await changes_of(sessions, "a"))[-1].jid is None
     read = await read_row(sessions, "a")
     assert (read.after_jid, read.after_user, read.after_at) == ("J1", "alice", job_at)
     # The credit waits for the answer to an ask made after the job.
-    await ingest.inventory_asked(["a"], "packages", at=job_at + 5 * minute)
-    await ingest.inventory_read("a", "packages", {"agent": "2.4.1"}, at=job_at + 6 * minute)
+    await ingest.inventory_asked(["a"], "packages", at=job_at + 5 * minute, jid="A2")
+    await ingest.inventory_read(
+        "a", "packages", {"agent": "2.4.1"}, at=job_at + 6 * minute, jid="A2"
+    )
     last = (await changes_of(sessions, "a"))[-1]
     assert (last.old, last.new, last.jid, last.user) == ("2.4.0", "2.4.1", "J1", "alice")
+
+
+async def test_a_late_answer_to_an_older_ask_is_not_credited(
+    ingest: Ingest, sessions: Sessions
+) -> None:
+    minute = timedelta(minutes=1)
+    await ingest.inventory_read("a", "packages", {"agent": "2.3.0"}, at=T0)
+    await ingest.inventory_asked(["a"], "packages", at=T0 + timedelta(hours=1), jid="A1")
+    job_at = T0 + timedelta(hours=1) + minute
+    await ingest.inventory_job_done("a", jid="J1", user="alice", at=job_at)
+    await ingest.inventory_asked(["a"], "packages", at=job_at + AFTER_JOB, jid="A2")
+    # A1's answer arrives after A2 went out. brine's latest ask came after the job, but this
+    # isn't its answer: what it shows may predate the job.
+    await ingest.inventory_read(
+        "a", "packages", {"agent": "2.4.0"}, at=job_at + 2 * minute, jid="A1"
+    )
+    assert (await changes_of(sessions, "a"))[-1].jid is None
+    read = await read_row(sessions, "a")
+    assert (read.after_jid, read.wanted_at) == ("J1", job_at + AFTER_JOB)
+    # A2's own answer takes the credit and meets the want.
+    await ingest.inventory_read(
+        "a", "packages", {"agent": "2.4.1"}, at=job_at + 3 * minute, jid="A2"
+    )
+    last = (await changes_of(sessions, "a"))[-1]
+    assert (last.old, last.new, last.jid, last.user) == ("2.4.0", "2.4.1", "J1", "alice")
+    read = await read_row(sessions, "a")
+    assert read.after_jid is None and read.wanted_at is None
+
+
+async def test_an_answer_to_someone_elses_call_is_not_credited(
+    ingest: Ingest, sessions: Sessions
+) -> None:
+    minute = timedelta(minutes=1)
+    await ingest.inventory_read("a", "packages", {"agent": "2.3.0"}, at=T0)
+    job_at = T0 + timedelta(hours=1)
+    await ingest.inventory_job_done("a", jid="J1", user="alice", at=job_at)
+    await ingest.inventory_asked(["a"], "packages", at=job_at + AFTER_JOB, jid="A1")
+    # A person's own pkg.list_pkgs (no jid of brine's): its entries count, but not for credit.
+    await ingest.inventory_read("a", "packages", {"agent": "2.4.1"}, at=job_at + 2 * minute)
+    assert await items(sessions, "a") == {"agent": "2.4.1"}
+    assert (await changes_of(sessions, "a"))[-1].jid is None
+    read = await read_row(sessions, "a")
+    assert read.read_at == read.answered_at == job_at + 2 * minute
+    assert (read.after_jid, read.wanted_at) == ("J1", job_at + AFTER_JOB)
+    # The same for a jid brine never asked with.
+    await ingest.inventory_read(
+        "a", "packages", {"agent": "2.4.2"}, at=job_at + 3 * minute, jid="OTHER"
+    )
+    assert (await changes_of(sessions, "a"))[-1].jid is None
+    assert (await read_row(sessions, "a")).after_jid == "J1"
 
 
 async def test_the_latest_job_wins_the_credit(ingest: Ingest, sessions: Sessions) -> None:
@@ -390,19 +446,29 @@ async def test_the_latest_job_wins_the_credit(ingest: Ingest, sessions: Sessions
 
 
 async def test_a_job_wants_a_read_shortly_after_it(ingest: Ingest, sessions: Sessions) -> None:
-    await ingest.inventory_asked(["a"], "packages", at=T0)
-    await ingest.inventory_read("a", "packages", {"agent": "2.3.0"}, at=T0 + timedelta(seconds=5))
+    await ingest.inventory_asked(["a"], "packages", at=T0, jid="A0")
+    await ingest.inventory_read(
+        "a", "packages", {"agent": "2.3.0"}, at=T0 + timedelta(seconds=5), jid="A0"
+    )
     job_at = T0 + timedelta(hours=1)
     await ingest.inventory_job_done("a", jid="J1", user="alice", at=job_at)
     assert (await read_row(sessions, "a")).wanted_at == job_at + AFTER_JOB
 
-    # An answer to an ask made before the want doesn't meet it ...
-    await ingest.inventory_asked(["a"], "packages", at=job_at)
-    await ingest.inventory_read("a", "packages", {"agent": "2.3.0"}, at=job_at + AFTER_JOB * 2)
+    # The answer to an ask made before the want doesn't meet it ...
+    await ingest.inventory_asked(["a"], "packages", at=job_at, jid="A1")
+    await ingest.inventory_read(
+        "a", "packages", {"agent": "2.3.0"}, at=job_at + AFTER_JOB * 2, jid="A1"
+    )
     assert (await read_row(sessions, "a")).wanted_at == job_at + AFTER_JOB
-    # ... the answer to one made at or after it does.
-    await ingest.inventory_asked(["a"], "packages", at=job_at + AFTER_JOB * 3)
-    await ingest.inventory_read("a", "packages", {"agent": "2.4.1"}, at=job_at + AFTER_JOB * 4)
+    # ... nor does an answer to anything but brine's latest ask ...
+    await ingest.inventory_asked(["a"], "packages", at=job_at + AFTER_JOB * 3, jid="A2")
+    for at, jid in [(AFTER_JOB * 4, None), (AFTER_JOB * 5, "A1"), (AFTER_JOB * 6, "OTHER")]:
+        await ingest.inventory_read("a", "packages", {"agent": "2.3.0"}, at=job_at + at, jid=jid)
+        assert (await read_row(sessions, "a")).wanted_at == job_at + AFTER_JOB
+    # ... its answer, to an ask made at or after the want, does.
+    await ingest.inventory_read(
+        "a", "packages", {"agent": "2.4.1"}, at=job_at + AFTER_JOB * 7, jid="A2"
+    )
     assert (await read_row(sessions, "a")).wanted_at is None
 
 
@@ -427,13 +493,16 @@ async def test_a_start_wants_every_source_read_again(ingest: Ingest, sessions: S
 
 
 async def test_asks_are_recorded_for_each_minion(ingest: Ingest, sessions: Sessions) -> None:
-    await ingest.inventory_asked(["a", "b"], "packages", at=T0)
+    await ingest.inventory_asked(["a", "b"], "packages", at=T0, jid="A1")
     for mid in ("a", "b"):
         read = await read_row(sessions, mid)
-        assert read.asked_at == T0 and read.answered_at is None and read.read_at is None
+        assert read.asked_at == T0 and read.asked_jid == "A1"
+        assert read.answered_at is None and read.read_at is None
         assert (await minion(sessions, mid)).key_state == "accepted"
-    await ingest.inventory_asked(["a"], "packages", at=T0 + timedelta(hours=6))
-    assert (await read_row(sessions, "a")).asked_at == T0 + timedelta(hours=6)
+    # No minion matched: no job, so no answer can be the ask's.
+    await ingest.inventory_asked(["a"], "packages", at=T0 + timedelta(hours=6), jid=None)
+    read = await read_row(sessions, "a")
+    assert read.asked_at == T0 + timedelta(hours=6) and read.asked_jid is None
 
 
 async def test_late_answers_are_ignored(ingest: Ingest, sessions: Sessions) -> None:
@@ -484,8 +553,15 @@ async def test_a_failure_meets_a_want_like_a_good_answer(
 ) -> None:
     await ingest.inventory_read("a", "packages", {"agent": "2.3.0"}, at=T0)
     await ingest.inventory_wanted("a", at=T0 + timedelta(hours=1))
-    await ingest.inventory_asked(["a"], "packages", at=T0 + timedelta(hours=1))
-    await ingest.inventory_failed("a", "packages", "locked", at=T0 + timedelta(hours=1, seconds=5))
+    await ingest.inventory_asked(["a"], "packages", at=T0 + timedelta(hours=1), jid="A1")
+    # A failure from someone else's call doesn't meet it; one answering brine's ask does.
+    await ingest.inventory_failed(
+        "a", "packages", "locked", at=T0 + timedelta(hours=1, seconds=5), jid="OTHER"
+    )
+    assert (await read_row(sessions, "a")).wanted_at == T0 + timedelta(hours=1)
+    await ingest.inventory_failed(
+        "a", "packages", "locked", at=T0 + timedelta(hours=1, seconds=6), jid="A1"
+    )
     assert (await read_row(sessions, "a")).wanted_at is None
 
 

@@ -87,6 +87,7 @@ class InventoryRead(Base):
     )
     source: Mapped[str] = mapped_column(String(64), primary_key=True)
     asked_at: Mapped[datetime | None]  # brine last asked
+    asked_jid: Mapped[str | None] = mapped_column(String(32))  # the job brine's latest ask started
     answered_at: Mapped[datetime | None]  # last answer, good or failed
     read_at: Mapped[datetime | None]  # last good answer: entries are as of this
     first_read_at: Mapped[datetime | None]

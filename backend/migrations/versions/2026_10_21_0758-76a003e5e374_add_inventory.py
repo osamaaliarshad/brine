@@ -58,6 +58,7 @@ def upgrade() -> None:
     sa.Column('minion_id', sa.String(length=255), nullable=False),
     sa.Column('source', sa.String(length=64), nullable=False),
     sa.Column('asked_at', app.models.types.UTCDateTime(), nullable=True),
+    sa.Column('asked_jid', sa.String(length=32), nullable=True),
     sa.Column('answered_at', app.models.types.UTCDateTime(), nullable=True),
     sa.Column('read_at', app.models.types.UTCDateTime(), nullable=True),
     sa.Column('first_read_at', app.models.types.UTCDateTime(), nullable=True),
