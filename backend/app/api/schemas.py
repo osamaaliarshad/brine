@@ -120,7 +120,8 @@ class InventorySettings(BaseModel):
 
 
 class SettingsView(BaseModel):
-    """The running configuration, minus every secret."""
+    """The running configuration. Its secrets (passwords, client secrets) stay hidden; check
+    commands are shown as written, to every signed-in role."""
 
     version: str
     salt_api: SaltApiSettings

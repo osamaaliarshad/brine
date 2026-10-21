@@ -32,6 +32,8 @@ from pydantic import (
 ENV_PREFIX = "BRINE__"
 CONFIG_PATH_VAR = "BRINE_CONFIG"
 _PLACEHOLDER = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}")
+# Where placeholders are left as written: each check's command.
+_LITERAL = {("inventory", "checks")}
 
 
 class ConfigError(Exception):
@@ -172,7 +174,9 @@ class InventoryConfig(_Strict):
     refresh_hours: float = Field(default=6, ge=0.25, le=24 * 30)
     # name -> a read-only shell command, on one line, run with cmd.run_all. `name=value` lines
     # become one entry each; any other output is one value. Print nothing when the thing isn't
-    # there.
+    # there. Commands are taken literally, with no ${VAR} filled in: the minion's shell runs
+    # them as written. Every signed-in role sees them in Settings, and their output in the
+    # explorer, so keep secrets out of them.
     checks: dict[str, str] = Field(default_factory=dict)
 
     @field_validator("checks")
@@ -236,7 +240,8 @@ class Settings(_Strict):
 
 
 def expand_placeholders(data: Any, env: Mapping[str, str]) -> Any:
-    """Replace ``${VAR}`` and ``${VAR:-default}`` in every string value of parsed YAML.
+    """Replace ``${VAR}`` and ``${VAR:-default}`` in every string value of parsed YAML except
+    check commands, which are taken literally (see InventoryConfig.checks).
 
     Runs after parsing, so comments are left alone and env values can't alter YAML structure.
     """
@@ -251,16 +256,18 @@ def expand_placeholders(data: Any, env: Mapping[str, str]) -> Any:
         missing.append(name)
         return ""
 
-    def walk(node: Any) -> Any:
+    def walk(node: Any, path: tuple[str, ...]) -> Any:
+        if path in _LITERAL:
+            return node
         if isinstance(node, str):
             return _PLACEHOLDER.sub(repl, node)
         if isinstance(node, dict):
-            return {key: walk(value) for key, value in node.items()}
+            return {key: walk(value, (*path, str(key))) for key, value in node.items()}
         if isinstance(node, list):
-            return [walk(item) for item in node]
+            return [walk(item, path) for item in node]
         return node
 
-    expanded = walk(data)
+    expanded = walk(data, ())
     if missing:
         raise ConfigError(f"environment variable(s) not set: {', '.join(sorted(set(missing)))}")
     return expanded

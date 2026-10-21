@@ -155,6 +155,19 @@ def test_inventory_check_command_error_names_the_first_bad_character() -> None:
         parse_config(MINIMAL + text, {"PW": "x"})
 
 
+def test_inventory_check_commands_are_taken_literally() -> None:
+    # A ${VAR} in a command is for the minion's shell: brine's own environment isn't put in
+    # (it would show in Settings), and one brine doesn't have isn't an error.
+    command = "ls ${HOME}/.config ${PW} ${UNSET:-x}"
+    text = MINIMAL + f"inventory:\n  refresh_hours: ${{HOURS:-2}}\n  checks: {{c: '{command}'}}\n"
+    for env in ({"PW": "x"}, {"PW": "x", "HOME": "/home/brine"}):
+        settings = parse_config(text, env)
+        assert settings.inventory.checks == {"c": command}
+        # Placeholders anywhere else are still filled in, in the inventory section too.
+        assert settings.salt_api.password.get_secret_value() == "x"
+        assert settings.inventory.refresh_hours == 2
+
+
 def test_inventory_check_command_may_have_tabs_and_unicode() -> None:
     text = "inventory: {checks: {c: \"printf '%s\\t%s' café x\"}}\n"
     settings = parse_config(MINIMAL + text, {"PW": "x"})
