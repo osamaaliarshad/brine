@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.bus import EventBus
 from app.config import Settings
 from app.ingest import PRESENCE_STATE, Ingest
-from app.inventory import AFTER_JOB
+from app.inventory import AFTER_JOB, MAX_ENTRIES
 from app.models import InventoryItem, InventoryRead, Job, JobReturn, Minion
 from app.salt.client import SaltApiUnavailable
 from app.salt.collector import Collector
@@ -513,3 +513,43 @@ async def test_a_minion_start_wants_a_reread(
     await collector.handle(ev("salt/minion/rover-01/start", id="rover-01"))
     # As of the master's stamp, like the answers it's compared with.
     assert (await read_of(sessions)).wanted_at == STAMP
+
+
+async def test_a_minion_start_wants_a_reread_even_if_salt_api_then_fails(
+    make_collector: Any, ingest: Ingest, sessions: Sessions
+) -> None:
+    class SaltApiDown(FakeSaltApi):
+        async def local_async(self, tgt: str, fun: str, **kwargs: Any) -> str | None:
+            raise SaltApiUnavailable("down")
+
+    collector = make_collector(SaltApiDown([]))
+    await ingest.inventory_read("rover-01", "packages", {"bash": "5.2"}, at=T0, jid=None)
+    with pytest.raises(SaltApiUnavailable):  # asking for its grains fails
+        await collector.handle(ev("salt/minion/rover-01/start", id="rover-01"))
+    assert (await read_of(sessions)).wanted_at == STAMP
+
+
+@pytest.mark.parametrize("more", [{"runas": "bob"}, "runas=bob"])
+async def test_a_checks_command_with_more_arguments_is_a_job_not_an_answer(
+    make_collector: Any, ingest: Ingest, sessions: Sessions, more: Any
+) -> None:
+    # Keyword arguments come as a dict (through salt-api) or as name=value (the salt CLI).
+    # They can change the output (runas, env, cwd), and the command could do anything.
+    collector = make_collector(FakeSaltApi([]))
+    await ingest.inventory_read("rover-01", "packages", {"bash": "5.2"}, at=T0, jid=None)
+    answer, args = ok("rover-cli 1.2.0"), [ROVER_CLI, more]
+    await collector.handle(job_ret("403", "cmd.run_all", answer, args=args, user="alice"))
+    assert await inventory_of(sessions) == {("packages", "bash", "5.2")}
+    assert (await read_of(sessions)).after_jid == "403"
+
+
+async def test_a_truncated_answer_is_stored_as_truncated(
+    make_collector: Any, ingest: Ingest, sessions: Sessions
+) -> None:
+    collector = make_collector(FakeSaltApi([]))
+    await ingest.inventory_read("rover-01", "rover-cli", {"old": "1"}, at=T0, jid=None)
+    stdout = "\n".join(f"c{i}=1" for i in range(MAX_ENTRIES + 1))
+    await collector.handle(job_ret("501", "cmd.run_all", ok(stdout), args=[ROVER_CLI]))
+    assert (await read_of(sessions, "rover-cli")).truncated
+    # Some entries may be missing from it, so none are taken as gone.
+    assert ("rover-cli", "old", "1") in await inventory_of(sessions)

@@ -343,7 +343,7 @@ class Collector:
             )
             # An answer is a read, brine's or a person's: it changes nothing, so there's nothing
             # to read again after it, or to credit changes to.
-            if source := self._inventory_source(fun, d.get("fun_args") or []):
+            if source := self._inventory_source(fun, d.get("fun_args")):
                 changes.merge(await self._inventory_answer(mid, m["jid"], source, d, at))
             elif not self.ingest.is_housekeeping(user, fun) and inventory.may_change_software(fun):
                 await self.ingest.inventory_job_done(mid, jid=m["jid"], user=user, at=at)
@@ -390,19 +390,21 @@ class Collector:
             changes = await self.ingest.minion_seen(m["mid"], at=now)
             changes.merge(await self.ingest.presence_visible(m["mid"]))
             # A (re)started minion may have new grains, packages and checks. The want is timed
-            # by the master, like the answers it's compared with.
-            await self.client.local_async(m["mid"], "grains.items", tgt_type="list")
+            # by the master, like the answers it's compared with, and recorded first, so a
+            # salt-api error asking for grains doesn't lose it.
             await self.ingest.inventory_wanted(m["mid"], at=at)
+            await self.client.local_async(m["mid"], "grains.items", tgt_type="list")
 
         self._publish(changes)
 
-    def _inventory_source(self, fun: str, args: list[Any]) -> str | None:
-        """What a return answers, if anything: the packages, for a plain ``pkg.list_pkgs``
-        (arguments such as ``versions_as_list`` or ``attr`` change its shape), or a check, for
-        ``cmd.run_all`` with its exact command."""
+    def _inventory_source(self, fun: str, args: object) -> str | None:
+        """What a return answers, if anything: the packages, for ``pkg.list_pkgs`` with no
+        arguments (``versions_as_list`` or ``attr`` change its shape), or a check, for
+        ``cmd.run_all`` with exactly its command (``runas``, ``env`` or ``cwd`` can change the
+        output: such a run is a job like any other)."""
         if fun == inventory.PACKAGES_FUN:
             return None if args else inventory.PACKAGES
-        if fun == inventory.CHECK_FUN:
+        if fun == inventory.CHECK_FUN and isinstance(args, list) and len(args) == 1:
             return inventory.check_named(self.settings, args)
         return None
 

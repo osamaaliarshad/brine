@@ -13,13 +13,13 @@ import hashlib
 import json
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.inventory import AFTER_JOB, CREDIT_WINDOW, NO_JOB
+from app.inventory import AFTER_JOB, CLOCK_MARGIN, CREDIT_WINDOW, NO_JOB
 from app.models import (
     AuditEntry,
     GrainsSnapshot,
@@ -262,14 +262,14 @@ class Ingest:
     #   it. The want stays until brine's answer, good or failed, clears it, so a lost answer is
     #   asked again.
     # * Credit: the job waits in `after_*` for brine's answer. A good one credits what changed
-    #   to the job if brine asked at or after it (see the next rule) and within CREDIT_WINDOW
-    #   of it; later, too much else may have changed. brine's answer uses the credit up either
-    #   way, good or failed.
-    # * An ask sent before the job closes a race: the sweep times its ask before sending it, so
-    #   an ask sent just before the job finished, but recorded after the job was, is timed
-    #   before it, and its answer may predate the job. That answer (good, failed or late)
-    #   settles only the ask: the want and the credit wait for the next ask, which, made for
-    #   the want, comes AFTER_JOB after the job.
+    #   to the job if brine asked at least CLOCK_MARGIN after it (see the next rule) and within
+    #   CREDIT_WINDOW of it; later, too much else may have changed. brine's answer uses the
+    #   credit up either way, good or failed.
+    # * An ask timed before the job, or less than CLOCK_MARGIN after it, may have been sent
+    #   before it: the sweep times its ask before sending it, so an ask sent just before the
+    #   job finished can be recorded after the job was, and its answer may predate the job.
+    #   That answer (good, failed or late) settles only the ask: the want and the credit wait
+    #   for the next ask, which, made for the want, comes AFTER_JOB after the job.
     # * Several jobs before brine's answer credit none of them: `after_jid` is None,
     #   `after_user` the person if it was the same one each time, `after_at` the latest job.
     # * Late answers (no newer than the last good read, or for a failure the last answer)
@@ -281,12 +281,12 @@ class Ingest:
     #   which costs one more ask, never a wrong credit.
     # * A source's first read records what's there without changes. A truncated answer (cut
     #   short, so some entries may be missing) adds and updates entries but removes none.
-    # * Clocks: answers, jobs and starts are timed by the master, asks by brine. Refreshes and
-    #   the credit window compare the two coarsely. The credit's lower bound and an ask sent
-    #   before the job compare an ask with a job closely: when the two are closer together than
-    #   the clocks are apart, one just after the job can look sent before it (its answer goes
-    #   uncredited, and one more ask is made), or one just before can look sent after it
-    #   (credited, though it may miss the job's changes). Either way, at most a credit is lost.
+    # * Clocks: answers, jobs and starts are timed by the master, asks by brine. brine assumes
+    #   they agree to within CLOCK_MARGIN (NTP); then skew costs at most one more ask (and a
+    #   credit lost, if the answer before it already saw the job's changes), never a wrong
+    #   credit. With brine's clock further ahead, an ask sent just before a job can look sent
+    #   after it, so what its answer found before the job is credited to the job. Further
+    #   behind is still never a wrong credit.
 
     async def _read_row(self, s: AsyncSession, mid: str, source: str) -> InventoryRead:
         await self._get_or_create(s, mid, "accepted")
@@ -299,13 +299,14 @@ class Ingest:
     @staticmethod
     def _settle(read: InventoryRead) -> None:
         """brine's answer, good or failed: no ask is out, the want is met, the credit used up.
-        An ask sent before the job waiting in `after_*` settles only itself: the next ask, made
-        for the want, gets the want and the credit."""
+        An ask timed before the job waiting in `after_*`, or less than CLOCK_MARGIN after it,
+        may have been sent before it, so settles only itself: the next ask, made for the want,
+        gets the want and the credit."""
         read.asked_jid = None
         sent_before_job = (
             read.after_at is not None
             and read.asked_at is not None
-            and read.asked_at < read.after_at
+            and read.asked_at < read.after_at + CLOCK_MARGIN
         )
         if not sent_before_job:
             read.wanted_at = None
@@ -401,7 +402,7 @@ class Ingest:
                 brines_answer
                 and read.after_at is not None
                 and read.asked_at is not None
-                and timedelta(0) <= read.asked_at - read.after_at <= CREDIT_WINDOW
+                and CLOCK_MARGIN <= read.asked_at - read.after_at <= CREDIT_WINDOW
             )
             credit_jid, credit_user = (read.after_jid, read.after_user) if credit else (None, None)
             current = {

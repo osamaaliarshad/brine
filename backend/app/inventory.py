@@ -27,10 +27,14 @@ CHECK_FUN = "cmd.run_all"
 ANSWER_WAIT = timedelta(minutes=10)
 # Read again this long after a person's job that could change software finishes.
 AFTER_JOB = timedelta(seconds=60)
-# What brine's read finds is credited to the job before it only if brine asked at or after the
-# job, and within this long of it: the wait after it, one lost answer asked again, and slack for
-# the sweep and for the two clocks (asks are timed by brine's, jobs by the master's). Later, too
-# much else may have changed.
+# brine assumes its clock and the master's (asks are timed by brine's, jobs by the master's)
+# agree to within this, as NTP keeps them. An ask timed less than this after a job may have
+# been sent before it, so its answer gets no credit. Less than AFTER_JOB, so the ask made for
+# a job is never one of them.
+CLOCK_MARGIN = timedelta(seconds=30)
+# What brine's read finds is credited to the job before it only if brine asked CLOCK_MARGIN or
+# more after the job, and within this long of it: the wait after it, one lost answer asked
+# again, and slack for the sweep and the clocks. Later, too much else may have changed.
 CREDIT_WINDOW = AFTER_JOB + ANSWER_WAIT + timedelta(minutes=2)
 # Kept as an ask's job when no minion matched (salt-api started none), so brine waits
 # ANSWER_WAIT as for any ask rather than asking again on every sweep. Salt's jids are digits,

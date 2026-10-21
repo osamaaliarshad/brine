@@ -358,3 +358,8 @@ def test_an_ask_that_matched_no_minion_is_waited_for_too() -> None:
 
 def test_the_credit_window_covers_the_wait_and_one_lost_answer() -> None:
     assert inv.CREDIT_WINDOW > inv.AFTER_JOB + inv.ANSWER_WAIT
+
+
+def test_the_ask_made_for_a_job_is_past_the_clock_margin() -> None:
+    # It comes AFTER_JOB after the job, so it's never taken as sent before it.
+    assert inv.CLOCK_MARGIN < inv.AFTER_JOB

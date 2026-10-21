@@ -1,10 +1,19 @@
 from datetime import datetime, timedelta
 
+import pytest
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.ingest import PRESENCE_STATE, Changes, Ingest
-from app.inventory import AFTER_JOB, ANSWER_WAIT, CREDIT_WINDOW, NO_JOB, ReadState, is_due
+from app.inventory import (
+    AFTER_JOB,
+    ANSWER_WAIT,
+    CLOCK_MARGIN,
+    CREDIT_WINDOW,
+    NO_JOB,
+    ReadState,
+    is_due,
+)
 from app.models import (
     GrainsSnapshot,
     InventoryChange,
@@ -546,12 +555,15 @@ async def test_a_credited_read_with_no_change_uses_the_credit_up(
 
 async def test_the_credit_window(ingest: Ingest, sessions: Sessions) -> None:
     job_at = T0 + HOUR
-    for mid in ("a", "b"):
+    for mid in ("a", "b", "c"):
         await ingest.inventory_read(mid, "packages", {"agent": "2.3.0"}, at=T0, jid=None)
         await ingest.inventory_job_done(mid, jid="J1", user="alice", at=job_at)
     # Asked within the window (a slow sweep, or one lost answer): credited.
     await brine_reads(ingest, {"agent": "2.4.1"}, at=job_at + CREDIT_WINDOW, jid="A1", mid="a")
     assert (await last_change(sessions, "a")).jid == "J1"
+    # It starts CLOCK_MARGIN after the job: an ask closer may have been sent before it.
+    await brine_reads(ingest, {"agent": "2.4.1"}, at=job_at + CLOCK_MARGIN, jid="A1", mid="c")
+    assert (await last_change(sessions, "c")).jid == "J1"
     # Asked later (the minion was away): too much else may have changed. No credit, and it's
     # used up all the same.
     late = job_at + CREDIT_WINDOW + MINUTE
@@ -561,16 +573,22 @@ async def test_the_credit_window(ingest: Ingest, sessions: Sessions) -> None:
     assert read.after_at is None and read.wanted_at is None
 
 
+@pytest.mark.parametrize(
+    "skew",
+    [timedelta(0), 5 * SECOND, -5 * SECOND, CLOCK_MARGIN - SECOND, SECOND - CLOCK_MARGIN],
+)
 async def test_an_ask_sent_just_before_the_job_isnt_credited(
-    ingest: Ingest, sessions: Sessions
+    ingest: Ingest, sessions: Sessions, skew: timedelta
 ) -> None:
+    # brine's clock is `skew` ahead of the master's (behind if negative): less than the margin.
     await ingest.inventory_read("a", "packages", {"agent": "2.3.0", "curl": "7"}, at=T0, jid=None)
     # The sweep sends A1, then the job's return is processed, then A1 is recorded: it looks
-    # like an ask after the job, but it was timed (before sending) ahead of it.
-    sent = T0 + 6 * HOUR
+    # like an ask after the job, but it was timed (before sending) ahead of it, or, with
+    # brine's clock ahead, just after it.
+    sent = T0 + 6 * HOUR  # by the master's clock
     job_at = sent + SECOND
     await ingest.inventory_job_done("a", jid="J1", user="alice", at=job_at)
-    await ingest.inventory_asked(["a"], "packages", at=sent, jid="A1")
+    await ingest.inventory_asked(["a"], "packages", at=sent + skew, jid="A1")
     # A1 ran before the job's change; curl was changed by hand hours ago.
     await ingest.inventory_read(
         "a", "packages", {"agent": "2.3.0", "curl": "8"}, at=sent + 2 * SECOND, jid="A1"
@@ -580,6 +598,7 @@ async def test_an_ask_sent_just_before_the_job_isnt_credited(
     # A1's answer settles only A1: the job still wants a read, and its credit waits for it.
     read = await read_row(sessions, "a")
     assert (read.asked_jid, read.after_jid, read.wanted_at) == (None, "J1", job_at + AFTER_JOB)
+    assert not await due(sessions, now=job_at + AFTER_JOB - SECOND)
     assert await due(sessions, now=job_at + AFTER_JOB)
     await brine_reads(ingest, {"agent": "2.4.1", "curl": "8"}, at=job_at + AFTER_JOB, jid="A2")
     last = await last_change(sessions)
