@@ -34,8 +34,8 @@ the fleet, and a safe way to act on it:
 - **Any grain as a column** (`app_version`, `firmware_version`, ...) in the fleet table, no code
   changes.
 - **What's installed where.** Packages from each minion's own package manager, plus your own
-  checks for anything else, kept over time, with the job a change was found after when brine can
-  tell. Compare any minion with a golden one.
+  checks for anything else (one-line commands in `inventory.checks`), kept over time. Each change
+  shows the job it was found after, when brine can tell. Compare any minion with a golden one.
 - **Everything [SaltGUI](https://github.com/erwindon/SaltGUI) does,** and your
   `saltgui_templates` keep working ([coming from SaltGUI](docs/saltgui-parity.md)).
 - **Least privilege.** brine needs a read-only Salt account, plus a few functions for keys,
@@ -128,10 +128,10 @@ Screenshots follow your light/dark preference and come from the demo fleet.
 
 ### Fleet
 
-Every minion at a glance: online now or last seen when, OS and Salt version, and any grains or
-packages you choose as columns. Search, filter by status, sort, and pick columns (add any grain
-the fleet reports, reorder, remove; saved per browser, with the config's `fleet.columns` as the
-team default). Updates live as minions come and go.
+Every minion at a glance: online now or last seen when, OS and Salt version, and any grain,
+package or check you choose as a column. Search, filter by status, sort, and pick columns (add
+any grain the fleet reports, reorder, remove; saved per browser, with the config's
+`fleet.columns` as the team default). Updates live as minions come and go.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/fleet-dark.png">
@@ -161,8 +161,8 @@ can't tell.
 
 Everything about one minion: connection and how long it's been that way, every grain with when
 it was collected, its packages and checks, recent jobs, and an online/offline timeline. History
-shows grains and package changes on one timeline. Pillar (values masked), beacons, schedules and
-mine are fetched live from the minion on demand.
+shows grain, package and check changes on one timeline. Pillar (values masked), beacons,
+schedules and mine are fetched live from the minion on demand.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/minion-dark.png">

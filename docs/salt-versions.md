@@ -16,7 +16,8 @@ better fix.
   versions is handled in one place, in Python, with tests, and the UI never sees it.
 - **A small, stable set of Salt functions.** Everything brine calls is listed in
   [permissions-and-salt-acl.md](permissions-and-salt-acl.md): key, job and presence management,
-  the master's grains cache, and the event bus. These have been around for many releases.
+  the master's grains cache, package lists (and checks, if you configure any), and the event
+  bus. These have been around for many releases.
 - **brine checks what the master offers instead of guessing from version numbers.** Presence uses
   `presence_events` when the master sends them and polls otherwise. Minions the master's presence
   detection can't see are flagged, not called offline. Write actions are offered only when the

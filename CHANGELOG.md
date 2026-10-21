@@ -3,7 +3,7 @@
 ## [0.1.0] - 2026-10-21
 
 The first release: a web UI for an existing salt-master and salt-api, covering what SaltGUI does,
-plus sign-in, history, an audit log and catch-up runs.
+plus sign-in, history, an audit log, catch-up runs, and what's installed on each minion.
 
 - **Fleet:** every minion online, stale or offline with last seen, any grains as columns, the
   spread of any grain across the fleet, nodegroups.
@@ -12,8 +12,8 @@ plus sign-in, history, an audit log and catch-up runs.
 - **Packages and checks:** what each minion has installed, from its own package manager, plus
   your own checks for anything else (container images, binaries in `/opt`), kept over time. See
   which minions have which version, or don't have it, add any package as a column, and see each
-  change with the job it was found after. Compare a minion with a golden one, or the whole fleet
-  with it.
+  change with the job it was found after, when brine can tell. Compare a minion with a golden
+  one, or the whole fleet with it.
 - **Jobs:** history kept in brine's database, each minion's latest state run, and a page per job
   with state-by-state results, Run again, and stop or kill.
 - **Run:** commands like the salt CLI, showing the exact minions they'll reach before anything

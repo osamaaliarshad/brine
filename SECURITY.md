@@ -24,15 +24,17 @@ week, and credit in the release notes if you'd like it.
 
 - **Job output is visible to everyone signed in** (pillar output excepted). If people run
   commands whose output contains secrets, give viewer access only to people who may see them.
-- **So are package lists, and checks with their output.** Keep secrets out of check commands,
-  and don't write checks that print them.
-- **Checks let brine's Salt account run commands.** Salt pins each check's command, but not the
-  call's other options, so an account allowed checks can in practice run other commands too
-  ([details](docs/permissions-and-salt-acl.md#4-optional-checks)). Leave checks out if that
-  account should stay read-only. The same goes for people: with a check's rule in place, admins
-  (`commands.admin` is `["*"]` by default) and operators allowed `cmd.*` can run `cmd.run_all`
-  from the Run page with those other options. Narrow `commands.admin` and `commands.operator`
-  if that matters.
+- **So are package lists, and check commands and their output.** Keep secrets out of check
+  commands, and don't write checks that print them.
+- **Checks let brine's Salt account run any command.** Salt pins each check's command but not the
+  call's other options (`shell`, `env`, `runas`, `cwd`). So anyone holding that account's
+  password, or controlling brine's server, can run commands on your minions
+  ([details](docs/permissions-and-salt-acl.md#4-optional-checks)). Leave checks out if the
+  account should stay read-only.
+- **Checks also widen the Run page.** With a check's rule in place, anyone brine lets run
+  `cmd.run_all` can use it to run any command. By default that's every admin (`commands.admin`
+  is `["*"]`), plus operators allowed `cmd.*`. Give both lists explicit entries without
+  `cmd.run_all` if that matters.
 - **Who ran a job** comes from Salt job metadata that brine sets. Someone with shell access to the
   master could set the same metadata on a job of their own; the audit log is the record to trust.
 - **Signing out** clears the session in that browser. A copied session cookie keeps working until

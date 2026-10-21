@@ -72,7 +72,7 @@ external_auth:
 ```
 
 Salt reads each name as a regular expression that only has to match the start of the function's
-name, so each one ends in `$` to allow just that function (section 6 has why it matters).
+name, so each one ends in `$` to allow just that function (section 6 says why it matters).
 
 The demo fleet uses this list plus a check, key management and a command box (below):
 [demo/master.d/brine-demo.conf](../demo/master.d/brine-demo.conf).
@@ -82,8 +82,8 @@ The demo fleet uses this list plus a check, key management and a command box (be
 - `pillar.items`: brine's own Pillar tab reads pillar through `pillar.obfuscate`, so it never
   fetches secret values itself. If someone runs a pillar function (from the salt CLI or the Run
   page), its output reaches brine's job history; only admins see it there.
-- Commands of its own, other than the checks you configure (section 4), which it runs exactly
-  as written. Any other command runs only when a person runs it from the Run page (section 6).
+- Commands, apart from the checks you configure (section 4), which brine runs exactly as
+  written. Any other command runs only when a person runs it from the Run page (section 6).
 - `key.accept`, `key.reject`, `key.delete`: they take a glob, so a minion ID with `*` or `?` in
   it could match others. brine uses the `_dict` versions, which match exact IDs.
 
@@ -118,16 +118,16 @@ rule of its own: two patterns in one `args` list would be the first and second a
 single call. Until its rule is there, brine says it can't read that check, in Settings and on the
 Issues page.
 
-**Checks let brine's account run commands.** Salt pins the command, but it can't pin the call's
-other options (`shell`, `env`, `runas`, `cwd`), and those are enough to run something else. So
-in practice, an account that's allowed checks can run commands on your minions. Leave checks out
-to keep brine's account read-only: packages alone need only `pkg.list_pkgs`.
+**Checks let brine's account run any command.** Salt pins the command, but it can't pin the
+call's other options (`shell`, `env`, `runas`, `cwd`), and those are enough to run something
+else. So anyone holding that account's password, or controlling brine's server, can run commands
+on your minions. Leave checks out to keep brine's account read-only: packages alone need only
+`pkg.list_pkgs`.
 
-That goes for brine's Run page too. Once a check's rule is there, anyone brine lets run
-`cmd.run_all` can run it with the check's command and those other options: admins, as
-`commands.admin` defaults to `["*"]`, and operators whose list matches it (`cmd.*`). If that
-matters, list what admins and operators may run under `commands:` (section 6) instead of `*`,
-without `cmd.run_all`.
+**Checks also widen the Run page.** With a check's rule in place, anyone brine lets run
+`cmd.run_all` can use it to run any command. By default that's every admin (`commands.admin` is
+`["*"]`), plus operators allowed `cmd.*`. If that matters, give `commands.admin` and
+`commands.operator` explicit lists that leave out `cmd.run_all` (section 6).
 
 ## 5. Optional: key management
 
@@ -168,11 +168,11 @@ team should be able to run through brine, for example:
         - state.orchestrate$     # Orchestrations › Run (and Test)
 ```
 
-Salt reads each name as a regular expression that only has to match the start: `cmd.run` also
-allows `cmd.run_all`, `cmd.run_stdout` and the rest, with any command, and so gets round the
-pinned rules of your checks; `state.orchestrate` also allows `state.orchestrate_single` and
-`state.orchestrate_high`. End a name with `$` to allow just that function. Patterns like `test.*`
-work as they read.
+Salt reads each name as a regular expression that only has to match the start. So `cmd.run`
+also allows `cmd.run_all`, `cmd.run_stdout` and the rest, with any command, which gets round the
+pinned rules of your checks. And `state.orchestrate` also allows `state.orchestrate_single` and
+`state.orchestrate_high`. End a name with `$` to allow just that function; patterns like
+`test.*` work as they read.
 
 Then decide who in brine may run which of them, under `commands:` in brine's config:
 

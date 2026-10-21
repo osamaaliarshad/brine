@@ -17,8 +17,9 @@ curl -fsSL https://github.com/saltstack/salt-install-guide/releases/latest/downl
   | sudo tee /etc/apt/sources.list.d/salt.sources
 ```
 
-Pin it to the release line your master runs (`3006.*`, `3007.*` or `3008.*`). Upgrade the
-master first: a minion newer than its master isn't guaranteed to work.
+Pin it to the release line your master runs (`3006.*`, `3007.*` or `3008.*`): `salt --version`
+on the master says which, and brine's Fleet page shows what each minion runs. When you upgrade
+later, do the master first: a minion newer than its master isn't guaranteed to work.
 
 ```bash
 echo 'Package: salt-*
@@ -27,8 +28,8 @@ Pin-Priority: 1001' | sudo tee /etc/apt/preferences.d/salt-pin-1001
 ```
 
 The package starts the minion as soon as it's installed (and enables it at boot), so give it its
-master and ID first. Otherwise it starts with the defaults: a master called `salt`, and an ID
-guessed from the hostname.
+master and ID before installing (pick a scheme first: section 2). Otherwise it starts with the
+defaults: a master called `salt`, and an ID guessed from the hostname.
 
 ```bash
 sudo mkdir -p /etc/salt/minion.d
@@ -40,6 +41,9 @@ sudo apt install salt-minion
 
 The minion reads its config when it starts: after changing anything in `/etc/salt/minion.d`
 later, `sudo systemctl restart salt-minion`.
+
+Then accept its key (section 6 has how) and check it answers. On the master:
+`salt 'rover-0042' test.ping`.
 
 ## 2. Identity
 
@@ -56,10 +60,9 @@ role: rover
 hw_rev: B2
 ```
 
-Keep them in that one file: the `grains` option in the minion config overrides the file's grains
-of the same name, and a `grains:` block in `minion.d` replaces the main config's whole block.
-After changing them, `salt 'rover-0042' saltutil.refresh_grains`. brine can show each as a Fleet
-column, and you can target them (`G@site:site-a`).
+Keep static grains only in this file. After changing them, run
+`salt 'rover-0042' saltutil.refresh_grains` on the master. brine can show each as a Fleet column,
+and you can target them (`G@site:site-a`).
 
 **No grain for the JetPack version.** The package list already has it: `nvidia-l4t-core` comes
 with Jetson Linux (`36.4.3-20250107174145` is JetPack 6.2), and `nvidia-jetpack` (`6.2+b77`) is
@@ -71,16 +74,17 @@ package question.
 A minion holds two connections to the master, to ports 4505 (jobs) and 4506 (returns). A
 cellular network or NAT can drop an idle connection without telling either side, and the minion
 then waits for jobs that never arrive. These settings, in `/etc/salt/minion.d/links.conf`, make
-it notice and reconnect (then `sudo systemctl restart salt-minion`):
+it notice and reconnect. Write the file before installing, like the others, or restart the
+minion after:
 
 ```yaml
 tcp_keepalive: True
-tcp_keepalive_idle: 10        # seconds idle before the first keepalive probe
-tcp_keepalive_cnt: 3          # unanswered probes before the connection counts as dead
-tcp_keepalive_intvl: 10       # seconds between probes
-master_alive_interval: 60     # seconds between checks that the master connection is up
-ping_interval: 5              # minutes between pings to the master
-auth_timeout: 15              # seconds to wait for each authentication attempt
+tcp_keepalive_idle: 10
+tcp_keepalive_cnt: 3
+tcp_keepalive_intvl: 10
+master_alive_interval: 60   # seconds
+ping_interval: 5            # minutes
+auth_timeout: 15            # seconds
 ```
 
 | Setting | Default | What it does |
@@ -98,12 +102,12 @@ lists the minions that didn't answer.
 ## 4. Don't let apt upgrade JetPack
 
 The `nvidia-l4t-*` packages are the board's kernel, drivers and bootloader update. NVIDIA upgrades
-them together within a release line, followed by a reboot, advises against mixing packages from
-different releases, and doesn't support apt across major releases (35.x to 36.x). A routine
-`pkg.uptodate` or `apt upgrade` in a state could start that in the field, on battery, over a link
-that drops. Hold them:
+them together within a release line, followed by a reboot. It advises against mixing packages
+from different releases, and doesn't support apt across major releases (35.x to 36.x). A
+routine `pkg.uptodate` or `apt upgrade` in a state could start that in the field, on battery,
+over a link that drops. Hold them:
 
-```jinja
+```sls
 {# jetson/hold.sls: hold every installed nvidia-l4t-* package at its version. #}
 {% set l4t = salt['pkg.list_pkgs']() | select('match', 'nvidia-l4t-') | list %}
 {% if l4t %}
@@ -116,14 +120,28 @@ hold-l4t-packages:
 {% endif %}
 ```
 
-`pkg.held` (Salt 3005 and later) takes exact names, not patterns like `nvidia-l4t-*`, hence the
-list from `pkg.list_pkgs`. Apply it to the Jetsons (by grain in your top file). Don't add
-`replace: True`: on apt it would lift every other hold.
+`pkg.held` takes exact names, not patterns like `nvidia-l4t-*`, hence the list from
+`pkg.list_pkgs`. Don't add `replace: True`: on apt it would lift every other hold. Apply it to
+the Jetsons by grain, in your top file:
 
-Upgrade JetPack on purpose instead: lift the hold on one robot (`pkg.unhold`, or
-`apt-mark unhold` on the robot), follow NVIDIA's apt steps for the point or minor release,
-reboot, check it, then the rest, and apply the hold state again. Major releases go through
-NVIDIA's image-based OTA update (or a reflash), or your own A/B updater, not `state.apply`.
+```yaml
+base:
+  'role:rover':
+    - match: grain
+    - jetson.hold
+```
+
+Upgrade JetPack on purpose instead, one robot first:
+
+1. Lift the hold on it: `pkg.unhold`, or `apt-mark unhold` on the robot. If a schedule runs a
+   highstate that includes the hold state, pause it for that robot, or it holds the packages
+   again in the middle of the upgrade.
+2. Follow NVIDIA's apt steps for the point or minor release, then reboot.
+3. Check the robot, then do the rest the same way.
+4. Apply the hold state again.
+
+Major releases go through NVIDIA's image-based OTA update (or a reflash), or your own A/B
+updater, not `state.apply`.
 
 ## 5. Where brine helps
 
@@ -134,14 +152,15 @@ NVIDIA's image-based OTA update (or a reflash), or your own A/B updater, not `st
   default).
 - **Packages and checks:** brine reads every robot's packages (so `nvidia-l4t-core` and
   `nvidia-jetpack` too) every 6 hours by default, after people's jobs, and when a robot comes
-  back. Checks
-  cover what apt doesn't know, such as the release the board reports:
+  back. Checks cover what apt doesn't know, such as the release the board reports. A check goes
+  under `inventory.checks` in brine's config, like
   `jetson: "head -1 /etc/nv_tegra_release 2>/dev/null || true"`, which prints a line like
-  `# R36 (release), REVISION: 4.3, ...`. Fleet › Grains & packages shows which robots run which
-  version; Run on these opens the Run page with just them.
-- **A golden robot:** set one up the way they should all be, then on its Packages tab, "How the
-  fleet differs from" it counts, for every other robot, the packages and checks that are
-  different, missing or extra. Compare shows one robot's actual differences side by side.
+  `# R36 (release), REVISION: 4.3, ...`. Checks need more from brine's Salt account than reading
+  packages does (section 6). Fleet › Grains & packages shows which robots run which version;
+  Run on these opens the Run page with just them.
+- **A golden robot:** set one up the way they should all be, then open its Packages tab. **How
+  the fleet differs from rover-01** counts the packages and checks that are different, missing or
+  extra on every other robot. **Compare with…** shows one robot's differences side by side.
 - **Nothing to maintain on the robots:** brine only talks to salt-api. The robots run the stock
   minion, and brine installs nothing on them or on the master.
 
@@ -154,11 +173,13 @@ NVIDIA's image-based OTA update (or a reflash), or your own A/B updater, not `st
 - **Accept keys by fingerprint.** Leave `auto_accept` off, and don't use `autosign_file` for
   robots: it trusts a minion by its ID alone. Accept on brine's Keys page after checking the
   fingerprint it shows against the robot's own (`sudo salt-call --local key.finger`). Setting
-  `master_finger` on each robot (from `salt-key -F master`) makes it refuse any other master.
+  `master_finger` on each robot (from `salt-key -F master`, on the master) makes it refuse any
+  other master.
 - **salt-api reachable only by brine,** over TLS, with brine's account limited to
   [its ACL](permissions-and-salt-acl.md). Salt matches function names in an ACL as a prefix, so
-  end them with `$` (`cmd.run$`) to allow just that one. Checks let that account run commands;
-  leave them out to keep it read-only.
+  end them with `$` (`cmd.run$`) to allow just that one. Checks let that account run any command
+  ([section 4 there](permissions-and-salt-acl.md#4-optional-checks)); leave them out to keep it
+  read-only.
 
 ## Sources
 

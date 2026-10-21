@@ -49,7 +49,7 @@ templates:                         # one-click commands on the Run page (SaltGUI
     category: Deploy
 
 fleet:
-  columns:                         # custom grains shown in the fleet table
+  columns:                         # grains or packages shown in the fleet table
     - grain: app_version
       label: App version
     - grain: firmware_version
@@ -72,7 +72,8 @@ inventory:                         # packages and checks: what's installed where
   # rather than fail. Commands are taken literally: unlike the rest of this file, brine fills in
   # no ${VAR} here, so $VAR and ${VAR} reach the minion's shell as written. Everyone signed in
   # sees the commands and their output, so keep secrets out of them. Each check needs its own
-  # rule in brine's Salt account: Settings › Packages and checks prints it.
+  # rule in brine's Salt account: Settings › Packages and checks prints it. That rule lets the
+  # account run commands: docs/permissions-and-salt-acl.md, section 4.
 
 retention:                         # days of history brine keeps (0 = forever)
   jobs_days: 90

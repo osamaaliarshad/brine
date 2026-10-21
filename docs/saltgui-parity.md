@@ -23,7 +23,7 @@ Your `saltgui_templates` keep working: brine reads them from the master config a
 |---|---|---|
 | Login (eauth user and password) | OIDC sign-in | People never see Salt credentials |
 | `saltgui_pages` (menus per user) | Roles: viewer, operator, admin | Enforced by the server, not just hidden in the menu |
-| Minions | Fleet | Online / stale / offline with last seen, your choice of grain columns |
+| Minions | Fleet | Online / stale / offline with last seen, your choice of grain or package columns |
 | Grains (+ `saltgui_preview_grains`) | Fleet columns, Fleet › Grains & packages | Each grain's spread across the fleet; add it as a column in one click |
 | Grains of one minion | Minion › Grains | When they were collected, and their history as diffs |
 | Pillars (masked) | Minion › Pillar | Values masked; showing them isn't built yet |
