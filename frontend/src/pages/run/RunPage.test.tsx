@@ -77,6 +77,24 @@ describe('RunPage', () => {
     expect(sent.at(-1)!.body).toMatchObject({ catch_up: true, expect: PREVIEW.minions })
   })
 
+  it('asks for fill-in fields before previewing', async () => {
+    const user = userEvent.setup()
+    const sent = api()
+    const command = `state.apply deploy pillar='{"branch": "{{ branch }}"}'`
+    renderApp(`/run?type=list&target=rover-01&command=${encodeURIComponent(command)}`)
+    const field = await screen.findByRole('textbox', { name: 'branch' })
+    expect(field).toHaveFocus()
+    expect(screen.getByRole('button', { name: 'Preview' })).toBeDisabled()
+    expect(sent).toEqual([]) // a link with blanks doesn't preview by itself
+    await user.type(field, 'feature-x{Enter}')
+    expect(await screen.findByRole('button', { name: /Run on/ })).toBeInTheDocument()
+    expect(sent[0]!.body).toEqual({
+      command: `state.apply deploy pillar='{"branch": "feature-x"}'`,
+      target: 'rover-01',
+      target_type: 'list',
+    })
+  })
+
   it('forgets the preview as soon as you edit', async () => {
     const user = userEvent.setup()
     api()

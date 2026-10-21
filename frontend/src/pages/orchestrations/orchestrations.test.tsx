@@ -15,6 +15,7 @@ const ORCHESTRATIONS: Orchestrations = {
       sls: 'orch.rollout',
       path: 'orch/rollout.sls',
       error: null,
+      inputs: [],
       steps: [
         { id: 'rovers-answer', function: 'salt.function', what: 'test.ping', target: 'rover-*', target_type: null, needs: [], details: {} },
         {
@@ -28,7 +29,19 @@ const ORCHESTRATIONS: Orchestrations = {
         },
       ],
     },
-    { sls: 'orch.broken', path: 'orch/broken.sls', error: 'Jinja syntax error', steps: [] },
+    { sls: 'orch.broken', path: 'orch/broken.sls', error: 'Jinja syntax error', steps: [], inputs: [] },
+    {
+      sls: 'orch.restart',
+      path: 'orch/restart.sls',
+      error: null,
+      inputs: [
+        { name: 'minion_id', required: true },
+        { name: 'reason', required: false },
+      ],
+      steps: [
+        { id: 'restart', function: 'salt.function', what: 'service.restart', target: '<minion_id>', target_type: null, needs: [], details: {} },
+      ],
+    },
   ],
 }
 
@@ -55,6 +68,17 @@ describe('orchestrations page', () => {
       '/run?command=runners.state.orchestrate%20orch.rollout%20test%3DTrue',
     )
     expect(screen.getByText('Jinja syntax error')).toBeInTheDocument()
+  })
+
+  it('turns pillar inputs into fill-in fields on the Run page', async () => {
+    mockApi({ '/api/auth/me': ADMIN, '/api/status': systemStatus(), '/api/orchestrations': ORCHESTRATIONS })
+    renderApp('/orchestrations')
+    const card = (await screen.findByRole('heading', { name: 'orch.restart' })).closest('div.overflow-hidden') as HTMLElement
+    expect(card).toHaveTextContent('Takes pillar: minion_id · optional reason')
+    const run = within(card).getByRole('link', { name: /Run…/ })
+    expect(new URL(run.getAttribute('href')!, 'http://x').searchParams.get('command')).toBe(
+      `runners.state.orchestrate orch.restart pillar='{"minion_id":"{{ minion_id }}"}'`,
+    )
   })
 
   it('offers no buttons to roles that may not run them', async () => {

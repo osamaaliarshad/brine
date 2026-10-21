@@ -54,6 +54,24 @@ FILES = {
     "motd.sls": "/etc/motd:\n  file.managed:\n    - contents: hi\n",
     "orch/rollout.sls": "rovers-answer:\n  salt.function:\n    - name: test.ping\n",
     "orch/broken.sls": "{% if %}\nstep:\n  salt.state:\n    - sls: x\n",
+    # Inputs given as pillar at run time, the way a reactor passes them.
+    "orch/restart.sls": (
+        "{% set who = pillar['minion_id'] %}\n"
+        "{% set why = salt['pillar.get']('reason', 'asked') %}\n"
+        "restart:\n  salt.function:\n    - name: service.restart\n    - tgt: {{ who }}\n"
+        '    - arg: [{{ pillar["service"] }}]\n'
+    ),
+}
+
+# What the master renders orch.restart to, given placeholder pillar.
+RESTART = {
+    "salt-master_master": {
+        "restart": {
+            "salt": [{"name": "service.restart"}, {"tgt": "<minion_id>"}, "function", {"order": 1}],
+            "__sls__": "orch.restart",
+            "__env__": "base",
+        }
+    }
 }
 
 
@@ -69,7 +87,12 @@ class FakeMaster:
                 "/srv/salt": {
                     "top.sls": "f",
                     "motd.sls": "f",
-                    "orch": {"rollout.sls": "f", "broken.sls": "f", "README.md": "f"},
+                    "orch": {
+                        "rollout.sls": "f",
+                        "broken.sls": "f",
+                        "restart.sls": "f",
+                        "README.md": "f",
+                    },
                 }
             }
         assert fun == "file_roots.read"
@@ -81,6 +104,8 @@ class FakeMaster:
             raise SaltApiForbidden(f"brine's Salt account isn't allowed to run runner {fun}", 403)
         if kwargs["mods"] == "orch.broken":
             return ["Rendering SLS 'base:orch.broken' failed: Jinja syntax error"]
+        if kwargs["mods"] == "orch.restart":
+            return RESTART
         return ROLLOUT
 
     async def close(self) -> None:
@@ -138,11 +163,39 @@ def test_only_orchestration_files_are_listed(admin: tuple[Api, FakeMaster]) -> N
     body = api.get("/api/orchestrations")
     assert [(o["sls"], o["error"]) for o in body["orchestrations"]] == [
         ("orch.broken", "Rendering SLS 'base:orch.broken' failed: Jinja syntax error"),
+        ("orch.restart", None),
         ("orch.rollout", None),
     ]
     assert body["can_run"] is True and body["truncated"] is False
     rendered = [kw["mods"] for fun, kw in master.calls if fun == "state.orchestrate_show_sls"]
-    assert sorted(rendered) == ["orch.broken", "orch.rollout"]  # never motd.sls or top.sls
+    assert sorted(rendered) == ["orch.broken", "orch.restart", "orch.rollout"]  # not motd/top
+
+
+def test_pillar_inputs_are_found_and_rendered_with_placeholders(
+    admin: tuple[Api, FakeMaster],
+) -> None:
+    api, master = admin
+    restart = next(
+        o for o in api.get("/api/orchestrations")["orchestrations"] if o["sls"] == "orch.restart"
+    )
+    assert restart["inputs"] == [
+        {"name": "minion_id", "required": True},
+        {"name": "service", "required": True},
+        {"name": "reason", "required": False},
+    ]
+    (call,) = [kw for fun, kw in master.calls if kw.get("mods") == "orch.restart"]
+    assert call["pillar"] == {"minion_id": "<minion_id>", "service": "<service>"}
+    assert restart["steps"][0]["target"] == "<minion_id>"
+
+
+def test_the_listing_is_kept_for_a_minute(admin: tuple[Api, FakeMaster]) -> None:
+    api, master = admin
+    api.get("/api/orchestrations")
+    reads = len(master.calls)
+    api.get("/api/orchestrations")
+    assert len(master.calls) == reads  # from the last minute's listing
+    api.get("/api/orchestrations", refresh="true")
+    assert len(master.calls) == 2 * reads
 
 
 def test_running_them_depends_on_the_role(tmp_path: Path) -> None:

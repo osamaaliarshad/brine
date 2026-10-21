@@ -41,6 +41,12 @@ templates:                         # one-click commands on the Run page (SaltGUI
     target_type: compound
     command: service.restart nginx
     category: Web
+  deploy-branch:                   # {{ name }} becomes a field to fill in on the Run page
+    description: Deploy a branch to one machine
+    target: "{{ minion }}"
+    target_type: list
+    command: 'state.apply app.deploy pillar=''{"branch": "{{ branch }}"}'''
+    category: Deploy
 
 fleet:
   columns:                         # custom grains shown in the fleet table

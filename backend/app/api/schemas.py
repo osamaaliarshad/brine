@@ -369,11 +369,17 @@ class OrchestrationStep(BaseModel):
     details: dict[str, Any]  # every other argument
 
 
+class OrchestrationInput(BaseModel):
+    name: str  # a pillar key it reads
+    required: bool  # pillar['key']: it can't render without it; pillar.get('key'): optional
+
+
 class Orchestration(BaseModel):
     sls: str  # what state.orchestrate takes: orch.rollout
     path: str
-    steps: list[OrchestrationStep]
+    steps: list[OrchestrationStep]  # rendered with "<key>" placeholders for required inputs
     error: str | None  # the master couldn't render it
+    inputs: list[OrchestrationInput]  # pillar it reads, to give when running it
 
 
 class Orchestrations(BaseModel):

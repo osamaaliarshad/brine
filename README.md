@@ -108,7 +108,9 @@ itself. brine first shows exactly which minions it reaches, and which of those a
 running is a separate click, and the results land on the job page as they arrive. Who may run
 what is a per-role allowlist in brine's config, every run is in the audit log, and links like
 `/run?target=rover-*&command=test.ping` open already previewed. Templates (brine's own, or
-SaltGUI's `saltgui_templates` from the master config, unchanged) fill it in with one click.
+SaltGUI's `saltgui_templates` from the master config, unchanged) fill it in with one click, and
+`{{ name }}` anywhere in a template becomes a field to fill in first: "Deploy branch
+`{{ branch }}` to `{{ minion }}`" is one click and two answers.
 
 When some targeted minions are offline, you can have them **catch up**: tick "Also run it on the
 offline minions when they're back" and brine remembers the command and runs it on each one as it
@@ -148,7 +150,9 @@ What the master tells each minion to be: which states the top file assigns to wh
 ### Orchestrations
 
 Every orchestration on the master, step by step: what each step does, on which minions, and what
-it waits for. Test and Run go through the Run page, so they're previewed, confirmed and audited
+it waits for. Orchestrations that take their inputs from pillar at run time (the way reactors pass
+them) still show their steps, with `<minion_id>`-style placeholders, and running one asks for
+each input. Test and Run go through the Run page, so they're previewed, confirmed and audited
 like any command. The run, and the job each step starts, are recorded under whoever ran it, and
 the orchestration's job page links every step to its minions' results.
 

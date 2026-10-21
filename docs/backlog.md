@@ -85,8 +85,12 @@ Follow-ups found along the way:
 - [x] Orchestrations page: every orchestration SLS with its steps; Test / Run through the Run page; the runner and each step's job recorded under the person (Salt runs steps as "salt")
 - [x] Runner commands recorded as jobs (`full_return` gives their jid)
 - [x] salt-api returns bare 500s under concurrent requests: at most 4 in flight, safe calls retried
-- [ ] Templates with parameters (fill-in fields), and SaltGUI's single-key template shortcuts
-- [ ] Orchestrations: cache the listing for big file roots; other saltenvs
+- [x] Fill-in fields: `{{ name }}` in a template or link becomes an input on the Run page
+- [x] Orchestrations that read pillar at run time: inputs found (`pillar['x']` required, `pillar.get` optional), steps rendered with placeholders, Run asks for them
+- [x] Orchestrations listing kept for a minute (reading every .sls through salt-api is slow on big trees)
+- [x] index.html is never cached, hashed assets are, so an upgraded brine reaches browsers
+- [ ] SaltGUI's single-key template shortcuts; orchestrations in other saltenvs
+- [ ] Show `state.show_sls` / `state.show_highstate` results as a plan (state, function, key args) rather than a tree
 
 ## Beyond Salt
 

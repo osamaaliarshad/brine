@@ -4,18 +4,29 @@ salt.function, salt.runner, salt.wheel), shown step by step like SaltGUI's Orche
 Salt doesn't mark orchestration files as such, so brine reads the .sls files, keeps the ones with
 orchestration steps, and has the master render those (`state.orchestrate_show_sls`), so Jinja
 and includes work. Running one goes through the Run page like any other command.
+
+Many orchestrations read their inputs from pillar given at run time (a reactor's
+`pillar: {minion_id: ...}`). brine finds the keys they read, renders them with placeholders such
+as `<minion_id>` so their steps still show, and the Run page asks for the real values.
+The listing is kept for a minute: reading every .sls file through salt-api takes a while.
 """
 
 from __future__ import annotations
 
 import asyncio
 import re
+import time
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
 
 from app.api.deps import RuntimeDep
-from app.api.schemas import Orchestration, Orchestrations, OrchestrationStep
+from app.api.schemas import (
+    Orchestration,
+    OrchestrationInput,
+    Orchestrations,
+    OrchestrationStep,
+)
 from app.api.statefiles import walk_files
 from app.auth.users import CurrentUser
 from app.commands import CommandError, allowed_patterns, is_allowed, parse_command
@@ -31,6 +42,21 @@ MAX_FILES = 300  # .sls files read per listing
 PARALLEL_READS = 4
 # Step arguments shown in their own columns; everything else goes in the details.
 REQUISITES = ("require", "watch", "onchanges", "onfail", "prereq", "listen")
+# Pillar an orchestration reads: pillar['key'] must be given to render it at all;
+# pillar.get('key') and salt['pillar.get']('key') have defaults.
+REQUIRED_PILLAR = re.compile(r"""\bpillar\s*\[\s*['"]([A-Za-z_][\w-]*)['"]\s*\]""")
+OPTIONAL_PILLAR = re.compile(
+    r"""(?:\bpillar\.get|\bsalt\s*\[\s*['"]pillar\.get['"]\s*\])\s*\(\s*['"]([A-Za-z_][\w-]*)"""
+)
+LISTING_SECONDS = 60
+
+
+def pillar_inputs(text: str) -> list[OrchestrationInput]:
+    required = list(dict.fromkeys(REQUIRED_PILLAR.findall(text)))
+    optional = [k for k in dict.fromkeys(OPTIONAL_PILLAR.findall(text)) if k not in required]
+    return [OrchestrationInput(name=k, required=True) for k in required] + [
+        OrchestrationInput(name=k, required=False) for k in optional
+    ]
 
 
 def sls_name(path: str) -> str:
@@ -102,30 +128,50 @@ async def _read(runtime: Runtime, path: str, saltenv: str, gate: asyncio.Semapho
     return str(next(iter(entries[0].values()))) if entries else ""
 
 
+async def _discover(runtime: Runtime, saltenv: str) -> tuple[list[Orchestration], bool]:
+    """(orchestrations, whether there were more .sls files than brine reads)."""
+    roots = await runtime.client.wheel("file_roots.list_env", saltenv=saltenv)
+    paths = sorted(
+        {path for tree in (roots or {}).values() for path in walk_files(tree)},
+        key=lambda p: (p.count("/"), p),
+    )
+    sls = [p for p in paths if p.endswith(".sls") and p != "top.sls"]
+    gate = asyncio.Semaphore(PARALLEL_READS)
+    contents = await asyncio.gather(*(_read(runtime, p, saltenv, gate) for p in sls[:MAX_FILES]))
+    found: list[Orchestration] = []
+    for path, text in zip(sls, contents, strict=False):
+        if not ORCHESTRATION_STEP.search(text):
+            continue
+        inputs = pillar_inputs(text)
+        placeholders = {i.name: f"<{i.name}>" for i in inputs if i.required}
+        rendered = await runtime.client.runner(
+            "state.orchestrate_show_sls",
+            mods=sls_name(path),
+            saltenv=saltenv,
+            **({"pillar": placeholders} if placeholders else {}),
+        )
+        steps, error = parse_steps(rendered)
+        found.append(
+            Orchestration(sls=sls_name(path), path=path, steps=steps, error=error, inputs=inputs)
+        )
+    return found, len(sls) > MAX_FILES
+
+
 @router.get("/orchestrations", response_model=Orchestrations)
 async def orchestrations(
-    runtime: RuntimeDep, user: CurrentUser, saltenv: str = Query("base")
+    runtime: RuntimeDep,
+    user: CurrentUser,
+    saltenv: str = Query("base"),
+    refresh: bool = Query(False, description="read the master again, not the last minute's"),
 ) -> Orchestrations:
+    key = f"orchestrations:{saltenv}"
+    cached = runtime.memo.get(key)
     try:
-        roots = await runtime.client.wheel("file_roots.list_env", saltenv=saltenv)
-        paths = sorted(
-            {path for tree in (roots or {}).values() for path in walk_files(tree)},
-            key=lambda p: (p.count("/"), p),
-        )
-        sls = [p for p in paths if p.endswith(".sls") and p != "top.sls"]
-        gate = asyncio.Semaphore(PARALLEL_READS)
-        contents = await asyncio.gather(
-            *(_read(runtime, p, saltenv, gate) for p in sls[:MAX_FILES])
-        )
-        found: list[Orchestration] = []
-        for path, text in zip(sls, contents, strict=False):
-            if not ORCHESTRATION_STEP.search(text):
-                continue
-            rendered = await runtime.client.runner(
-                "state.orchestrate_show_sls", mods=sls_name(path), saltenv=saltenv
-            )
-            steps, error = parse_steps(rendered)
-            found.append(Orchestration(sls=sls_name(path), path=path, steps=steps, error=error))
+        if cached and not refresh and time.monotonic() - cached[0] < LISTING_SECONDS:
+            found, truncated = cached[1]
+        else:
+            found, truncated = await _discover(runtime, saltenv)
+            runtime.memo[key] = (time.monotonic(), (found, truncated))
     except SaltApiForbidden as exc:
         raise HTTPException(
             403,
@@ -141,8 +187,5 @@ async def orchestrations(
     except CommandError:
         can_run = False
     return Orchestrations(
-        saltenv=saltenv,
-        orchestrations=found,
-        truncated=len(sls) > MAX_FILES,
-        can_run=can_run,
+        saltenv=saltenv, orchestrations=found, truncated=truncated, can_run=can_run
     )

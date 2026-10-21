@@ -24,10 +24,39 @@ function details(step: OrchestrationStep): string {
     .join(' · ')
 }
 
-/** Running goes through the Run page: it previews, needs a click, and is audited. */
-function runLink(sls: string, test: boolean) {
-  const command = `runners.state.orchestrate ${sls}${test ? ' test=True' : ''}`
+/** Running goes through the Run page: it previews, needs a click, and is audited. Required
+ *  pillar inputs become fill-in fields there. */
+function runLink(o: Orchestration, test: boolean) {
+  const required = o.inputs.filter((i) => i.required)
+  const pillar = required.length
+    ? ` pillar='${JSON.stringify(Object.fromEntries(required.map((i) => [i.name, `{{ ${i.name} }}`])))}'`
+    : ''
+  const command = `runners.state.orchestrate ${o.sls}${pillar}${test ? ' test=True' : ''}`
   return `/run?command=${encodeURIComponent(command)}`
+}
+
+function Inputs({ inputs }: { inputs: Orchestration['inputs'] }) {
+  const required = inputs.filter((i) => i.required).map((i) => i.name)
+  const optional = inputs.filter((i) => !i.required).map((i) => i.name)
+  return (
+    <div className="border-b px-4 py-2.5 text-sm sm:px-6">
+      <span className="text-muted">Takes pillar: </span>
+      {required.map((name, i) => (
+        <span key={name}>
+          {i > 0 && ', '}
+          <Code>{name}</Code>
+        </span>
+      ))}
+      {optional.length > 0 && (
+        <span className="text-muted">
+          {required.length > 0 && ' · '}optional {optional.join(', ')}
+        </span>
+      )}
+      {required.length > 0 && (
+        <span className="text-muted"> (steps below show them as {'<'}name{'>'})</span>
+      )}
+    </div>
+  )
 }
 
 function OrchestrationCard({ orchestration: o, canRun }: { orchestration: Orchestration; canRun: boolean }) {
@@ -41,14 +70,14 @@ function OrchestrationCard({ orchestration: o, canRun }: { orchestration: Orches
             {!o.error && ` · ${o.steps.length} step${o.steps.length === 1 ? '' : 's'}`}
           </div>
         </div>
-        {canRun && !o.error && (
+        {canRun && (!o.error || o.inputs.length > 0) && (
           <div className="flex gap-2">
-            <Link to={runLink(o.sls, true)} className={CONTROL} title="Run with test=True: shows what would change">
+            <Link to={runLink(o, true)} className={CONTROL} title="Run with test=True: shows what would change">
               <FlaskConical className="size-4 text-muted" aria-hidden />
               Test
             </Link>
             <Link
-              to={runLink(o.sls, false)}
+              to={runLink(o, false)}
               className="flex h-10 items-center gap-2 rounded-lg bg-accent px-3 text-sm font-medium text-accent-fg"
             >
               <Play className="size-4" aria-hidden />
@@ -57,6 +86,7 @@ function OrchestrationCard({ orchestration: o, canRun }: { orchestration: Orches
           </div>
         )}
       </div>
+      {o.inputs.length > 0 && <Inputs inputs={o.inputs} />}
       {o.error ? (
         <pre className="overflow-x-auto px-4 py-3 font-mono text-[13px] whitespace-pre-wrap text-danger sm:px-6">
           {o.error}

@@ -26,6 +26,19 @@ function onMaster(command: string) {
   return /^(runners?|wheel)\./.test(command.trim())
 }
 
+/** `{{ name }}` in a target or command is a fill-in field (templates, orchestration inputs). */
+const FIELD = /\{\{\s*([A-Za-z_][\w-]*)\s*\}\}/g
+
+function fieldNames(...texts: string[]): string[] {
+  const names: string[] = []
+  for (const text of texts) for (const match of text.matchAll(FIELD)) if (!names.includes(match[1]!)) names.push(match[1]!)
+  return names
+}
+
+function fillIn(text: string, values: Record<string, string>): string {
+  return text.replace(FIELD, (_, name: string) => values[name] ?? '')
+}
+
 function asTargetType(value: string | null): TargetType {
   return TARGET_TYPES.find((t) => t.value === value)?.value ?? 'glob'
 }
@@ -156,16 +169,23 @@ export function RunPage() {
   const [command, setCommand] = useState(params.get('command') ?? '')
   const [history, setHistory] = useState(loadHistory)
   const [catchUp, setCatchUp] = useState(false)
+  const [values, setValues] = useState<Record<string, string>>({})
   const preview = useCommandPreview()
   const run = useRunCommand()
   const master = onMaster(command)
-  const request: CommandRequest = { command, target: master ? '' : target, target_type: targetType }
+  const fields = fieldNames(command, master ? '' : target)
+  const unfilled = fields.filter((name) => !values[name]?.trim())
+  const request: CommandRequest = {
+    command: fillIn(command, values),
+    target: master ? '' : fillIn(target, values),
+    target_type: targetType,
+  }
   const shown = preview.data
   const canRun = !!shown && (shown.client !== 'local' || shown.minions.length > 0)
 
   // A link with a command in it (/run?target=…&command=…) opens already previewed. A preview
   // never runs anything; running still takes a click.
-  const linked = useRef(params.get('command') ? request : null)
+  const linked = useRef(params.get('command') && unfilled.length === 0 ? request : null)
   const { mutate: previewNow } = preview
   useEffect(() => {
     if (linked.current) previewNow(linked.current)
@@ -186,10 +206,11 @@ export function RunPage() {
     changed()
   }
 
-  // A template fills the form and previews straight away (a preview runs nothing).
+  // A template fills the form and previews straight away (a preview runs nothing), unless it
+  // has fields to fill in first.
   const pick = (template: CommandTemplate) => {
     fill({ command: template.command, target: template.target, target_type: template.target_type })
-    if (template.command.trim())
+    if (template.command.trim() && fieldNames(template.command, template.target).length === 0)
       preview.mutate({
         command: template.command,
         target: onMaster(template.command) ? '' : template.target,
@@ -203,7 +224,7 @@ export function RunPage() {
       { ...request, expect: shown.minions, catch_up: catchUp && shown.offline.length > 0 },
       {
         onSuccess: (result) => {
-          setHistory((h) => remember({ command, target: request.target, target_type: targetType }, h))
+          setHistory((h) => remember({ command: request.command, target: request.target, target_type: targetType }, h))
           if (result.jid) void navigate(`/jobs/${result.jid}`)
         },
       },
@@ -233,7 +254,7 @@ export function RunPage() {
               className="flex flex-col gap-4"
               onSubmit={(event) => {
                 event.preventDefault()
-                preview.mutate(request)
+                if (unfilled.length === 0) preview.mutate(request)
               }}
             >
               <div className={cn('flex flex-col gap-2 sm:flex-row', master && 'opacity-50')}>
@@ -288,6 +309,29 @@ export function RunPage() {
                   Like the salt CLI after the target: <Code>state.apply webserver test=True</Code>. Start with{' '}
                   <Code>runners.</Code> or <Code>wheel.</Code> to run on the master.
                 </p>
+                {fields.length > 0 && (
+                  <fieldset className="mt-3 rounded-lg border px-3 pt-1 pb-3">
+                    <legend className="px-1 text-xs text-muted">Fill in</legend>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {fields.map((name, i) => (
+                        <label key={name} className="block">
+                          <span className="font-mono text-xs text-muted">{name}</span>
+                          <input
+                            value={values[name] ?? ''}
+                            autoFocus={i === 0}
+                            onChange={(event) => {
+                              setValues((v) => ({ ...v, [name]: event.target.value }))
+                              changed()
+                            }}
+                            spellCheck={false}
+                            autoComplete="off"
+                            className="mt-1 h-10 w-full rounded-lg border bg-bg px-3 font-mono text-sm outline-none focus:border-accent"
+                          />
+                        </label>
+                      ))}
+                    </div>
+                  </fieldset>
+                )}
                 {patterns && !unrestricted && (
                   <p className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-muted">
                     You can run:
@@ -300,7 +344,7 @@ export function RunPage() {
               <div className="flex justify-end">
                 <button
                   type="submit"
-                  disabled={!command.trim() || preview.isPending}
+                  disabled={!command.trim() || unfilled.length > 0 || preview.isPending}
                   className="h-10 rounded-lg border px-4 text-sm font-medium hover:bg-surface-2 disabled:opacity-40"
                 >
                   {preview.isPending ? 'Checking…' : 'Preview'}

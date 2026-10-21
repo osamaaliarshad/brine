@@ -265,7 +265,17 @@ export type OrchestrationStep = {
   details: Record<string, unknown>
 }
 
-export type Orchestration = { sls: string; path: string; steps: OrchestrationStep[]; error: string | null }
+/** A pillar key an orchestration reads; required ones are needed to run it at all. */
+export type OrchestrationInput = { name: string; required: boolean }
+
+export type Orchestration = {
+  sls: string
+  path: string
+  /** Rendered with "<key>" placeholders for required inputs. */
+  steps: OrchestrationStep[]
+  error: string | null
+  inputs: OrchestrationInput[]
+}
 
 export type Orchestrations = {
   saltenv: string

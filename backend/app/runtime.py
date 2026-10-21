@@ -52,6 +52,8 @@ class Runtime:
     collector: Collector
     session_secret: str = field(repr=False)
     oidc: OidcClient | None = field(default=None, repr=False)
+    # Short-lived results worth not recomputing on every request: key -> (monotonic time, value).
+    memo: dict[str, tuple[float, Any]] = field(default_factory=dict, repr=False)
     _tasks: list[asyncio.Task[None]] = field(default_factory=list, repr=False)
 
     @classmethod
