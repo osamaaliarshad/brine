@@ -1,17 +1,14 @@
-import { RefreshCw, ShieldAlert } from 'lucide-react'
+import { ShieldAlert } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { Link } from 'react-router'
-import { ApiError } from '@/api/client'
-import { type useAskInventory, useInventoryChanges, useInventoryValues } from '@/api/queries'
-import type { AskResult, InventoryDistribution, MinionStatus } from '@/api/types'
-import { cn } from '@/lib/cn'
+import { useInventoryChanges, useInventoryValues } from '@/api/queries'
+import type { InventoryDistribution, MinionStatus } from '@/api/types'
 import { describeSource, keyLabel, missingLabel, NO_ANSWER, NO_ANSWER_DETAIL } from '@/lib/inventoryKey'
 import { formatAbsolute, formatRelative, relativeRange } from '@/lib/time'
+import type { ReadNow } from '@/lib/useReadNow'
 import { ChangeList } from '@/pages/fleet/ChangeList'
+import { ReadNowBar } from '@/pages/fleet/ReadNowBar'
 import { ValueRow, ValuesHeader } from '@/pages/fleet/ValueRow'
-
-/** Read now: asks every online minion at once, so it's shared by every entry in the explorer. */
-export type ReadNow = ReturnType<typeof useAskInventory>
 
 const HOUR = 3600_000
 
@@ -53,53 +50,20 @@ function ReadSummary({ oldest, newest, now }: { oldest: string | null; newest: s
   )
 }
 
-function Asked({ result }: { result: AskResult }) {
-  const n = result.asked.length
-  return (
-    <div role="status" className="border-t bg-accent/10 px-4 py-2.5 text-sm sm:px-6">
-      <p>
-        {n === 0
-          ? `Nobody was asked${result.reason ? `: ${result.reason}` : ''}.`
-          : `Reading ${n} minion${n === 1 ? '' : 's'}; answers appear as they arrive.`}
-      </p>
-      {Object.entries(result.failed).map(([source, why]) => (
-        <p key={source} className="text-danger">
-          Couldn't ask for {describeSource(source)}: {why}
-        </p>
-      ))}
-    </div>
-  )
-}
-
 function ReadAndAsk({ d, now, read }: { d: InventoryDistribution; now: number; read: ReadNow }) {
-  // Once a newer answer is in, the list shows it: the note has done its job.
-  const answered = !!d.newest_read_at && Date.parse(d.newest_read_at) > read.submittedAt
-  const tooSoon = read.error instanceof ApiError && read.error.status === 429
   return (
     <div className="border-t">
-      <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-sm text-muted sm:px-6">
-        <ReadSummary oldest={d.oldest_read_at} newest={d.newest_read_at} now={now} />
-        <button
-          type="button"
-          onClick={() => read.mutate(null)}
-          disabled={read.isPending}
-          title="Read every online minion's packages and checks again"
-          className="flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-fg hover:bg-surface-2 disabled:opacity-50"
-        >
-          <RefreshCw className={cn('size-3.5', read.isPending && 'animate-spin')} aria-hidden />
-          Read now
-        </button>
-      </div>
-      {read.data && !answered && <Asked result={read.data} />}
-      {read.error && (
-        // Too soon is a wait, not a failure.
-        <p
-          role={tooSoon ? 'status' : 'alert'}
-          className={cn('border-t px-4 py-2.5 text-sm sm:px-6', tooSoon ? 'text-muted' : 'text-danger')}
-        >
-          {read.error.message}
-        </p>
-      )}
+      {/* The answers for this entry come with its source's reads. */}
+      <ReadNowBar
+        read={read}
+        minion={null}
+        watch={{ key: d.source, at: d.newest_read_at }}
+        title="Read every online minion's packages and checks again"
+      >
+        <span className="text-muted">
+          <ReadSummary oldest={d.oldest_read_at} newest={d.newest_read_at} now={now} />
+        </span>
+      </ReadNowBar>
     </div>
   )
 }

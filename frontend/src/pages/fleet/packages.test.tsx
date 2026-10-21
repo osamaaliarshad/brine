@@ -261,12 +261,14 @@ describe('Fleet › Grains & packages', () => {
   it('reads the whole fleet now and says what happens next, across entries, until an answer arrives', async () => {
     const user = userEvent.setup()
     const bodies: unknown[] = []
-    let newest = ago(20 * 60)
+    // brine's clock is an hour ahead of the browser's: only a change in brine's times counts.
+    const packagesRead = new Date(NOW + 3600_000).toISOString()
+    let containersRead = ago(2 * 3600)
     api({
-      '/api/inventory/values': (url: URL) => ({
-        ...(url.searchParams.get('key') === '@containers:web' ? WEB : AGENT),
-        newest_read_at: newest,
-      }),
+      '/api/inventory/values': (url: URL) =>
+        url.searchParams.get('key') === '@containers:web'
+          ? { ...WEB, newest_read_at: containersRead }
+          : { ...AGENT, newest_read_at: packagesRead },
       '/api/inventory/ask': (_url: URL, init?: RequestInit) => {
         bodies.push({ method: init?.method, body: JSON.parse(String(init?.body)) })
         return { asked: ['dock-01', 'rover-01', 'rover-02'], queued: true, failed: {}, reason: null }
@@ -277,14 +279,15 @@ describe('Fleet › Grains & packages', () => {
     expect(await screen.findByRole('status')).toHaveTextContent('Reading 3 minions; answers appear as they arrive.')
     expect(bodies).toEqual([{ method: 'POST', body: { minion: null } }])
 
-    // The read is for the whole fleet, so it's still news on another entry.
+    // The read is for the whole fleet, so it's still news on another entry, read at other times.
     const picker = screen.getByRole('list', { name: 'Packages and checks' })
     await user.click(within(picker).getByRole('button', { name: /web/ }))
     expect(await screen.findByRole('list', { name: 'Values of web' })).toBeInTheDocument()
     expect(screen.getByRole('status')).toHaveTextContent('Reading 3 minions')
 
-    // An answer newer than the request arrives: the message has done its job.
-    newest = new Date(NOW + 5000).toISOString()
+    // A new answer arrives (stamped before the click, by the browser's clock): the message has
+    // done its job.
+    containersRead = ago(30)
     FakeEventSource.instances[0]!.emit({ type: 'fleet' })
     await waitFor(() => expect(screen.queryByRole('status')).toBeNull())
   })
@@ -294,7 +297,7 @@ describe('Fleet › Grains & packages', () => {
     const answers: unknown[] = [
       { asked: [], queued: false, failed: {}, reason: 'no minions are online' },
       { asked: ['rover-01'], queued: false, failed: { containers: 'salt-api answered 403' }, reason: null },
-      new Response(JSON.stringify({ detail: 'Asked a moment ago; try again in a minute.' }), { status: 429 }),
+      new Response(JSON.stringify({ detail: 'Already reading; try again in a minute.' }), { status: 429 }),
       new Response(JSON.stringify({ detail: "salt-api refused brine's account" }), { status: 403 }),
     ]
     api({ '/api/inventory/ask': () => answers.shift() })
@@ -308,7 +311,7 @@ describe('Fleet › Grains & packages', () => {
     expect(screen.getByRole('status')).toHaveTextContent("Couldn't ask for the containers check: salt-api answered 403")
     // Too soon is a wait, not an error.
     await user.click(read)
-    expect(await screen.findByText('Asked a moment ago; try again in a minute.')).toHaveAttribute('role', 'status')
+    expect(await screen.findByText('Already reading; try again in a minute.')).toHaveAttribute('role', 'status')
     expect(screen.queryByRole('alert')).toBeNull()
     await user.click(read)
     expect(await screen.findByRole('alert')).toHaveTextContent("salt-api refused brine's account")

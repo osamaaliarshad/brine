@@ -1,12 +1,13 @@
 import { Columns3, Search } from 'lucide-react'
 import { type ReactNode, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router'
-import { INVENTORY_KEYS_LIMIT, useAskInventory, useGrainKeys, useGrainValues, useInventoryKeys } from '@/api/queries'
+import { INVENTORY_KEYS_LIMIT, useGrainKeys, useGrainValues, useInventoryKeys } from '@/api/queries'
 import type { InventoryKey, MinionStatus } from '@/api/types'
 import { cn } from '@/lib/cn'
 import { isInventoryKey, keyDescription, keyLabel, missingLabel } from '@/lib/inventoryKey'
 import { useDebounced } from '@/lib/useDebounced'
 import { useMediaQuery } from '@/lib/useMediaQuery'
+import { useReadNow } from '@/lib/useReadNow'
 import { InventoryValues } from '@/pages/fleet/InventoryValues'
 import { ValueRow, ValuesHeader } from '@/pages/fleet/ValueRow'
 
@@ -148,7 +149,7 @@ export function GrainsExplorer({
   const [filter, setFilter] = useState('')
   const keys = useGrainKeys(true)
   // Read now covers the whole fleet, so its note stays while you look at other entries.
-  const read = useAskInventory()
+  const read = useReadNow()
   const sideBySide = useMediaQuery('(min-width: 768px)')
   const panel = useRef<HTMLDivElement>(null)
   const grain = params.get('grain') ?? columnGrains[0] ?? 'osfinger'

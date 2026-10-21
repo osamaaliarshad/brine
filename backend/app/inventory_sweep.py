@@ -183,7 +183,7 @@ def _take_throttle(runtime: Runtime, minion: str | None) -> str:
         key, every, when = _ONE_KEY + minion, ASK_ONE_EVERY, "in a few seconds"
     last = runtime.memo.get(key)
     if last is not None and clock - last[0] < every:
-        raise Throttled(f"Asked a moment ago; try again {when}.", every - (clock - last[0]))
+        raise Throttled(f"Already reading; try again {when}.", every - (clock - last[0]))
     if minion is not None:
         _, times = runtime.memo.get(_ONE_BY_ONE_KEY, (clock, []))
         recent = [t for t in times if clock - t < _MINUTE]

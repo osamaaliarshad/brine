@@ -1073,13 +1073,13 @@ def test_ask_now_for_everyone_signed_in(tmp_path: Path) -> None:
         assert salt.calls == []  # queued: the sweep asks them
         throttled = ask(api)
         assert throttled.status_code == 429
-        assert throttled.json()["detail"] == "Asked a moment ago; try again in a minute."
+        assert throttled.json()["detail"] == "Already reading; try again in a minute."
         assert 0 < int(throttled.headers["Retry-After"]) <= 60
         one = ask(api, minion="rover-01")
         assert one.json() == {"asked": ["rover-01"], "queued": False, "failed": {}, "reason": None}
         throttled = ask(api, minion="rover-01")
         assert throttled.status_code == 429
-        assert throttled.json()["detail"] == "Asked a moment ago; try again in a few seconds."
+        assert throttled.json()["detail"] == "Already reading; try again in a few seconds."
         assert 0 < int(throttled.headers["Retry-After"]) <= 10
         offline = ask(api, minion="rover-03").json()
         assert (offline["asked"], offline["reason"]) == ([], "rover-03 isn't online")
