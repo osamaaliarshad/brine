@@ -93,7 +93,9 @@ function GrainsEntry({ entry, first }: { entry: GrainsChange; first: boolean }) 
   return (
     <>
       <span className="text-sm text-muted">
-        {first ? `First collection · ${added.length} grains` : counts(changed.length, added.length, removed.length)}
+        {first
+          ? `First collection · ${added.length} grains`
+          : `Grains: ${counts(changed.length, added.length, removed.length)}`}
       </span>
       {!first && (
         <div className="mt-2 basis-full">
@@ -152,7 +154,9 @@ function timeline(grains: GrainsChange[], changes: InventoryChange[]): { entries
   const reads = new Map<string, InventoryChange[]>()
   for (const c of changes) {
     const key = `${c.at} ${c.source}`
-    reads.set(key, [...(reads.get(key) ?? []), c])
+    const group = reads.get(key)
+    if (group) group.push(c)
+    else reads.set(key, [c])
   }
   for (const group of reads.values()) {
     group.sort((a, b) => a.name.localeCompare(b.name))

@@ -364,7 +364,7 @@ describe('MinionPage', () => {
     expect(history.children).toHaveLength(4)
 
     expect(grains).toHaveTextContent('1m ago')
-    expect(within(grains!).getByText('1 changed · 1 added')).toBeInTheDocument()
+    expect(within(grains!).getByText('Grains: 1 changed · 1 added')).toBeInTheDocument()
     expect(within(grains!).getByText('"2.4.0"')).toHaveClass('line-through')
 
     expect(packages).toHaveTextContent('10m ago')
@@ -427,7 +427,7 @@ describe('MinionPage', () => {
     renderApp('/minions/rover-01?tab=history')
     const history = await screen.findByRole('list', { name: 'History' })
     expect(history.children).toHaveLength(GRAINS_HISTORY_LIMIT)
-    expect(history.lastElementChild).toHaveTextContent('1 changed')
+    expect(history.lastElementChild).toHaveTextContent('Grains: 1 changed')
     expect(screen.queryByText(/First collection/)).toBeNull()
     expect(screen.getByText("Older history isn't shown.")).toBeInTheDocument()
   })
