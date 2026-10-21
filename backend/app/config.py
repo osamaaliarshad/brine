@@ -67,6 +67,9 @@ class AuthConfig(_Strict):
     display_name: str | None = None
     # If set, only these email domains can sign in at all (checked before roles).
     allowed_domains: list[str] = Field(default_factory=list)
+    # Sign-in needs the provider to say the email is verified. Microsoft Entra never says so;
+    # with a single-tenant Entra app (see docs/oidc-providers.md), set this to false.
+    require_verified_email: bool = True
     anonymous_role: Role = "viewer"
     session_hours: int = Field(default=12, ge=1, le=24 * 30)
     # Signs session cookies. If unset, brine generates one and keeps it in its database.

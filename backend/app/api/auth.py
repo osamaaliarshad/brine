@@ -72,7 +72,10 @@ async def callback(request: Request, runtime: RuntimeDep) -> Response:
 
     claims = token.get("userinfo") or {}
     email = claims.get("email")
-    if not isinstance(email, str) or claims.get("email_verified") is False:
+    verified = (
+        claims.get("email_verified") is True or not runtime.settings.auth.require_verified_email
+    )
+    if not isinstance(email, str) or not verified:
         await record(
             runtime.sessions,
             actor=str(email or "unknown"),
@@ -96,7 +99,6 @@ async def callback(request: Request, runtime: RuntimeDep) -> Response:
     request.session[SESSION_USER] = {
         "email": email,
         "name": claims.get("name") or email,
-        "picture": claims.get("picture"),
     }
     await record(
         runtime.sessions,

@@ -7,6 +7,7 @@ recorded under the person who ran them.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from datetime import UTC, datetime, timedelta
@@ -52,6 +53,8 @@ router = APIRouter(prefix="/commands")
 
 # Runner and wheel calls answer when they're done; give slow ones (orchestrations) time.
 COMMAND_WAIT_SECONDS = 300
+MAX_REGEX = 200
+REGEX_SECONDS = 2.0
 
 
 def _command(body: CommandRequest, user: User, runtime: Runtime) -> Command:
@@ -92,11 +95,21 @@ async def _resolve(
         known = set(accepted)
         return [m for m in wanted if m in known], [m for m in wanted if m not in known], False
     if body.target_type == "pcre":
+        if len(target) > MAX_REGEX:
+            raise HTTPException(422, f"Keep regular expressions under {MAX_REGEX} characters.")
         try:
             pattern = re.compile(target)
         except re.error as exc:
             raise HTTPException(422, f"That isn't a valid regular expression: {exc}.") from exc
-        return [m for m in accepted if pattern.match(m)], [], False
+        # Off the event loop, with a time limit: a pathological pattern mustn't freeze brine.
+        try:
+            matched = await asyncio.wait_for(
+                asyncio.to_thread(lambda: [m for m in accepted if pattern.match(m)]),
+                REGEX_SECONDS,
+            )
+        except TimeoutError as exc:
+            raise HTTPException(422, "That regular expression takes too long to match.") from exc
+        return matched, [], False
     # Grain, compound and nodegroup targets match against the master's minion data cache.
     try:
         cached = await runtime.client.runner("cache.grains", tgt=target, tgt_type=body.target_type)

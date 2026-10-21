@@ -49,6 +49,7 @@ OPTIONAL_PILLAR = re.compile(
     r"""(?:\bpillar\.get|\bsalt\s*\[\s*['"]pillar\.get['"]\s*\])\s*\(\s*['"]([A-Za-z_][\w-]*)"""
 )
 LISTING_SECONDS = 60
+SALTENV = re.compile(r"[\w.-]{1,64}")
 
 
 def pillar_inputs(text: str) -> list[OrchestrationInput]:
@@ -164,6 +165,10 @@ async def orchestrations(
     saltenv: str = Query("base"),
     refresh: bool = Query(False, description="read the master again, not the last minute's"),
 ) -> Orchestrations:
+    if refresh and user.role == "viewer":
+        raise HTTPException(403, "Reading the master again needs the operator role.")
+    if not SALTENV.fullmatch(saltenv):
+        raise HTTPException(422, "That isn't a saltenv name.")
     key = f"orchestrations:{saltenv}"
     cached = runtime.memo.get(key)
     try:

@@ -34,9 +34,9 @@ don't need any of this to try brine.
    ```
 
 brine reads `<issuer>/.well-known/openid-configuration`, asks for the `openid email profile`
-scopes, and identifies people by the `email` claim. It refuses a sign-in when the provider says
-the email isn't verified, when the domain isn't in `allowed_domains`, or when no role pattern
-matches. Roles are checked again on every request, so removing someone from `roles` takes effect
+scopes, and identifies people by the `email` claim. It refuses a sign-in unless the provider
+says the email is verified (`email_verified: true`), when the domain isn't in `allowed_domains`,
+or when no role pattern matches. Roles are checked again on every request, so removing someone from `roles` takes effect
 on their next click, not when their session ends.
 
 If `auth` is half filled in (say, an issuer but no secret), brine refuses to start and says what's
@@ -100,12 +100,13 @@ auth:
 auth:
   issuer: https://login.microsoftonline.com/<tenant-id>/v2.0
   allowed_domains: [example.com]
+  require_verified_email: false    # Entra never sends email_verified
 ```
 
 Use the single-tenant issuer above, never `common` or `organizations`. Entra doesn't send
-`email_verified`, and in multi-tenant setups the `email` claim can be set by another tenant's
-admin, so it can't be trusted to identify someone. In your own tenant, only your admins control
-it. Keep `allowed_domains` set as well.
+`email_verified`, so brine can't require it, and in multi-tenant setups the `email` claim can be
+set by another tenant's admin. In your own tenant only your admins control it, which is why the
+single-tenant issuer and `allowed_domains` matter here.
 
 ## Keycloak
 
