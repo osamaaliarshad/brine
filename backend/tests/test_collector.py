@@ -11,7 +11,7 @@ from app.bus import EventBus
 from app.config import Settings
 from app.ingest import PRESENCE_STATE, Ingest
 from app.inventory import AFTER_JOB, MAX_ENTRIES
-from app.models import InventoryItem, InventoryRead, Job, JobReturn, Minion
+from app.models import InventoryChange, InventoryItem, InventoryRead, Job, JobReturn, Minion
 from app.salt.client import SaltApiUnavailable
 from app.salt.collector import Collector
 from app.salt.events import SaltEvent
@@ -439,7 +439,20 @@ async def test_a_package_list_salt_says_failed_is_a_failed_read(
         job_ret("105", "pkg.list_pkgs", {"bash": "5.3"}, success=False, retcode=1, _stamp=later)
     )
     read = await read_of(sessions)
-    assert (read.error, read.answered_at) == ("Salt said the call failed", T0 + 10 * SECOND)
+    assert (read.error, read.answered_at) == (
+        "Salt said the call failed (retcode 1)",
+        T0 + 10 * SECOND,
+    )
+    assert await inventory_of(sessions) == {("packages", "bash", "5.2")}
+
+
+async def test_a_package_list_without_fun_args_is_still_an_answer(
+    make_collector: Any, sessions: Sessions
+) -> None:
+    collector = make_collector(FakeSaltApi([]))
+    event = job_ret("109", "pkg.list_pkgs", {"bash": "5.2"})
+    del event.data["fun_args"]
+    await collector.handle(event)
     assert await inventory_of(sessions) == {("packages", "bash", "5.2")}
 
 
@@ -447,7 +460,7 @@ async def test_other_calls_are_not_answers(make_collector: Any, sessions: Sessio
     collector = make_collector(FakeSaltApi([]))
     await collector.handle(job_ret("106", "cmd.run_all", ok("hi"), args=["echo hi"]))
     # With arguments, a package list isn't the plain one brine reads. Keyword arguments come
-    # as a dict (through salt-api) or as name=value (from the salt CLI).
+    # as a dict (the salt CLI sends them so) or as a name=value string (a salt-api client can).
     listed = {"rover-agent": ["2.4.1"]}
     await collector.handle(
         job_ret("107", "pkg.list_pkgs", listed, args=[{"versions_as_list": True}])
@@ -533,8 +546,9 @@ async def test_a_minion_start_wants_a_reread_even_if_salt_api_then_fails(
 async def test_a_checks_command_with_more_arguments_is_a_job_not_an_answer(
     make_collector: Any, ingest: Ingest, sessions: Sessions, more: Any
 ) -> None:
-    # Keyword arguments come as a dict (through salt-api) or as name=value (the salt CLI).
-    # They can change the output (runas, env, cwd), and the command could do anything.
+    # Keyword arguments come as a dict (the salt CLI sends them so) or as a name=value string
+    # (a salt-api client can). They can change the output (runas, env, cwd), and the command
+    # could do anything.
     collector = make_collector(FakeSaltApi([]))
     await ingest.inventory_read("rover-01", "packages", {"bash": "5.2"}, at=T0, jid=None)
     answer, args = ok("rover-cli 1.2.0"), [ROVER_CLI, more]
@@ -553,3 +567,52 @@ async def test_a_truncated_answer_is_stored_as_truncated(
     assert (await read_of(sessions, "rover-cli")).truncated
     # Some entries may be missing from it, so none are taken as gone.
     assert ("rover-cli", "old", "1") in await inventory_of(sessions)
+
+
+@pytest.mark.parametrize(
+    ("method", "event"),
+    [
+        ("inventory_read", job_ret("601", "pkg.list_pkgs", {"bash": "5.2"})),
+        ("inventory_job_done", job_ret("602", "state.apply", {}, user="alice")),
+        ("inventory_wanted", ev("salt/minion/rover-01/start", id="rover-01")),
+    ],
+)
+async def test_a_failure_recording_packages_or_checks_doesnt_end_the_session(
+    make_collector: Any,
+    ingest: Ingest,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    method: str,
+    event: SaltEvent,
+) -> None:
+    async def broken(*args: Any, **kwargs: Any) -> Any:
+        raise RuntimeError("broken")
+
+    monkeypatch.setattr(ingest, method, broken)
+    api = FakeSaltApi([])
+    collector = make_collector(api)
+    async with collector.bus.subscribe() as queue:
+        await collector.handle(event)  # logged, not raised
+        assert "broken" in caplog.text
+        # The rest of the event still counts, and browsers hear of it.
+        assert not queue.empty()
+    assert api.count("grains.items") == (1 if method == "inventory_wanted" else 0)
+
+
+async def test_a_persons_job_is_credited_with_brines_read_after_it(
+    make_collector: Any, ingest: Ingest, sessions: Sessions
+) -> None:
+    collector = make_collector(FakeSaltApi([]))
+    before = "2026-10-20T11:00:00.000000"
+    await collector.handle(job_ret("700", "pkg.list_pkgs", {"bash": "5.2"}, _stamp=before))
+    await collector.handle(job_ret("701", "state.apply", {}, user="alice"))
+    # The sweep asks for the want, AFTER_JOB after the job; its answer finds the change.
+    await ingest.inventory_asked(["rover-01"], "packages", at=STAMP + AFTER_JOB, jid="702")
+    after = "2026-10-20T12:01:10.000000"
+    await collector.handle(job_ret("702", "pkg.list_pkgs", {"bash": "5.3"}, _stamp=after))
+    async with sessions() as s:
+        (change,) = await s.scalars(select(InventoryChange))
+    assert (change.name, change.old, change.new) == ("bash", "5.2", "5.3")
+    assert (change.jid, change.user) == ("701", "alice")
+    read = await read_of(sessions)
+    assert read.wanted_at is None and read.after_at is None

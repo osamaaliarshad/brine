@@ -564,6 +564,7 @@ async def test_the_credit_window(ingest: Ingest, sessions: Sessions) -> None:
     # It starts CLOCK_MARGIN after the job: an ask closer may have been sent before it.
     await brine_reads(ingest, {"agent": "2.4.1"}, at=job_at + CLOCK_MARGIN, jid="A1", mid="c")
     assert (await last_change(sessions, "c")).jid == "J1"
+    assert (await read_row(sessions, "c")).wanted_at is None
     # Asked later (the minion was away): too much else may have changed. No credit, and it's
     # used up all the same.
     late = job_at + CREDIT_WINDOW + MINUTE
@@ -738,6 +739,30 @@ async def test_an_answer_before_its_ask_is_recorded(ingest: Ingest, sessions: Se
     assert {c.jid for c in await changes_of(sessions, "a")} == {None}
     read = await read_row(sessions, "a")
     assert read.after_at is None and read.wanted_at is None and read.asked_jid is None
+
+
+async def test_an_orchestrations_steps_credit_the_person_who_ran_it(
+    ingest: Ingest, sessions: Sessions
+) -> None:
+    # Its steps run as "salt"; once the orchestration ends, job_owner gives them to the person.
+    job_at = T0 + HOUR
+    for mid, jid in (("a", "S1"), ("b", "S1"), ("c", "OTHER")):
+        await ingest.inventory_read(mid, "packages", {"agent": "2.3.0"}, at=T0, jid=None)
+        await ingest.inventory_job_done(mid, jid=jid, user="salt", at=job_at)
+    # "a" is read while the orchestration still runs: credited to "salt" for now.
+    await brine_reads(ingest, {"agent": "2.4.1"}, at=job_at + MINUTE, jid="A1", mid="a")
+    changes = await ingest.job_owner(["S1", "S2"], "alice@example.com")
+    assert "a" in changes.minions
+    last = await last_change(sessions, "a")
+    assert (last.jid, last.user) == ("S1", "alice@example.com")
+    # "b" still waits for its read: its credit is the person's too.
+    read = await read_row(sessions, "b")
+    assert (read.after_jid, read.after_user) == ("S1", "alice@example.com")
+    await brine_reads(ingest, {"agent": "2.4.1"}, at=job_at + MINUTE, jid="A2", mid="b")
+    last = await last_change(sessions, "b")
+    assert (last.jid, last.user) == ("S1", "alice@example.com")
+    # Other jobs are left alone.
+    assert (await read_row(sessions, "c")).after_user == "salt"
 
 
 async def test_two_jobs_before_the_read_credit_neither(ingest: Ingest, sessions: Sessions) -> None:

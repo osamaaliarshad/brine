@@ -272,6 +272,11 @@ class Ingest:
     #   for the next ask, which, made for the want, comes AFTER_JOB after the job.
     # * Several jobs before brine's answer credit none of them: `after_jid` is None,
     #   `after_user` the person if it was the same one each time, `after_at` the latest job.
+    # * An orchestration's steps run as "salt"; `job_owner` later gives a step's credit, made or
+    #   waiting, to the person who ran it. After several steps there's no one job to find it
+    #   by, so it stays "salt's".
+    # * Jobs brine imports from the master's job cache (after a reconnect) want no read: the
+    #   next refresh, or the read when a minion comes back, finds their changes, uncredited.
     # * Late answers (no newer than the last good read, or for a failure the last answer)
     #   change no entries or times; brine's still settles its ask.
     # * Repeats: brine's answer, once in, isn't brine's any more, and a start or job is skipped
@@ -698,12 +703,23 @@ class Ingest:
         return deleted
 
     async def job_owner(self, jids: Iterable[str], actor: str) -> Changes:
-        """These jobs belong to `actor` (an orchestration's steps, started as "salt")."""
+        """These jobs belong to `actor` (an orchestration's steps, started as "salt"), and so
+        do the package and check changes credited to them, or waiting to be."""
         wanted = set(jids)
+        changes = Changes(jobs=wanted)
         async with self._lock, self._sessions() as s, s.begin():
             for job in (await s.scalars(select(Job).where(Job.jid.in_(wanted)))).all():
                 job.user = actor
-        return Changes(jobs=wanted)
+            for read in await s.scalars(
+                select(InventoryRead).where(InventoryRead.after_jid.in_(wanted))
+            ):
+                read.after_user = actor
+            for change in await s.scalars(
+                select(InventoryChange).where(InventoryChange.jid.in_(wanted))
+            ):
+                change.user = actor
+                changes.minions.add(change.minion_id)
+        return changes
 
     async def job_return(
         self,

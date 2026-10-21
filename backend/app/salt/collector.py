@@ -341,12 +341,7 @@ class Collector:
                 retcode=d.get("retcode"),
                 user=user,
             )
-            # An answer is a read, brine's or a person's: it changes nothing, so there's nothing
-            # to read again after it, or to credit changes to.
-            if source := self._inventory_source(fun, d.get("fun_args")):
-                changes.merge(await self._inventory_answer(mid, m["jid"], source, d, at))
-            elif not self.ingest.is_housekeeping(user, fun) and inventory.may_change_software(fun):
-                await self.ingest.inventory_job_done(mid, jid=m["jid"], user=user, at=at)
+            changes.merge(await self._inventory_return(mid, m["jid"], fun, user, d, at))
         elif m := _JOB_NEW.match(tag):
             changes = await self.ingest.job_new(
                 jid=m["jid"],
@@ -392,10 +387,27 @@ class Collector:
             # A (re)started minion may have new grains, packages and checks. The want is timed
             # by the master, like the answers it's compared with, and recorded first, so a
             # salt-api error asking for grains doesn't lose it.
-            await self.ingest.inventory_wanted(m["mid"], at=at)
+            try:
+                await self.ingest.inventory_wanted(m["mid"], at=at)
+            except Exception:  # derived data, read again anyway: not worth ending the session
+                log.exception("couldn't record that %s wants a read", m["mid"])
             await self.client.local_async(m["mid"], "grains.items", tgt_type="list")
 
         self._publish(changes)
+
+    async def _inventory_return(
+        self, mid: str, jid: str, fun: str, user: str | None, d: dict[str, Any], at: datetime
+    ) -> Changes:
+        """Packages and checks from a job's return: an answer, or a job to read again after."""
+        try:
+            # An answer is a read-only call: it never wants a re-read or a credit.
+            if source := self._inventory_source(fun, d.get("fun_args")):
+                return await self._inventory_answer(mid, jid, source, d, at)
+            if not self.ingest.is_housekeeping(user, fun) and inventory.may_change_software(fun):
+                await self.ingest.inventory_job_done(mid, jid=jid, user=user, at=at)
+        except Exception:  # derived data, read again anyway: not worth ending the session
+            log.exception("couldn't record packages or checks from job %s on %s", jid, mid)
+        return Changes()
 
     def _inventory_source(self, fun: str, args: object) -> str | None:
         """What a return answers, if anything: the packages, for ``pkg.list_pkgs`` with no
@@ -418,7 +430,7 @@ class Collector:
         # "unexpected answer"), but one that reads well may still be partial: a command inside
         # it failed, say.
         if d.get("success") is False and not error:
-            error = "Salt said the call failed"
+            error = f"Salt said the call failed (retcode {d.get('retcode')})"
         if error:
             return await self.ingest.inventory_failed(mid, source, error, at=at, jid=jid)
         return await self.ingest.inventory_read(
