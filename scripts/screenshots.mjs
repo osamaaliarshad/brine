@@ -28,13 +28,20 @@ const getJson = async (url) => (await fetch(url)).json()
 // this order.
 export const PAGES = [
   ['fleet', '/'],
-  ['grains', '/?tab=grains&grain=app_version'],
+  // A package: in the demo, rover-agent is 2.4.1 on two rovers, 2.3.0 on rover-03, and not on dock-01.
+  ['grains', `/?tab=grains&grain=${encodeURIComponent('@packages:rover-agent')}`],
   ['nodegroups', '/?tab=nodegroups'],
   ['minion', '/minions/rover-01'],
+  // Compared with rover-03: rover-agent and the rover-cli check differ.
+  ['packages', '/minions/rover-01?tab=packages&compare=rover-03'],
   ['jobs', '/jobs'],
   ['state-runs', '/jobs?tab=states'],
-  // The most recent state.apply: in the demo, dock-01's calibration state fails on purpose.
-  ['job', async (base) => `/jobs/${(await getJson(`${base}/api/jobs?fun=state.apply&limit=1`)).jobs[0].jid}`],
+  // dock-01's latest state.apply, where its calibration state fails on purpose. (Not the latest
+  // one overall: the end-to-end tests apply rover-03's package state from the master.)
+  [
+    'job',
+    async (base) => `/jobs/${(await getJson(`${base}/api/jobs?fun=state.apply&minion=dock-01&limit=1`)).jobs[0].jid}`,
+  ],
   // A shared link opens previewed (nothing runs).
   ['run', `/run?target=${encodeURIComponent('rover-*')}&command=${encodeURIComponent('state.apply motd test=True')}`],
   ['keys', '/keys'],
@@ -70,7 +77,7 @@ const HEIGHT = 900
 // The page is ready once the main area has rendered and nothing says it's still loading.
 const READY = `(() => {
   const main = document.querySelector('main')
-  return !!main && main.innerText.length > 0 && !/Loading|Asking|Checking/.test(main.innerText)
+  return !!main && main.innerText.length > 0 && !/Loading|Asking|Checking|Comparing/.test(main.innerText)
     && document.fonts.status === 'loaded'
 })()`
 

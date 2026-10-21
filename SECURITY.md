@@ -24,6 +24,12 @@ week, and credit in the release notes if you'd like it.
 
 - **Job output is visible to everyone signed in** (pillar output excepted). If people run
   commands whose output contains secrets, give viewer access only to people who may see them.
+- **So are package lists, and checks with their output.** Keep secrets out of check commands,
+  and don't write checks that print them.
+- **Checks let brine's Salt account run commands.** Salt pins each check's command, but not the
+  call's other options, so an account allowed checks can in practice run other commands too
+  ([details](docs/permissions-and-salt-acl.md#4-optional-checks)). Leave checks out if that
+  account should stay read-only.
 - **Who ran a job** comes from Salt job metadata that brine sets. Someone with shell access to the
   master could set the same metadata on a job of their own; the audit log is the record to trust.
 - **Signing out** clears the session in that browser. A copied session cookie keeps working until

@@ -24,7 +24,7 @@ Your `saltgui_templates` keep working: brine reads them from the master config a
 | Login (eauth user and password) | OIDC sign-in | People never see Salt credentials |
 | `saltgui_pages` (menus per user) | Roles: viewer, operator, admin | Enforced by the server, not just hidden in the menu |
 | Minions | Fleet | Online / stale / offline with last seen, your choice of grain columns |
-| Grains (+ `saltgui_preview_grains`) | Fleet columns, Fleet › Grains | Each grain's spread across the fleet; add it as a column in one click |
+| Grains (+ `saltgui_preview_grains`) | Fleet columns, Fleet › Grains & packages | Each grain's spread across the fleet; add it as a column in one click |
 | Grains of one minion | Minion › Grains | When they were collected, and their history as diffs |
 | Pillars (masked) | Minion › Pillar | Values masked; showing them isn't built yet |
 | Mine | Minion › Mine | |
@@ -54,4 +54,6 @@ Your `saltgui_templates` keep working: brine reads them from the master config a
 - Job history that outlives the master's job cache, with each job under the person who ran it
 - An audit log
 - Catch-up runs: offline minions get a command when they're back
+- Packages and checks: what's installed on each minion, over time, as columns and in an explorer,
+  with each change shown next to the job it was found after; compare minions with a golden one
 - Live updates without refreshing, and a layout that works on a phone

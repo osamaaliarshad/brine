@@ -9,6 +9,11 @@ plus sign-in, history, an audit log and catch-up runs.
   spread of any grain across the fleet, nodegroups.
 - **Minion pages:** grains with when they were collected and their history, jobs, an online and
   offline timeline, and pillar (masked), beacons, schedules and mine asked live.
+- **Packages and checks:** what each minion has installed, from its own package manager, plus
+  your own checks for anything else (container images, binaries in `/opt`), kept over time. See
+  which minions have which version, or don't have it, add any package as a column, and see each
+  change with the job it was found after. Compare a minion with a golden one, or the whole fleet
+  with it.
 - **Jobs:** history kept in brine's database, each minion's latest state run, and a page per job
   with state-by-state results, Run again, and stop or kill.
 - **Run:** commands like the salt CLI, showing the exact minions they'll reach before anything

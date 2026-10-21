@@ -176,3 +176,44 @@ Choices that keep it predictable:
 - The person's allowlist is checked again at delivery, so a role change takes effect.
 - Only minions a fresh presence check calls offline are queued. Without fresh presence, nothing
   is queued and nothing is sent, rather than guessing.
+
+## 20. Packages and checks: brine reads them, and credits a change only when it's sure
+
+brine keeps what each minion has installed: its `pkg.list_pkgs` (the minion's own package
+manager, so a package counts however it got there), and optional checks, one-line commands run
+with `cmd.run_all` for what the package manager doesn't know about. The minion stays the source
+of truth; brine keeps what each one said, and when.
+
+Not grains: a custom grain would need a module deployed to every minion, would make
+`grains.items` on the CLI print every package, and would go stale between grains refreshes.
+Not pushed by the minions either: a beacon or a schedule would mean changing every minion's
+config (or pillar), and so Salt for everyone who uses it. brine asks instead, and changes
+nothing on the master or the minions. It asks each online minion every `inventory.refresh_hours`
+(6 by default), about a minute after a person's job that could change software, when a minion
+starts or comes back, and when someone clicks Read now. Its asks are housekeeping, not recorded
+as jobs (decision 9). Answers arrive on the event bus like any return, so a `pkg.list_pkgs`
+someone runs counts too.
+
+brine only sees a change when it reads the minion again, so a change is "found after" a job,
+never "made by" it: the read also catches anything else since the one before. The rules:
+
+- A change is credited to a job only when brine's own read finds it, asked at least 30 seconds
+  after the job finished and within about 13 minutes of it. Otherwise it shows the time between
+  the two reads it fell between.
+- After several jobs before the read, none gets the credit ("found after jobs by alice" if one
+  person ran them all).
+- Anything uncertain (an ask that may have gone out before the job, a lost answer, someone
+  else's `pkg.list_pkgs`) costs a credit, never gives a wrong one.
+- The first read records what's there, without changes. A minion that hasn't answered, or whose
+  last answer was cut short (checks are capped at 500 entries and 64 KB), shows as "No answer yet"
+  or `?`, never as "Not installed". Comparisons only use what both sides read in full.
+
+"Never a wrong one" rests on one assumption: brine times its asks by its own clock and jobs by
+the master's, so it assumes the two agree within 30 seconds, as NTP keeps them. Further apart, a
+change found by a read sent just before a job can be credited to that job.
+
+Two gaps to know about. Minions presence can't see (decision 12) are never read, as brine only
+asks minions a fresh presence check calls connected; any answer they gave before stays, shown
+with its time. And jobs brine imports from the master's job cache after a reconnect don't
+trigger a read: the next scheduled read, or the one when a minion comes back, finds their
+changes, uncredited.

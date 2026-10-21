@@ -33,10 +33,13 @@ the fleet, and a safe way to act on it:
 - **An audit log** of who did what, on which minions, and when.
 - **Any grain as a column** (`app_version`, `firmware_version`, ...) in the fleet table, no code
   changes.
+- **What's installed where.** Packages from each minion's own package manager, plus your own
+  checks for anything else, kept over time, with the job and person behind each change when
+  brine can tell. Compare any minion with a golden one.
 - **Everything [SaltGUI](https://github.com/erwindon/SaltGUI) does,** and your
   `saltgui_templates` keep working ([coming from SaltGUI](docs/saltgui-parity.md)).
-- **Least privilege.** brine needs a read-only Salt account, plus a few functions for keys and
-  commands if you want them ([the exact ACL](docs/permissions-and-salt-acl.md)).
+- **Least privilege.** brine needs a read-only Salt account, plus a few functions for keys,
+  commands and checks if you want them ([the exact ACL](docs/permissions-and-salt-acl.md)).
 - **Every supported Salt release** (3006, 3007, 3008), tested end to end in CI against a real
   master ([salt-versions](docs/salt-versions.md)).
 
@@ -66,7 +69,7 @@ salt-api (the master itself is fine), and an OIDC provider for sign-in.
 
 **1. Give brine a Salt account.** On the master, create the account, enable the salt-api clients
 brine uses, and paste in its ACL: [docs/permissions-and-salt-acl.md](docs/permissions-and-salt-acl.md).
-The read-only ACL is enough to start; keys and commands are optional extras.
+The read-only ACL is enough to start; keys, commands and checks are optional extras.
 
 **2. Register brine with your sign-in provider.** One "web application" client with the redirect
 URI `<where people open brine>/api/auth/callback`: [docs/oidc-providers.md](docs/oidc-providers.md)
@@ -122,22 +125,25 @@ Screenshots follow your light/dark preference and come from the demo fleet.
 
 ### Fleet
 
-Every minion at a glance: online now or last seen when, OS and Salt version, and any grains you
-choose as columns. Search, filter by status, sort, and pick columns (add any grain the fleet
-reports, reorder, remove; saved per browser, with the config's `fleet.columns` as the team
-default). Updates live as minions come and go.
+Every minion at a glance: online now or last seen when, OS and Salt version, and any grains or
+packages you choose as columns. Search, filter by status, sort, and pick columns (add any grain
+the fleet reports, reorder, remove; saved per browser, with the config's `fleet.columns` as the
+team default). Updates live as minions come and go.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/fleet-dark.png">
   <img alt="The Fleet page: three minions online, one offline, with site, app version and firmware columns" src="docs/assets/screenshots/fleet-light.png">
 </picture>
 
-**Grains** shows how any grain is spread across the fleet (which machines run which app or
-firmware version) and adds it as a column in one click:
+**Grains & packages** shows how any grain, package or check is spread across the fleet: which
+machines run which version, which don't have it at all, and which haven't answered yet. Open a
+version to see its minions, and **Run on these** to open the Run page with just them (nothing
+runs until you click Run). Add any of them as a column in one click. Each change is listed with
+the job it was found after, or the time between two reads when brine can't tell.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/grains-dark.png">
-  <img alt="Grains explorer: app_version values across the fleet with counts and shares" src="docs/assets/screenshots/grains-light.png">
+  <img alt="Grains & packages: the rover-agent package at 2.4.1 on two minions, 2.3.0 on one, and not installed on dock-01" src="docs/assets/screenshots/grains-light.png">
 </picture>
 
 **Nodegroups** lists the master's nodegroups with their members and how many are online:
@@ -150,12 +156,22 @@ firmware version) and adds it as a column in one click:
 ### Minion
 
 Everything about one minion: connection and how long it's been that way, every grain with when
-it was collected, grains history as diffs, recent jobs, and an online/offline timeline. Pillar
-(values masked), beacons, schedules and mine are fetched live from the minion on demand.
+it was collected, its packages and checks, recent jobs, and an online/offline timeline. History
+shows grains and package changes on one timeline. Pillar (values masked), beacons, schedules and
+mine are fetched live from the minion on demand.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/minion-dark.png">
-  <img alt="A minion page: connection facts, tabs for grains, history, jobs, timeline, pillar, beacons, schedules and mine" src="docs/assets/screenshots/minion-light.png">
+  <img alt="A minion page: connection facts, tabs for grains, packages, history, jobs, timeline, pillar, beacons, schedules and mine" src="docs/assets/screenshots/minion-light.png">
+</picture>
+
+**Packages** lists every package the minion has, and what each check printed, with when it last
+changed. Compare it with another minion, such as a golden robot, to see every difference, or see
+how the whole fleet differs from it:
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/packages-dark.png">
+  <img alt="rover-01's Packages tab compared with rover-03: rover-agent 2.4.1 against 2.3.0, and the rover-cli check 1.2.0 against 1.1.0" src="docs/assets/screenshots/packages-light.png">
 </picture>
 
 ### Jobs
@@ -217,7 +233,7 @@ never repeated.
 Every minion key the master knows, with its fingerprint and whether that minion is around. Keys
 waiting for approval come first. Admins accept, reject and delete keys here (or from a minion's
 page): accepting shows the fingerprint to check, deleting takes typing the minion's name, and
-every change lands in the audit log. Needs [three more Salt functions](docs/permissions-and-salt-acl.md#4-optional-key-management);
+every change lands in the audit log. Needs [three more Salt functions](docs/permissions-and-salt-acl.md#5-optional-key-management);
 without them brine stays read-only for keys and says so.
 
 <picture>
@@ -274,12 +290,13 @@ reactor configuration.
 
 What needs a human, most serious first: failed states, minions gone offline, keys waiting for
 approval, recent jobs with failures or missing returns, Salt version drift, and problems with
-brine's own view (salt-api unreachable, stale presence, minions presence can't see). Each links
-to the minion or job. The count also appears on the Fleet page and in the sidebar.
+brine's own view (salt-api unreachable, stale presence, minions presence can't see, packages or
+checks Salt won't let it read). Each links to the minion, job or setting. The count also appears
+on the Fleet page and in the sidebar.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/issues-dark.png">
-  <img alt="The Issues page: a failed state on dock-01, rover-03 offline, rover-04 waiting for approval" src="docs/assets/screenshots/issues-light.png">
+  <img alt="The Issues page: a failed state on dock-01, rover-03 offline, and recent state runs that failed on rover-03" src="docs/assets/screenshots/issues-light.png">
 </picture>
 
 ### Audit log
@@ -296,9 +313,10 @@ where.
 ### Settings
 
 What this brine is running with: the salt-api connection and service account, which presence
-method is active, fleet defaults, retention, database, and how sign-in and roles are set up
-(pattern counts, not who holds them). Secrets never leave the server. Plus per-browser choices:
-theme (light, dark or follow the system) and resetting custom columns.
+method is active, fleet defaults, packages and checks (how often, which checks, and the Salt
+lines they need), retention, database, and how sign-in and roles are set up (pattern counts, not
+who holds them). Secrets never leave the server. Plus per-browser choices: theme (light, dark or
+follow the system) and resetting custom columns.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/settings-dark.png">
