@@ -1,8 +1,9 @@
 """Record what Salt tells us in the database.
 
 Every method is idempotent: the same event delivered twice (or a backfilled job that was also
-seen live) leaves the database unchanged. Each returns a `Changes` describing what moved, so
-the caller can notify browsers.
+seen live) leaves the database unchanged. Methods that change what browsers show return a
+`Changes` describing what moved, so the caller can notify them; brine's own bookkeeping (when it
+asked, what it wants read again) returns None.
 """
 
 from __future__ import annotations
@@ -18,7 +19,7 @@ from typing import Any
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.inventory import AFTER_JOB
+from app.inventory import AFTER_JOB, CREDIT_WINDOW
 from app.models import (
     AuditEntry,
     GrainsSnapshot,
@@ -81,32 +82,6 @@ def grains_hash(grains: dict[str, Any]) -> str:
 
 def _later(current: datetime | None, candidate: datetime) -> datetime:
     return candidate if current is None or candidate > current else current
-
-
-def _asked_at(read: InventoryRead, jid: str | None) -> datetime | None:
-    """When brine made the ask an answer (from job `jid`) is to, if it's brine's latest ask.
-    None for anything else: a person's own call, or an older ask answering late."""
-    return read.asked_at if jid is not None and jid == read.asked_jid else None
-
-
-def _meet_want(read: InventoryRead, asked: datetime | None) -> None:
-    """An answer meets a want (a start, a job) only if it's to an ask made at or after it."""
-    if read.wanted_at is not None and asked is not None and asked >= read.wanted_at:
-        read.wanted_at = None
-
-
-def _credits_job(read: InventoryRead, asked: datetime | None) -> bool:
-    """Whether an answer gets the job's credit: only the answer to brine's latest ask, made after
-    the job. Any other answer may show a change made before the job."""
-    return asked is not None and read.after_at is not None and asked >= read.after_at
-
-
-def _settle_late(read: InventoryRead, asked: datetime | None, *, at: datetime) -> None:
-    """A late answer (from `at`) to brine's latest ask still settles that ask. It meets the want,
-    and once a newer good read has found what the job changed, it uses up the job's credit."""
-    if read.read_at is not None and at <= read.read_at and _credits_job(read, asked):
-        read.after_jid = read.after_user = read.after_at = None
-    _meet_want(read, asked)
 
 
 class Ingest:
@@ -275,6 +250,29 @@ class Ingest:
         return Changes(fleet=True, minions={mid})
 
     # --- packages and checks (app/inventory.py) -------------------------------------------
+    #
+    # brine keeps one InventoryRead per minion and source (packages, or a check):
+    #
+    # * brine's answer comes from the job of its ask still out (`asked_jid`). Any other answer
+    #   (a person's own pkg.list_pkgs, an older ask, one that beat `inventory_asked` to the
+    #   database) still updates the entries, but settles nothing.
+    # * A start, or a person's job that may change software, wants the source read again (for
+    #   a job, AFTER_JOB after it), and forgets brine's ask still out: that answer may predate
+    #   it. The want stays until brine's answer, good or failed, clears it, so a lost answer is
+    #   asked again.
+    # * Credit: the job waits in `after_*` for brine's answer. A good one credits what changed
+    #   to the job if brine asked within CREDIT_WINDOW of it; later, too much else may have
+    #   changed. brine's answer uses the credit up either way, good or failed.
+    # * Several jobs before brine's answer credit none of them: `after_jid` is None,
+    #   `after_user` the person if it was the same one each time, `after_at` the latest job.
+    # * Late answers (no newer than the last good read, or for a failure the last answer)
+    #   change no entries or times; brine's still settles its ask.
+    # * Repeats change nothing: brine's answer, once in, isn't brine's any more, and a start or
+    #   job is skipped for a source read since it, or already waiting on it.
+    # * A source's first read records what's there without changes. A truncated read adds and
+    #   updates entries but removes none: what's missing may only have been cut off.
+    # * Clocks: answers, jobs and starts are timed by the master, asks by brine. Only coarse
+    #   rules (refreshes, the credit window) compare the two.
 
     async def _read_row(self, s: AsyncSession, mid: str, source: str) -> InventoryRead:
         await self._get_or_create(s, mid, "accepted")
@@ -284,37 +282,73 @@ class Ingest:
             s.add(read)
         return read
 
+    @staticmethod
+    def _settle(read: InventoryRead) -> None:
+        """brine's answer, good or failed: no ask is out, the want is met, the credit used up."""
+        read.asked_jid = read.wanted_at = None
+        read.after_jid = read.after_user = read.after_at = None
+
     async def inventory_asked(
         self, mids: Iterable[str], source: str, *, at: datetime, jid: str | None
     ) -> None:
-        """brine asked these minions at `at`, in job `jid` (None: no minion matched)."""
+        """brine asked these minions at `at` (its own clock), in job `jid`: None if no minion
+        matched, so no answer will come."""
+        asked = set(mids)
+        if not asked:
+            return
         async with self._lock, self._sessions() as s, s.begin():
-            for mid in mids:
-                read = await self._read_row(s, mid, source)
+            known = set((await s.scalars(select(Minion.id).where(Minion.id.in_(asked)))).all())
+            reads = {
+                read.minion_id: read
+                for read in await s.scalars(
+                    select(InventoryRead).where(
+                        InventoryRead.minion_id.in_(asked), InventoryRead.source == source
+                    )
+                )
+            }
+            if missing := asked - known:
+                s.add_all(
+                    Minion(id=mid, key_state="accepted", first_seen_at=self._clock())
+                    for mid in missing
+                )
+                # Written first: with no relationship declared, SQLAlchemy could insert the
+                # reads before the minions they belong to.
+                await s.flush()
+            for mid in asked:
+                read = reads.get(mid)
+                if read is None:
+                    read = InventoryRead(minion_id=mid, source=source)
+                    s.add(read)
                 read.asked_at, read.asked_jid = at, jid
 
     async def inventory_wanted(self, mid: str, *, at: datetime) -> None:
-        """The minion started: read each source again from `at` on. A minion never read has no
-        rows, and is due anyway."""
+        """The minion started at `at`: read each source again. A minion never read has no rows,
+        and is due anyway."""
         async with self._lock, self._sessions() as s, s.begin():
             for read in await s.scalars(select(InventoryRead).filter_by(minion_id=mid)):
-                if read.read_at is not None and at < read.read_at:
-                    continue  # reported again, or late: a newer read stands
+                if (read.read_at is not None and read.read_at > at) or read.wanted_at == at:
+                    continue  # a repeat: read since, or already wanted
                 read.wanted_at = _later(read.wanted_at, at)
+                read.asked_jid = None
 
     async def inventory_job_done(
         self, mid: str, *, jid: str, user: str | None, at: datetime
     ) -> None:
-        """A person's job that may change software finished on `mid` at `at`: read it again
-        shortly, and credit what that read finds to the job. The latest job wins."""
+        """A person's job that may change software finished on `mid` at `at`: read each source
+        again shortly, and credit what that read finds to the job."""
         async with self._lock, self._sessions() as s, s.begin():
             for read in await s.scalars(select(InventoryRead).filter_by(minion_id=mid)):
-                if read.read_at is not None and at < read.read_at:
-                    # Reported again, or late: a newer read already has what it changed.
-                    continue
+                if (read.read_at is not None and read.read_at > at) or read.after_jid == jid:
+                    continue  # a repeat: read since, or already waiting
                 read.wanted_at = _later(read.wanted_at, at + AFTER_JOB)
-                if read.after_at is None or at >= read.after_at:
+                read.asked_jid = None
+                if read.after_at is None:
                     read.after_jid, read.after_user, read.after_at = jid, user, at
+                else:  # several jobs
+                    read.after_jid = None
+                    if read.after_user != user:
+                        read.after_user = None
+                    read.after_at = _later(read.after_at, at)
 
     async def inventory_read(
         self,
@@ -323,24 +357,26 @@ class Ingest:
         entries: dict[str, str],
         *,
         at: datetime,
+        jid: str | None,
         truncated: bool = False,
-        jid: str | None = None,
     ) -> Changes:
-        """A good answer: these are all the entries `mid` has for `source`, as of `at`. Each
-        difference from the last read is a change; the first read records what's there without
-        any ("already there when brine first looked"). `jid` is the job that carried it."""
+        """A good answer, carried by job `jid`: all the entries `mid` has for `source` as of
+        `at`, or only some of them if `truncated`."""
         async with self._lock, self._sessions() as s, s.begin():
             read = await self._read_row(s, mid, source)
-            asked = _asked_at(read, jid)
+            brines_answer = jid is not None and jid == read.asked_jid
             if read.read_at is not None and at <= read.read_at:
-                # An older answer arriving late, or a duplicate: the newer read stands.
-                _settle_late(read, asked, at=at)
-                return Changes()
+                if brines_answer:
+                    self._settle(read)
+                return Changes()  # late, or a repeat: the newer read stands
             first, since = read.first_read_at is None, read.read_at
-            # The job gets the changes only in the answer to brine's ask made after it; for any
-            # other answer the credit waits.
-            credited = _credits_job(read, asked)
-            job, user = (read.after_jid, read.after_user) if credited else (None, None)
+            credit = (
+                brines_answer
+                and read.after_at is not None
+                and read.asked_at is not None
+                and read.asked_at - read.after_at <= CREDIT_WINDOW
+            )
+            credit_jid, credit_user = (read.after_jid, read.after_user) if credit else (None, None)
             current = {
                 item.name: item
                 for item in await s.scalars(
@@ -360,9 +396,10 @@ class Ingest:
                 elif item.value != value:
                     moved.append((name, item.value, value))
                     item.value, item.since = value, at
-            for name, item in current.items():
-                moved.append((name, item.value, None))
-                await s.delete(item)
+            if not truncated:
+                for name, item in current.items():
+                    moved.append((name, item.value, None))
+                    await s.delete(item)
             if not first:
                 s.add_all(
                     InventoryChange(
@@ -373,35 +410,33 @@ class Ingest:
                         new=new,
                         at=at,
                         since=since,
-                        jid=job,
-                        user=user,
+                        jid=credit_jid,
+                        user=credit_user,
                     )
                     for name, old, new in moved
                 )
-            if credited:
-                read.after_jid = read.after_user = read.after_at = None
+            if brines_answer:
+                self._settle(read)
             read.read_at, read.truncated = at, truncated
             read.first_read_at = read.first_read_at or at
-            # A failed answer from after this one (it arrived first) stays the latest answer.
+            # A failure newer than this answer (it came in first) stays the last answer.
             if read.answered_at is None or at >= read.answered_at:
                 read.answered_at, read.error = at, None
-            _meet_want(read, asked)
-        return Changes(fleet=bool(moved), minions={mid})
+        # A first read moves the fleet view even when empty: "not read" becomes "nothing".
+        return Changes(fleet=first or bool(moved), minions={mid})
 
     async def inventory_failed(
-        self, mid: str, source: str, error: str, *, at: datetime, jid: str | None = None
+        self, mid: str, source: str, error: str, *, at: datetime, jid: str | None
     ) -> Changes:
-        """The minion answered but couldn't say (a locked package database, a failing check).
-        The last good entries stay, as of when they were read. `jid` is the job that carried it."""
+        """The minion answered, in job `jid`, but couldn't say (a locked package database, a
+        failing check). The last good entries stay, as of when they were read."""
         async with self._lock, self._sessions() as s, s.begin():
             read = await self._read_row(s, mid, source)
-            asked = _asked_at(read, jid)
+            if jid is not None and jid == read.asked_jid:
+                self._settle(read)
             if read.answered_at is not None and at <= read.answered_at:
-                # An older answer arriving late, or a duplicate: the newer answer stands.
-                _settle_late(read, asked, at=at)
-                return Changes()
+                return Changes()  # late, or a repeat: the newer answer stands
             read.answered_at, read.error = at, error
-            _meet_want(read, asked)
         return Changes(minions={mid})
 
     # --- jobs -----------------------------------------------------------------------------

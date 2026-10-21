@@ -1,7 +1,7 @@
 """Packages and checks: parsing, due rules, the sweep, ingest and the API."""
 
 import re
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 import pytest
@@ -276,58 +276,71 @@ def test_acl_allows_exactly_each_check_command() -> None:
         assert not re.match(pattern, "x" + command)
 
 
+def _state(
+    asked_jid: str | None = None,
+    asked_at: datetime | None = None,
+    answered_at: datetime | None = None,
+    wanted_at: datetime | None = None,
+) -> inv.ReadState:
+    return inv.ReadState(
+        asked_jid=asked_jid, asked_at=asked_at, answered_at=answered_at, wanted_at=wanted_at
+    )
+
+
 def test_due_rules() -> None:
-    every = timedelta(hours=6)
-    read = inv.ReadState(asked_at=None, answered_at=T0, wanted_at=None)
+    every, minute = timedelta(hours=6), timedelta(minutes=1)
+    read = _state(answered_at=T0)
     assert inv.is_due(None, now=T0, every=every, back_at=None)
     assert not inv.is_due(read, now=T0 + timedelta(hours=1), every=every, back_at=None)
     assert inv.is_due(read, now=T0 + every, every=every, back_at=None)
     # Back online since the last answer.
-    back = T0 + timedelta(minutes=5)
+    back = T0 + 5 * minute
     assert inv.is_due(read, now=T0 + timedelta(hours=1), every=every, back_at=back)
     assert not inv.is_due(read, now=T0 + timedelta(hours=1), every=every, back_at=T0)
-    # Wanted again (Ask now, or after a job), once that time comes.
-    wanted = inv.ReadState(asked_at=None, answered_at=T0, wanted_at=T0 + timedelta(minutes=2))
-    assert not inv.is_due(wanted, now=T0 + timedelta(minutes=1), every=every, back_at=None)
-    assert inv.is_due(wanted, now=T0 + timedelta(minutes=2), every=every, back_at=None)
-    # Asked and waiting for the answer: not asked again until ANSWER_WAIT has passed.
-    waiting = inv.ReadState(asked_at=T0 + timedelta(hours=7), answered_at=T0, wanted_at=None)
-    assert not inv.is_due(
-        waiting, now=T0 + timedelta(hours=7, minutes=1), every=every, back_at=None
-    )
-    assert inv.is_due(
-        waiting, now=T0 + timedelta(hours=7) + inv.ANSWER_WAIT, every=every, back_at=None
-    )
-    never_answered = inv.ReadState(asked_at=T0, answered_at=None, wanted_at=None)
-    assert not inv.is_due(never_answered, now=T0 + timedelta(minutes=1), every=every, back_at=None)
+    # Wanted again (a start, a job, Ask now), once that time comes.
+    wanted = _state(answered_at=T0, wanted_at=T0 + 2 * minute)
+    assert not inv.is_due(wanted, now=T0 + minute, every=every, back_at=None)
+    assert inv.is_due(wanted, now=T0 + 2 * minute, every=every, back_at=None)
+    # brine's ask is out: not asked again until ANSWER_WAIT has passed, even when due.
+    asked = T0 + timedelta(hours=7)
+    waiting = _state(asked_jid="A1", asked_at=asked, answered_at=T0)
+    assert not inv.is_due(waiting, now=asked + minute, every=every, back_at=None)
+    assert inv.is_due(waiting, now=asked + inv.ANSWER_WAIT, every=every, back_at=None)
+    never_answered = _state(asked_jid="A1", asked_at=T0)
+    assert not inv.is_due(never_answered, now=T0 + minute, every=every, back_at=None)
     assert inv.is_due(never_answered, now=T0 + inv.ANSWER_WAIT, every=every, back_at=None)
-    # Asked, then answered: not waiting any more.
-    answered = inv.ReadState(asked_at=T0, answered_at=T0 + timedelta(seconds=5), wanted_at=None)
-    assert not inv.is_due(answered, now=T0 + timedelta(minutes=1), every=every, back_at=None)
-    wanted_since = inv.ReadState(asked_at=T0, answered_at=T0, wanted_at=T0 + timedelta(minutes=1))
-    assert inv.is_due(wanted_since, now=T0 + timedelta(minutes=1), every=every, back_at=None)
+    # Answered: nothing is out any more.
+    answered = _state(asked_at=T0, answered_at=T0 + timedelta(seconds=5))
+    assert not inv.is_due(answered, now=T0 + minute, every=every, back_at=None)
 
 
-def test_a_want_is_met_only_by_an_ask_made_after_it() -> None:
+def test_a_want_stays_until_brines_answer_clears_it() -> None:
     every = timedelta(hours=6)
     t1, t2, t3, t4 = (T0 + timedelta(minutes=m) for m in (1, 2, 3, 4))
-    # Asked at T0, wanted at T1, then the answer to the older ask arrives at T2: still due.
-    old_answer = inv.ReadState(asked_at=T0, answered_at=t2, wanted_at=t1)
+    # Asked at T0, then a job at T1 wants a read (and forgets that ask). The old ask's answer
+    # arrives at T2: it isn't brine's answer, so the want stays.
+    old_answer = _state(asked_at=T0, answered_at=t2, wanted_at=t1)
     assert inv.is_due(old_answer, now=t2, every=every, back_at=None)
-    # Asked again at T3: the want is met, so not due again because of it.
-    asked_again = inv.ReadState(asked_at=t3, answered_at=t4, wanted_at=t1)
+    # Asked again at T3: waiting for that answer, not asked again.
+    asked_again = _state(asked_jid="A2", asked_at=t3, answered_at=t2, wanted_at=t1)
     assert not inv.is_due(asked_again, now=t4, every=every, back_at=None)
-    asked_at_want = inv.ReadState(asked_at=t1, answered_at=t2, wanted_at=t1)
-    assert not inv.is_due(asked_at_want, now=t2, every=every, back_at=None)
-    # Waiting for an answer comes first, even when wanted.
-    waiting = inv.ReadState(asked_at=T0, answered_at=None, wanted_at=t1)
-    assert not inv.is_due(waiting, now=t2, every=every, back_at=None)
+    # Its answer clears the want.
+    met = _state(asked_at=t3, answered_at=t4)
+    assert not inv.is_due(met, now=t4, every=every, back_at=None)
+    # The clocks aren't compared: brine's ask is out whatever the master stamped the last
+    # answer with (here, a master clock ahead of brine's).
+    skewed = _state(asked_jid="A1", asked_at=T0, answered_at=t4, wanted_at=t1)
+    assert not inv.is_due(skewed, now=t2, every=every, back_at=None)
 
 
 def test_a_want_is_asked_again_when_its_answer_is_lost() -> None:
     every = timedelta(hours=6)
     t1, t3 = T0 + timedelta(minutes=1), T0 + timedelta(minutes=3)
     # Wanted at T1 and asked at T3, but no answer came (a dropped return, a reconnect).
-    lost = inv.ReadState(asked_at=t3, answered_at=T0, wanted_at=t1)
+    lost = _state(asked_jid="A1", asked_at=t3, answered_at=T0, wanted_at=t1)
     assert not inv.is_due(lost, now=t3 + timedelta(minutes=1), every=every, back_at=None)
     assert inv.is_due(lost, now=t3 + inv.ANSWER_WAIT, every=every, back_at=None)
+
+
+def test_the_credit_window_covers_the_wait_and_one_lost_answer() -> None:
+    assert inv.CREDIT_WINDOW > inv.AFTER_JOB + inv.ANSWER_WAIT

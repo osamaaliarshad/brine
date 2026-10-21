@@ -27,6 +27,11 @@ CHECK_FUN = "cmd.run_all"
 ANSWER_WAIT = timedelta(minutes=10)
 # Read again this long after a person's job that could change software finishes.
 AFTER_JOB = timedelta(seconds=60)
+# What brine's read finds is credited to the job before it only if brine asked within this long
+# of the job: the wait after it, one lost answer asked again, and slack for the sweep and for the
+# two clocks (asks are timed by brine's, jobs by the master's). Later, too much else may have
+# changed.
+CREDIT_WINDOW = AFTER_JOB + ANSWER_WAIT + timedelta(minutes=2)
 
 # Caps on what one answer can add. Past them the answer is kept but marked truncated.
 MAX_ENTRIES = 500  # entries from one check
@@ -198,11 +203,12 @@ def acl_lines(settings: Settings) -> str:
 
 @dataclass
 class ReadState:
-    """A minion's reads: last asked, last answered, and when it's wanted again (Ask now, a job)."""
+    """A minion's reads of one source, as ``InventoryRead`` keeps them."""
 
-    asked_at: datetime | None
-    answered_at: datetime | None
-    wanted_at: datetime | None
+    asked_jid: str | None  # brine's ask still out, if any
+    asked_at: datetime | None  # by brine's clock
+    answered_at: datetime | None  # the last answer, by the master's clock
+    wanted_at: datetime | None  # read again from then (a start, a job, Ask now)
 
 
 def is_due(
@@ -211,20 +217,18 @@ def is_due(
     """Whether to ask a minion now. ``back_at`` is when it last came online."""
     if read is None:
         return True
-    asked, answered = read.asked_at, read.answered_at
-    # Asked and not answered since: wait a while for the answer before asking again.
-    if asked is not None and (answered is None or asked > answered) and now - asked < ANSWER_WAIT:
+    # brine's ask is out: give the answer a while before asking again. Only brine's own clock is
+    # compared here.
+    if (
+        read.asked_jid is not None
+        and read.asked_at is not None
+        and now - read.asked_at < ANSWER_WAIT
+    ):
         return False
+    answered = read.answered_at
     if answered is None or now - answered >= every:
         return True
-    # A want (Ask now, a job) is met only by an ask made at or after it, and answered: not by a
-    # late answer to an older ask, nor by an ask whose answer was lost (the wait above has
-    # passed by now).
-    wanted = read.wanted_at
-    if (
-        wanted is not None
-        and wanted <= now
-        and (asked is None or asked < wanted or answered < asked)
-    ):
+    # A want stays until brine's answer clears it, so a lost answer is asked again.
+    if read.wanted_at is not None and read.wanted_at <= now:
         return True
     return back_at is not None and answered < back_at

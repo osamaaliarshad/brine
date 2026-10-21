@@ -86,16 +86,20 @@ class InventoryRead(Base):
         ForeignKey("minions.id", ondelete="CASCADE"), primary_key=True
     )
     source: Mapped[str] = mapped_column(String(64), primary_key=True)
-    asked_at: Mapped[datetime | None]  # brine last asked
-    asked_jid: Mapped[str | None] = mapped_column(String(32))  # the job brine's latest ask started
+    # The rules for these columns are in app/ingest.py, at "packages and checks".
+    asked_at: Mapped[datetime | None]  # brine last asked, by its own clock
+    asked_jid: Mapped[str | None] = mapped_column(String(32))  # brine's ask still out, if any
     answered_at: Mapped[datetime | None]  # last answer, good or failed
     read_at: Mapped[datetime | None]  # last good answer: entries are as of this
     first_read_at: Mapped[datetime | None]
     error: Mapped[str | None] = mapped_column(Text)  # the last answer's error, if it failed
     truncated: Mapped[bool] = mapped_column(default=False)
-    # Read again at/after this (a minion start, a person's job finishing).
+    # Read again at or after this (a minion start, a person's job finishing), until brine's
+    # answer comes.
     wanted_at: Mapped[datetime | None]
-    # The person's job that finished before the next read: changes found then are credited to it.
+    # The person's job (or jobs) since the last read, waiting for brine's answer: if brine asked
+    # soon enough after it, what that answer finds is credited to it. after_jid is None after
+    # several jobs, and after_user too unless one person ran them all.
     after_jid: Mapped[str | None] = mapped_column(String(32))
     after_user: Mapped[str | None] = mapped_column(String(255))
     after_at: Mapped[datetime | None]
