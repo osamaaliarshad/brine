@@ -126,6 +126,7 @@ describe('key management', () => {
       grains: {},
       presence_history: [],
       recent_jobs: [],
+      waiting_runs: [],
     }
     const sent = api(ADMIN, { '/api/minions/rover-01': detail })
     const { router } = renderApp('/minions/rover-01')

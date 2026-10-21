@@ -21,6 +21,8 @@ const JOB: JobDetail = {
   args: ['motd', { test: true, __kwarg__: true }],
   minions: ['rover-01', 'rover-02', 'rover-03'],
   missing: ['rover-03'],
+  catch_up: [],
+  catch_up_of: null,
   results: [],
 }
 

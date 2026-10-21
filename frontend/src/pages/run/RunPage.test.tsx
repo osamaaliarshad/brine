@@ -16,6 +16,7 @@ const PREVIEW: CommandPreview = {
   offline: ['rover-03'],
   unknown: [],
   from_cache: false,
+  catch_up_days: 7,
 }
 
 type Sent = { path: string; body: Record<string, unknown> }
@@ -56,12 +57,24 @@ describe('RunPage', () => {
     await user.click(screen.getByRole('button', { name: 'Run on 3 minions' }))
     expect(sent[1]).toEqual({
       path: '/api/commands/run',
-      body: { command: 'test.ping', target: 'rover-0*', target_type: 'glob', expect: PREVIEW.minions },
+      body: { command: 'test.ping', target: 'rover-0*', target_type: 'glob', expect: PREVIEW.minions, catch_up: false },
     })
     expect(router.state.location.pathname).toBe('/jobs/20261020120000000001')
     expect(JSON.parse(localStorage.getItem('brine-command-history')!)).toEqual([
       { command: 'test.ping', target: 'rover-0*', target_type: 'glob' },
     ])
+  })
+
+  it('can have the offline minions run it when they are back', async () => {
+    const user = userEvent.setup()
+    const sent = api()
+    renderApp('/run?target=rover-0*&command=test.ping')
+    const box = await screen.findByRole('checkbox', { name: /Also run it on the 1 offline minion when it's back/ })
+    expect(box).not.toBeChecked()
+    expect(screen.getByText(/brine waits up to 7 days/)).toBeInTheDocument()
+    await user.click(box)
+    await user.click(screen.getByRole('button', { name: 'Run on 3 minions' }))
+    expect(sent.at(-1)!.body).toMatchObject({ catch_up: true, expect: PREVIEW.minions })
   })
 
   it('forgets the preview as soon as you edit', async () => {

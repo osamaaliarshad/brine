@@ -155,6 +155,7 @@ export function RunPage() {
   const [targetType, setTargetType] = useState<TargetType>(asTargetType(params.get('type')))
   const [command, setCommand] = useState(params.get('command') ?? '')
   const [history, setHistory] = useState(loadHistory)
+  const [catchUp, setCatchUp] = useState(false)
   const preview = useCommandPreview()
   const run = useRunCommand()
   const master = onMaster(command)
@@ -175,6 +176,7 @@ export function RunPage() {
   const changed = () => {
     preview.reset()
     run.reset()
+    setCatchUp(false)
   }
 
   const fill = (item: HistoryItem) => {
@@ -198,7 +200,7 @@ export function RunPage() {
   const start = () => {
     if (!shown) return
     run.mutate(
-      { ...request, expect: shown.minions },
+      { ...request, expect: shown.minions, catch_up: catchUp && shown.offline.length > 0 },
       {
         onSuccess: (result) => {
           setHistory((h) => remember({ command, target: request.target, target_type: targetType }, h))
@@ -317,6 +319,24 @@ export function RunPage() {
                 shown && (
                   <div className="flex flex-col gap-4">
                     <Preview preview={shown} />
+                    {shown.client === 'local' && shown.offline.length > 0 && !run.data && (
+                      <label className="flex items-start gap-2.5 rounded-lg border px-3 py-2.5 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={catchUp}
+                          onChange={(event) => setCatchUp(event.target.checked)}
+                          className="mt-0.5 size-4 accent-accent"
+                        />
+                        <span>
+                          Also run it on the {shown.offline.length} offline minion
+                          {shown.offline.length === 1 ? " when it's" : "s when they're"} back
+                          <span className="block text-xs text-muted">
+                            brine waits up to {shown.catch_up_days} days and you can cancel it from the job page.
+                            Nothing changes on the master: it's brine that remembers and runs it.
+                          </span>
+                        </span>
+                      </label>
+                    )}
                     {run.isError && (
                       <p role="alert" className="rounded-lg border border-danger/30 bg-danger/10 px-3 py-2 text-sm">
                         {run.error.message}

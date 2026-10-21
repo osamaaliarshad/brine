@@ -10,6 +10,7 @@ import { Tabs } from '@/components/Tabs'
 import { type TabDef, useTab } from '@/lib/useTab'
 import { formatAbsolute, formatRelative, useNow } from '@/lib/time'
 import { ConnectionCell } from '@/pages/fleet/ConnectionCell'
+import { commandLine } from '@/pages/jobs/format'
 import { KeyActions } from '@/pages/keys/KeyActions'
 import { ACTIONS_FOR, describeResult } from '@/pages/keys/rules'
 import {
@@ -142,6 +143,25 @@ export function MinionPage() {
       ) : (
         minion && (
           <>
+            {minion.waiting_runs.length > 0 && (
+              <div className="mb-4 rounded-xl border border-warn/40 bg-warn/10 px-4 py-3 text-sm sm:mb-6">
+                <div className="font-medium">
+                  {minion.waiting_runs.length} command{minion.waiting_runs.length === 1 ? '' : 's'} waiting for {id} to
+                  come back
+                </div>
+                <ul className="mt-1.5 flex flex-col gap-1">
+                  {minion.waiting_runs.map((run) => (
+                    <li key={run.id} className="text-muted">
+                      <code className="font-mono text-fg">{commandLine(run.fun, run.args)}</code> · from{' '}
+                      <Link to={`/jobs/${run.source_jid}`} className="text-accent hover:underline">
+                        this job
+                      </Link>{' '}
+                      by {run.actor}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
             <Facts minion={minion} now={now} />
             <Card className="mt-4 overflow-hidden sm:mt-6">
               <div className="px-2 sm:px-4">

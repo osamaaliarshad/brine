@@ -81,6 +81,24 @@ export type MinionDetail = MinionSummary & {
   grains: Record<string, unknown> | null
   presence_history: PresencePoint[]
   recent_jobs: MinionJob[]
+  /** Commands it missed while offline, to run when it's back. */
+  waiting_runs: CatchUpRun[]
+}
+
+/** A command waiting for an offline minion (a catch-up run), or what became of it. */
+export type CatchUpRun = {
+  id: number
+  minion_id: string
+  source_jid: string
+  fun: string
+  args: unknown[]
+  actor: string
+  created_at: string
+  expires_at: string
+  state: 'waiting' | 'sent' | 'expired' | 'cancelled' | 'replaced' | 'refused'
+  reason: string | null
+  sent_jid: string | null
+  sent_at: string | null
 }
 
 export type GrainsChange = {
@@ -146,6 +164,10 @@ export type JobDetail = JobSummary & {
   minions: string[]
   missing: string[]
   results: JobResult[]
+  /** Minions that missed it and get it when they're back. */
+  catch_up: CatchUpRun[]
+  /** This job caught a minion up on that one. */
+  catch_up_of: string | null
 }
 
 export type StateDot = { id: string; function: string; result: boolean | null; changed: boolean }
@@ -204,6 +226,8 @@ export type CommandRequest = {
   target_type: TargetType
   /** Running: the minions the preview showed. */
   expect?: string[]
+  /** Running: also run it on the offline ones when they're back. */
+  catch_up?: boolean
 }
 
 export type CommandPreview = {
@@ -215,6 +239,8 @@ export type CommandPreview = {
   offline: string[]
   unknown: string[]
   from_cache: boolean
+  /** How long a catch-up run waits for the offline ones. */
+  catch_up_days: number
 }
 
 export type CommandTemplate = {
@@ -254,6 +280,8 @@ export type CommandResult = {
   minions: string[]
   result: unknown
   success: boolean | null
+  /** Offline minions it'll run on when they're back. */
+  waiting: string[]
 }
 
 /** One raw Salt event from /api/events/stream. */

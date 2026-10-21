@@ -108,6 +108,8 @@ const DETAIL: JobDetail = {
   args: ['motd', { __kwarg__: true, test: true }],
   minions: ['rover-01', 'rover-02', 'rover-03'],
   missing: ['rover-03'],
+  catch_up: [],
+  catch_up_of: null,
   results: [
     {
       minion_id: 'rover-01', returned_at: ago(595), success: true, retcode: 0, data: {},

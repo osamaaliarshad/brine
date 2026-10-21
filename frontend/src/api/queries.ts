@@ -4,6 +4,7 @@ import type {
   AuditPage,
   AuthInfo,
   Capabilities,
+  CatchUpRun,
   CommandPreview,
   CommandRequest,
   CommandResult,
@@ -184,6 +185,16 @@ export function useRunCommand() {
     mutationFn: (request: CommandRequest) => postJson<CommandResult>('/api/commands/run', request),
     onSettled: () => {
       for (const queryKey of [queryKeys.jobs, ['audit']]) void client.invalidateQueries({ queryKey })
+    },
+  })
+}
+
+export function useCancelCatchUp() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number) => postJson<CatchUpRun>(`/api/commands/catch-up/${id}/cancel`, {}),
+    onSettled: () => {
+      for (const queryKey of [queryKeys.jobs, ['minion'], ['audit']]) void client.invalidateQueries({ queryKey })
     },
   })
 }

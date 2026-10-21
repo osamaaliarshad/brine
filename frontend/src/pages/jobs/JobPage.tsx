@@ -10,6 +10,7 @@ import { cn } from '@/lib/cn'
 import { formatAbsolute, formatDuration, formatRelative, useNow } from '@/lib/time'
 import { ResultLabel } from '@/pages/minion/panels'
 import { CONTROL } from '@/pages/fleet/FleetToolbar'
+import { CatchUpPanel } from '@/pages/jobs/CatchUp'
 import { commandLine, formatArgs } from '@/pages/jobs/format'
 import { JobOutcome, StateDots, StateTable, Target } from '@/pages/jobs/parts'
 
@@ -187,6 +188,16 @@ export function JobPage() {
                 No return from {job.missing.join(', ')}. They may have been offline, or are still running it.
               </div>
             )}
+            {job.catch_up_of && (
+              <div className="mt-4 rounded-xl border px-4 py-3 text-sm">
+                A catch-up run: {job.target} was offline when{' '}
+                <Link to={`/jobs/${job.catch_up_of}`} className="text-accent hover:underline">
+                  the original job
+                </Link>{' '}
+                ran, so brine ran it here once it was back.
+              </div>
+            )}
+            <CatchUpPanel runs={job.catch_up} now={now} />
 
             <div className="mt-4 flex flex-col gap-3 sm:mt-6">
               {job.results.length === 0 ? (

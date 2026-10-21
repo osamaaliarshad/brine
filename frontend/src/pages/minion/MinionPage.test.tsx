@@ -12,6 +12,7 @@ const DETAIL: MinionDetail = {
     { at: ago(3600), connected: true },
     { at: ago(5400), connected: false },
   ],
+  waiting_runs: [],
   recent_jobs: [
     { jid: '20261020110000000001', fun: 'state.apply', started_at: ago(600), returned_at: ago(590), success: true, retcode: 0 },
     { jid: '20261020100000000001', fun: 'cmd.run', started_at: ago(7200), returned_at: ago(7190), success: false, retcode: 1 },

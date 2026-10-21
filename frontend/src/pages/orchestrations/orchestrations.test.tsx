@@ -112,6 +112,8 @@ describe('an orchestration job', () => {
       args: ['orch.rollout'],
       minions: ['master'],
       missing: [],
+      catch_up: [],
+      catch_up_of: null,
       results: [
         {
           minion_id: 'master',

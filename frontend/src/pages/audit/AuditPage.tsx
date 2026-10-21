@@ -15,6 +15,8 @@ const ACTIONS: Record<string, string> = {
   'key.reject': 'Rejected key',
   'key.delete': 'Deleted key',
   'command.run': 'Ran command',
+  'command.catch_up': 'Caught up a minion',
+  'command.catch_up_cancelled': 'Cancelled a catch-up',
 }
 
 const FILTERS = [
@@ -36,7 +38,7 @@ function details(entry: AuditEntry): string {
 /** A command reads as what was typed, with its job one click away. */
 function Details({ entry }: { entry: AuditEntry }) {
   const d = entry.detail ?? {}
-  if (entry.action !== 'command.run' || typeof d.command !== 'string') return <>{details(entry) || '—'}</>
+  if (!entry.action.startsWith('command.') || typeof d.command !== 'string') return <>{details(entry) || '—'}</>
   const args = Array.isArray(d.args) ? d.args.map(String) : []
   return (
     <>
