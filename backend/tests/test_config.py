@@ -102,15 +102,43 @@ def test_inventory_defaults_and_checks() -> None:
     assert settings.inventory.checks == {"containers": "podman ps", "rover-cli": "x"}
 
 
-@pytest.mark.parametrize("name", ["packages", "Has Space", "", "a:b", "@x", "-x", "a" * 65])
+@pytest.mark.parametrize("hours", ["0.1", ".inf", "1000"])
+def test_inventory_refresh_hours_are_bounded(hours: str) -> None:
+    with pytest.raises(ConfigError, match="refresh_hours"):
+        parse_config(MINIMAL + f"inventory: {{refresh_hours: {hours}}}\n", {"PW": "x"})
+
+
+def test_inventory_refresh_can_be_every_15_minutes() -> None:
+    settings = parse_config(MINIMAL + "inventory: {refresh_hours: 0.25}\n", {"PW": "x"})
+    assert settings.inventory.refresh_hours == 0.25
+
+
+# Double-quoted in the YAML, so "\n" is a real newline.
+@pytest.mark.parametrize(
+    "name", ["packages", "Has Space", "", "a:b", "@x", "-x", "a" * 65, "abc\\n"]
+)
 def test_inventory_check_names_are_checked(name: str) -> None:
     with pytest.raises(ConfigError, match="check name"):
-        parse_config(MINIMAL + f"inventory: {{checks: {{'{name}': 'true'}}}}\n", {"PW": "x"})
+        parse_config(MINIMAL + f'inventory: {{checks: {{"{name}": "true"}}}}\n', {"PW": "x"})
+
+
+def test_inventory_check_name_can_be_64_characters() -> None:
+    name = "a" * 64
+    settings = parse_config(MINIMAL + f"inventory: {{checks: {{{name}: 'true'}}}}\n", {"PW": "x"})
+    assert list(settings.inventory.checks) == [name]
 
 
 def test_inventory_check_needs_a_command() -> None:
     with pytest.raises(ConfigError, match="no command"):
         parse_config(MINIMAL + "inventory: {checks: {containers: '  '}}\n", {"PW": "x"})
+
+
+def test_inventory_check_command_is_one_line() -> None:
+    text = "inventory:\n  checks:\n    containers: |\n      podman ps\n"
+    settings = parse_config(MINIMAL + text, {"PW": "x"})
+    assert settings.inventory.checks == {"containers": "podman ps"}
+    with pytest.raises(ConfigError, match="one line"):
+        parse_config(MINIMAL + 'inventory: {checks: {containers: "a\\nb"}}\n', {"PW": "x"})
 
 
 def test_non_mapping_yaml_is_rejected() -> None:

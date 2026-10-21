@@ -158,30 +158,39 @@ class RetentionConfig(_Strict):
     audit_days: int = Field(default=365, ge=0)
 
 
-CHECK_NAME = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
+# Up to 64 characters: the size of the `source` column in the inventory tables.
+_CHECK_NAME = re.compile(r"[a-z0-9][a-z0-9_-]{0,63}")
 
 
 class InventoryConfig(_Strict):
     """Packages and checks: what brine reads from each minion and keeps over time."""
 
     # How often each connected minion is read again (also after people's jobs and on Ask now).
-    refresh_hours: float = Field(default=6, gt=0)
-    # name -> a read-only shell command run with cmd.run_all. `name=value` lines become one
-    # entry each; any other output is one value. Print nothing when the thing isn't there.
+    # From every 15 minutes to once a month.
+    refresh_hours: float = Field(default=6, ge=0.25, le=24 * 30)
+    # name -> a read-only shell command, on one line, run with cmd.run_all. `name=value` lines
+    # become one entry each; any other output is one value. Print nothing when the thing isn't
+    # there.
     checks: dict[str, str] = Field(default_factory=dict)
 
     @field_validator("checks")
     @classmethod
-    def _names(cls, checks: dict[str, str]) -> dict[str, str]:
+    def _checks(cls, checks: dict[str, str]) -> dict[str, str]:
+        cleaned: dict[str, str] = {}
         for name, command in checks.items():
-            if name == "packages" or not CHECK_NAME.fullmatch(name):
+            if name == "packages" or not _CHECK_NAME.fullmatch(name):
                 raise ValueError(
                     f"check name {name!r}: use lowercase letters, digits, - and _ "
                     "(and not 'packages')"
                 )
-            if not command.strip():
+            # Strip, so the newline a YAML `|` block leaves at the end doesn't count.
+            command = command.strip()
+            if not command:
                 raise ValueError(f"check {name!r} has no command")
-        return checks
+            if "\n" in command or "\r" in command:
+                raise ValueError(f"check {name!r}: put the command on one line")
+            cleaned[name] = command
+        return cleaned
 
 
 class JobsConfig(_Strict):

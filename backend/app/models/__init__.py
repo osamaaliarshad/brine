@@ -117,10 +117,13 @@ class InventoryItem(Base):
 
 
 class InventoryChange(Base):
+    """One change in what a minion has, found by comparing two reads."""
+
     __tablename__ = "inventory_changes"
     __table_args__ = (
         Index("ix_inventory_changes_source_name_at", "source", "name", "at"),
         Index("ix_inventory_changes_minion_at", "minion_id", "at"),
+        Index("ix_inventory_changes_at", "at"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
