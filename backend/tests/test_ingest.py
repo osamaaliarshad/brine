@@ -521,6 +521,58 @@ async def test_the_latest_job_wins_the_credit(ingest: Ingest, sessions: Sessions
     assert read.wanted_at == T0 + timedelta(hours=2) + AFTER_JOB
 
 
+async def test_a_repeated_job_report_cant_credit_it_twice(
+    ingest: Ingest, sessions: Sessions
+) -> None:
+    await ingest.inventory_read("a", "packages", {"agent": "2.3.0"}, at=T0)
+    job_at = T0 + timedelta(hours=1)
+    await ingest.inventory_job_done("a", jid="J1", user="alice", at=job_at)
+    await ingest.inventory_asked(["a"], "packages", at=job_at + AFTER_JOB, jid="A1")
+    await ingest.inventory_read(
+        "a", "packages", {"agent": "2.4.1"}, at=job_at + timedelta(minutes=2), jid="A1"
+    )
+    assert (await changes_of(sessions, "a"))[-1].jid == "J1"
+    # The same job reported again (a duplicate event, or a late one): its changes are in.
+    await ingest.inventory_job_done("a", jid="J1", user="alice", at=job_at)
+    read = await read_row(sessions, "a")
+    assert read.after_jid is None and read.after_user is None and read.after_at is None
+    assert read.wanted_at is None
+    # So a later change isn't credited to it.
+    await ingest.inventory_asked(["a"], "packages", at=T0 + timedelta(hours=7), jid="A2")
+    await ingest.inventory_read(
+        "a", "packages", {"agent": "2.5.0"}, at=T0 + timedelta(hours=8), jid="A2"
+    )
+    assert (await changes_of(sessions, "a"))[-1].jid is None
+
+
+async def test_a_job_counts_only_for_sources_read_before_it(
+    ingest: Ingest, sessions: Sessions
+) -> None:
+    await ingest.inventory_read("a", "packages", {"agent": "2.3.0"}, at=T0 + timedelta(hours=2))
+    await ingest.inventory_read("a", "rover", {"": "1.0"}, at=T0)
+    # Reported after a newer packages read, which already shows what it changed. The rover
+    # check was last read before it, so that still wants a read and gives the credit.
+    await ingest.inventory_job_done("a", jid="J0", user="carol", at=T0 + timedelta(hours=1))
+    packages, rover = await read_row(sessions, "a"), await read_row(sessions, "a", "rover")
+    assert packages.after_jid is None and packages.wanted_at is None
+    assert (rover.after_jid, rover.wanted_at) == ("J0", T0 + timedelta(hours=1) + AFTER_JOB)
+    # A job after the last read: the next read is wanted, and credited to it.
+    job_at = T0 + timedelta(hours=3)
+    await ingest.inventory_job_done("a", jid="J1", user="alice", at=job_at)
+    packages = await read_row(sessions, "a")
+    assert (packages.after_jid, packages.after_user, packages.after_at) == ("J1", "alice", job_at)
+    assert packages.wanted_at == job_at + AFTER_JOB
+
+
+async def test_a_start_reported_late_keeps_the_later_want(
+    ingest: Ingest, sessions: Sessions
+) -> None:
+    await ingest.inventory_read("a", "packages", {"agent": "2.3.0"}, at=T0)
+    await ingest.inventory_wanted("a", at=T0 + timedelta(hours=2))
+    await ingest.inventory_wanted("a", at=T0 + timedelta(hours=1))  # an earlier start, second
+    assert (await read_row(sessions, "a")).wanted_at == T0 + timedelta(hours=2)
+
+
 async def test_a_job_wants_a_read_shortly_after_it(ingest: Ingest, sessions: Sessions) -> None:
     await ingest.inventory_asked(["a"], "packages", at=T0, jid="A0")
     await ingest.inventory_read(

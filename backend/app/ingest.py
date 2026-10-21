@@ -307,6 +307,9 @@ class Ingest:
         shortly, and credit what that read finds to the job. The latest job wins."""
         async with self._lock, self._sessions() as s, s.begin():
             for read in await s.scalars(select(InventoryRead).filter_by(minion_id=mid)):
+                if read.read_at is not None and at < read.read_at:
+                    # Reported again, or late: a newer read already has what it changed.
+                    continue
                 read.wanted_at = _later(read.wanted_at, at + AFTER_JOB)
                 if read.after_at is None or at >= read.after_at:
                     read.after_jid, read.after_user, read.after_at = jid, user, at
