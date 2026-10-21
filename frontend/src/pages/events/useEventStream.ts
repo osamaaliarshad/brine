@@ -5,7 +5,8 @@ export const MAX_EVENTS = 500
 
 /**
  * Raw Salt events from /api/events/stream, newest first. While paused, new events are counted
- * but not shown; resuming shows them. Reconnects re-send the backlog; `seq` dedupes it.
+ * but not shown; resuming shows them. Each (re)connection starts with the server's backlog, so
+ * the list is rebuilt from it; within a connection `seq` only goes up.
  */
 // One stream per open Events page; the server keeps the backlog, so nothing is lost on reload.
 export function useEventStream(url = '/api/events/stream') {
@@ -14,7 +15,7 @@ export function useEventStream(url = '/api/events/stream') {
   const [waiting, setWaiting] = useState(0)
   const [connected, setConnected] = useState(false)
   const buffer = useRef<SaltEventEntry[]>([])
-  const seen = useRef(new Set<number>())
+  const lastSeq = useRef(0)
   const pausedRef = useRef(false)
 
   const flush = () => {
@@ -27,7 +28,11 @@ export function useEventStream(url = '/api/events/stream') {
   useEffect(() => {
     const source = new EventSource(url)
     let timer: ReturnType<typeof setTimeout> | undefined
-    source.onopen = () => setConnected(true)
+    let opened = false
+    source.onopen = () => {
+      opened = true
+      setConnected(true)
+    }
     source.onerror = () => setConnected(false)
     source.onmessage = (message: MessageEvent<string>) => {
       let entry: SaltEventEntry
@@ -36,8 +41,18 @@ export function useEventStream(url = '/api/events/stream') {
       } catch {
         return
       }
-      if (seen.current.has(entry.seq)) return
-      seen.current.add(entry.seq)
+      // The first message after (re)connecting starts the backlog: rebuild the list from it if
+      // it overlaps what's shown (a reconnect) or restarts the numbering (brine restarted).
+      if (opened) {
+        opened = false
+        if (entry.seq <= lastSeq.current) {
+          buffer.current = []
+          setEvents([])
+          lastSeq.current = entry.seq - 1
+        }
+      }
+      if (entry.seq <= lastSeq.current) return
+      lastSeq.current = entry.seq
       buffer.current.push(entry)
       if (pausedRef.current) {
         setWaiting(buffer.current.length)

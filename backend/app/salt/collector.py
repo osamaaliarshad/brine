@@ -406,6 +406,7 @@ async def import_job(
         target_type=info.get("Target-type"),
         user=user,
         minions=info.get("Minions") or [],
+        from_job_cache=True,
     )
     for mid, result in (info.get("Result") or {}).items():
         result = result if isinstance(result, dict) else {"return": result}

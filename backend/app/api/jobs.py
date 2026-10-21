@@ -35,9 +35,6 @@ _succeeded = func.sum(case((JobReturn.success.is_(True), 1), else_=0))
 _failed = func.sum(case((JobReturn.success.is_(False), 1), else_=0))
 _finished = func.max(JobReturn.returned_at)
 
-# How many recent state-run returns to scan for each minion's latest run.
-STATE_RUN_SCAN_LIMIT = 5000
-
 
 def _with_counts() -> Select[Job, int, Any, Any, Any]:
     return (
@@ -119,13 +116,28 @@ async def state_runs(session: SessionDep) -> StateRuns:
 
 
 async def latest_state_runs(session: AsyncSession) -> StateRuns:
+    # Each minion's latest state-run return, picked in SQL: only those rows (and their
+    # possibly large state output) are loaded.
+    state_runs = and_(Job.kind == "local", Job.fun.in_(STATE_FUNCTIONS))
+    latest_at = (
+        select(JobReturn.minion_id, func.max(JobReturn.returned_at).label("at"))
+        .join(Job, Job.jid == JobReturn.jid)
+        .where(state_runs)
+        .group_by(JobReturn.minion_id)
+        .subquery()
+    )
     rows = (
         await session.execute(
             select(JobReturn, Job.fun, Job.started_at)
             .join(Job, Job.jid == JobReturn.jid)
-            .where(Job.kind == "local", Job.fun.in_(STATE_FUNCTIONS))
-            .order_by(JobReturn.returned_at.desc())
-            .limit(STATE_RUN_SCAN_LIMIT)
+            .join(
+                latest_at,
+                and_(
+                    latest_at.c.minion_id == JobReturn.minion_id,
+                    latest_at.c.at == JobReturn.returned_at,
+                ),
+            )
+            .where(state_runs)
         )
     ).all()
     accepted = set(

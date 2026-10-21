@@ -258,16 +258,23 @@ class Ingest:
         target_type: str | None = None,
         user: str | None = None,
         minions: list[str] | None = None,
+        from_job_cache: bool = False,
     ) -> Changes:
+        """`from_job_cache`: `at` comes from the master's job cache (worked out from the jid,
+        in the master's local time), so it never moves a job brine has already recorded."""
         if self.is_housekeeping(user, fun):
             return Changes()
         async with self._lock, self._sessions() as s, s.begin():
             job = await s.get(Job, jid)
+            job_is_new = job is None
             if job is None:
                 job = Job(jid=jid, kind=kind, fun=fun, started_at=at)
                 s.add(job)
             job.fun = fun
-            job.started_at = min(job.started_at, at)
+            # A live `new` event can come after a return that already created the job: its
+            # (earlier, real) start time wins. A job-cache time never moves a recorded job.
+            if job_is_new or not from_job_cache:
+                job.started_at = min(job.started_at, at)
             job.args = args or []
             job.target, job.target_type = target, target_type
             # Who a job belongs to, once known, sticks: an orchestration step's events say

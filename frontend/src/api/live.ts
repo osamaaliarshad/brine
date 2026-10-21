@@ -5,6 +5,11 @@ import type { LiveMessage } from '@/api/types'
 
 const DEBOUNCE_MS = 250
 
+// Queries that make Salt do work (ask minions live, run state.show_top, render every
+// orchestration) or write an audit entry. A reconnect mustn't re-run them in every open tab;
+// they refresh when someone asks.
+const ASKS_SALT = new Set(['minion-live', 'automation', 'states', 'orchestrations', 'nodegroups', 'reactors'])
+
 /**
  * Turns /api/stream hints into query invalidations. Bursts (a job returning on 50 minions)
  * are coalesced so each query refetches at most once per DEBOUNCE_MS.
@@ -12,6 +17,7 @@ const DEBOUNCE_MS = 250
 export function createLiveInvalidator(queryClient: QueryClient, debounceMs = DEBOUNCE_MS) {
   const pending = new Set<string>()
   let timer: ReturnType<typeof setTimeout> | undefined
+  let connectedBefore = false
 
   const flush = () => {
     timer = undefined
@@ -47,8 +53,13 @@ export function createLiveInvalidator(queryClient: QueryClient, debounceMs = DEB
         break
       case 'hello':
       case 'resync':
-        // (Re)connected or we fell behind: anything could have changed.
-        void queryClient.invalidateQueries()
+        // The first hello is just the page opening: everything on it was fetched a moment ago.
+        if (message.type === 'hello' && !connectedBefore) {
+          connectedBefore = true
+          break
+        }
+        // Reconnected, or fell behind: brine's own data could all have changed.
+        void queryClient.invalidateQueries({ predicate: (q) => !ASKS_SALT.has(String(q.queryKey[0])) })
         break
     }
   }

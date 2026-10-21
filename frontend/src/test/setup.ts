@@ -7,12 +7,19 @@ import { setUnauthorizedHandler } from '@/api/client'
 class FakeEventSource {
   static instances: FakeEventSource[] = []
   onmessage: ((event: MessageEvent<string>) => void) | null = null
+  onopen: (() => void) | null = null
+  onerror: (() => void) | null = null
   readonly url: string
   closed = false
 
   constructor(url: string) {
     this.url = url
     FakeEventSource.instances.push(this)
+  }
+
+  /** A (re)connection: the server is about to send its backlog. */
+  open() {
+    this.onopen?.()
   }
 
   emit(data: unknown) {

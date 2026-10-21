@@ -83,6 +83,18 @@ describe('EventsPage', () => {
     expect(screen.getByText('Showing 1 of 2 (last 500 kept)')).toBeInTheDocument()
   })
 
+  it('starts over when brine restarts and numbers events from 1 again', async () => {
+    mockApi({ '/api/status': systemStatus() })
+    renderApp('/events')
+    act(() => stream().open())
+    await emit(ev('salt/key', { id: 'old-1', act: 'pend' }), ev('salt/key', { id: 'old-2', act: 'pend' }))
+    expect(screen.getByText('Showing 2 of 2 (last 500 kept)')).toBeInTheDocument()
+    act(() => stream().open()) // brine came back with an empty backlog
+    await emit({ ...ev('salt/key', { id: 'fresh', act: 'pend' }), seq: 1 })
+    expect(screen.getByText('Showing 1 of 1 (last 500 kept)')).toBeInTheDocument()
+    expect(screen.getByText(/fresh/)).toBeInTheDocument()
+  })
+
   it('expands an event to show its data', async () => {
     const user = userEvent.setup()
     mockApi({ '/api/status': systemStatus() })

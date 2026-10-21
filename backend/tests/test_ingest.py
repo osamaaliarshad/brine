@@ -257,3 +257,17 @@ async def test_presence_blind_tracks_minions_without_cached_ips(ingest: Ingest) 
     assert await ingest.presence_visible("blind")
     assert await ingest.get_state(PRESENCE_BLIND_STATE) == ["missing"]
     assert not await ingest.presence_visible("seen")
+
+
+async def test_job_cache_times_never_move_a_recorded_job(
+    ingest: Ingest, sessions: Sessions
+) -> None:
+    # The job cache's StartTime comes from the jid, in the master's local time: on a master
+    # five hours behind UTC it reads five hours early. A job seen live keeps its own time.
+    await ingest.job_new(jid="j3", kind="local", fun="cmd.run", at=T0, user="alice")
+    await ingest.job_new(
+        jid="j3", kind="local", fun="cmd.run", at=T0 - timedelta(hours=5), from_job_cache=True
+    )
+    async with sessions() as s:
+        job = await s.get(Job, "j3")
+        assert job is not None and job.started_at == T0

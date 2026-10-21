@@ -35,9 +35,17 @@ describe('createLiveInvalidator', () => {
     expect(keys()).toEqual([['status'], ['fleet'], ['issues']])
   })
 
-  it('hello and resync refresh everything immediately', () => {
+  it('reconnecting refreshes brine data, but never re-runs Salt work', () => {
     const handle = createLiveInvalidator(client, 100)
+    handle({ type: 'hello' })
+    expect(invalidate).not.toHaveBeenCalled() // the page just loaded
+    handle({ type: 'hello' })
+    expect(invalidate).toHaveBeenCalledTimes(1)
+    const { predicate } = invalidate.mock.calls[0]![0] as unknown as { predicate: (q: { queryKey: unknown[] }) => boolean }
+    expect(predicate({ queryKey: ['fleet'] })).toBe(true)
+    expect(predicate({ queryKey: ['minion-live', 'm1', 'pillar'] })).toBe(false)
+    expect(predicate({ queryKey: ['states', 'top'] })).toBe(false)
     handle({ type: 'resync' })
-    expect(invalidate).toHaveBeenCalledWith()
+    expect(invalidate).toHaveBeenCalledTimes(2)
   })
 })
