@@ -207,6 +207,11 @@ function PackagesAndChecks({ inventory, saltApi }: { inventory: Settings['invent
           <p className="mt-2 text-muted">
             Add these under external_auth › {saltApi.eauth} › {saltApi.username} in the master's config.
           </p>
+          {inventory.checks.length > 0 && (
+            <p className="mt-1 text-warn">
+              The cmd.run_all lines let brine's account run commands; see docs/permissions-and-salt-acl.md.
+            </p>
+          )}
           <pre className="mt-2 overflow-x-auto rounded-lg bg-surface-2 p-3 font-mono text-xs">{inventory.acl}</pre>
         </details>
       </Row>

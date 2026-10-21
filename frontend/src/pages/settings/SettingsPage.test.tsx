@@ -112,6 +112,12 @@ describe('SettingsPage', () => {
     expect(
       within(permissions).getByText("Add these under external_auth › pam › brine in the master's config."),
     ).toBeInTheDocument()
+    // With checks, the lines let brine's account run commands: said where they're copied from.
+    expect(
+      within(permissions).getByText(
+        "The cmd.run_all lines let brine's account run commands; see docs/permissions-and-salt-acl.md.",
+      ),
+    ).toBeInTheDocument()
     expect(within(section).queryByText(/can't read/)).toBeNull()
   })
 
@@ -155,6 +161,8 @@ describe('SettingsPage', () => {
     const section = await screen.findByRole('region', { name: 'Packages and checks' })
     expect(within(section).getByText('None, so brine reads only packages. Add checks under inventory › checks in the config.')).toBeInTheDocument()
     expect(within(section).queryByText(/keep secrets out/)).toBeNull()
+    // Packages alone: nothing that runs commands to warn about.
+    expect(within(section).queryByText(/let brine's account run commands/)).toBeNull()
   })
 
   it('scrolls to a section a link points at', async () => {
