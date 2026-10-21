@@ -25,6 +25,7 @@ from pydantic import (
     HttpUrl,
     SecretStr,
     ValidationError,
+    field_validator,
     model_validator,
 )
 
@@ -157,6 +158,32 @@ class RetentionConfig(_Strict):
     audit_days: int = Field(default=365, ge=0)
 
 
+CHECK_NAME = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
+
+
+class InventoryConfig(_Strict):
+    """Packages and checks: what brine reads from each minion and keeps over time."""
+
+    # How often each connected minion is read again (also after people's jobs and on Ask now).
+    refresh_hours: float = Field(default=6, gt=0)
+    # name -> a read-only shell command run with cmd.run_all. `name=value` lines become one
+    # entry each; any other output is one value. Print nothing when the thing isn't there.
+    checks: dict[str, str] = Field(default_factory=dict)
+
+    @field_validator("checks")
+    @classmethod
+    def _names(cls, checks: dict[str, str]) -> dict[str, str]:
+        for name, command in checks.items():
+            if name == "packages" or not CHECK_NAME.fullmatch(name):
+                raise ValueError(
+                    f"check name {name!r}: use lowercase letters, digits, - and _ "
+                    "(and not 'packages')"
+                )
+            if not command.strip():
+                raise ValueError(f"check {name!r} has no command")
+        return checks
+
+
 class JobsConfig(_Strict):
     # On (re)connect, import up to this many jobs from the master's job cache.
     backfill_limit: int = Field(default=200, ge=0)
@@ -171,6 +198,7 @@ class Settings(_Strict):
     commands: CommandsConfig = Field(default_factory=CommandsConfig)
     templates: dict[str, TemplateConfig] = Field(default_factory=dict)
     retention: RetentionConfig = Field(default_factory=RetentionConfig)
+    inventory: InventoryConfig = Field(default_factory=InventoryConfig)
     jobs: JobsConfig = Field(default_factory=JobsConfig)
     database: str = "sqlite:///data/brine.db"
     # How browsers reach brine, e.g. https://brine.example.com. Used for the sign-in redirect;

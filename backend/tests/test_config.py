@@ -92,6 +92,27 @@ def test_invalid_values_are_rejected() -> None:
         parse_config(MINIMAL + "fleet:\n  stale_after_minutes: 0\n", {"PW": "x"})
 
 
+def test_inventory_defaults_and_checks() -> None:
+    settings = parse_config(MINIMAL, {"PW": "x"})
+    assert settings.inventory.refresh_hours == 6
+    assert settings.inventory.checks == {}
+    text = "inventory: {refresh_hours: 1, checks: {containers: podman ps, rover-cli: x}}\n"
+    settings = parse_config(MINIMAL + text, {"PW": "x"})
+    assert settings.inventory.refresh_hours == 1
+    assert settings.inventory.checks == {"containers": "podman ps", "rover-cli": "x"}
+
+
+@pytest.mark.parametrize("name", ["packages", "Has Space", "", "a:b", "@x", "-x", "a" * 65])
+def test_inventory_check_names_are_checked(name: str) -> None:
+    with pytest.raises(ConfigError, match="check name"):
+        parse_config(MINIMAL + f"inventory: {{checks: {{'{name}': 'true'}}}}\n", {"PW": "x"})
+
+
+def test_inventory_check_needs_a_command() -> None:
+    with pytest.raises(ConfigError, match="no command"):
+        parse_config(MINIMAL + "inventory: {checks: {containers: '  '}}\n", {"PW": "x"})
+
+
 def test_non_mapping_yaml_is_rejected() -> None:
     with pytest.raises(ConfigError, match="mapping"):
         parse_config("- just\n- a list\n", {})
