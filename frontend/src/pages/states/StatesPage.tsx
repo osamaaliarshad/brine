@@ -1,4 +1,4 @@
-import { FileCode, RefreshCw } from 'lucide-react'
+import { RefreshCw } from 'lucide-react'
 import { Link, useSearchParams } from 'react-router'
 import { useFleet, useStateFile, useStateFiles, useStateTop } from '@/api/queries'
 import type { MinionStatus } from '@/api/types'
@@ -9,6 +9,7 @@ import { Card } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { formatAbsolute, formatRelative, useNow } from '@/lib/time'
 import { useTab } from '@/lib/useTab'
+import { FileTree } from '@/pages/states/FileTree'
 import { slsToPath } from '@/pages/states/sls'
 
 const TABS = [
@@ -122,24 +123,9 @@ function FilesTab() {
 
   return (
     <div className="grid border-t md:grid-cols-[16rem_1fr]">
-      <ul aria-label="State files" className="max-h-64 overflow-y-auto border-b py-2 md:max-h-[36rem] md:border-r md:border-b-0">
-        {files.data.map((f) => (
-          <li key={`${f.root}/${f.path}`}>
-            <button
-              type="button"
-              onClick={() => open(f.path)}
-              aria-current={f.path === selected ? 'true' : undefined}
-              className={cn(
-                'flex w-full items-center gap-2 px-4 py-1.5 text-left font-mono text-[13px] hover:bg-surface-2',
-                f.path === selected && 'bg-surface-2 text-accent',
-              )}
-            >
-              <FileCode className="size-3.5 shrink-0 text-muted" aria-hidden />
-              <span className="truncate">{f.path}</span>
-            </button>
-          </li>
-        ))}
-      </ul>
+      <div className="flex max-h-72 flex-col border-b md:max-h-[36rem] md:border-r md:border-b-0">
+        <FileTree paths={[...new Set(files.data.map((f) => f.path))]} selected={selected} onOpen={open} />
+      </div>
       <div className="min-w-0">
         <div className="border-b px-4 py-3 font-mono text-sm sm:px-6">
           {file.data?.full_path ?? selected}
