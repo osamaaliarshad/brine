@@ -40,7 +40,7 @@ actions (phase 5) and sign-in (phase 2) are next.
 | Nodegroups | Fleet › Nodegroups | 3 ✅ | Members from the master cache, so offline members count |
 | Keys | Keys page (+ minion page) | 3 / 5 ✅ | Accept / reject / delete: admins, fingerprint check, typed name, audited |
 | Jobs | Jobs page | 3 | From brine's own DB, so history outlives the master's job cache |
-| Job detail | Job page | 3 / 5 | Re-run / terminate / kill in 5 |
+| Job detail | Job page | 3 / 5 ✅ | Run again; Stop (term_job) / Kill (kill_job) on minions still running it; all through the Run page |
 | Highstate | Jobs › Highstate | 3 | Latest state run per minion, one dot per state |
 | Events | Events page | 3 | Auto-reconnecting SSE |
 | Reactors | Events › Reactors | 3 | Read-only |

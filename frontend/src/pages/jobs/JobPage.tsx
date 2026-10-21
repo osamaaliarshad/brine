@@ -1,15 +1,16 @@
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { ChevronLeft, ChevronRight, RotateCcw, Square } from 'lucide-react'
 import { type ReactNode, useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { ApiError } from '@/api/client'
-import { useJob } from '@/api/queries'
+import { useCapabilities, useJob, useMe } from '@/api/queries'
 import type { JobDetail, JobResult } from '@/api/types'
 import { JsonTree } from '@/components/JsonView'
 import { Card } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { formatAbsolute, formatDuration, formatRelative, useNow } from '@/lib/time'
 import { ResultLabel } from '@/pages/minion/panels'
-import { formatArgs } from '@/pages/jobs/format'
+import { CONTROL } from '@/pages/fleet/FleetToolbar'
+import { commandLine, formatArgs } from '@/pages/jobs/format'
 import { JobOutcome, StateDots, StateTable, Target } from '@/pages/jobs/parts'
 
 function Fact({ label, children, title }: { label: string; children: ReactNode; title?: string }) {
@@ -71,11 +72,61 @@ function ResultCard({ result, job, defaultOpen }: { result: JobResult; job: JobD
   )
 }
 
+// Target types the Run page takes; other jobs are re-run on the minions they reached.
+const RUN_TARGET_TYPES = new Set(['glob', 'list', 'compound', 'grain', 'nodegroup', 'pcre'])
+
+function runLink(command: string, target?: string, type?: string) {
+  const params = new URLSearchParams({ command })
+  if (target) params.set('target', target)
+  if (type) params.set('type', type)
+  return `/run?${params}`
+}
+
+/** Run it again, or stop minions still running it: both open the Run page, previewed. */
+function JobActions({ job }: { job: JobDetail }) {
+  const again =
+    job.kind === 'runner'
+      ? runLink(`runners.${commandLine(job.fun, job.args)}`)
+      : job.target && RUN_TARGET_TYPES.has(job.target_type ?? 'glob')
+        ? runLink(commandLine(job.fun, job.args), job.target, job.target_type ?? 'glob')
+        : runLink(commandLine(job.fun, job.args), job.minions.join(','), 'list')
+  const waiting = job.kind === 'local' && job.missing.length > 0
+  return (
+    <div className="flex flex-wrap gap-2">
+      <Link to={again} className={CONTROL}>
+        <RotateCcw className="size-4 text-muted" aria-hidden />
+        Run again
+      </Link>
+      {waiting && (
+        <>
+          <Link
+            to={runLink(`saltutil.term_job ${job.jid}`, job.missing.join(','), 'list')}
+            className={CONTROL}
+            title="Ask the minions still running it to stop (SIGTERM)"
+          >
+            <Square className="size-4 text-muted" aria-hidden />
+            Stop
+          </Link>
+          <Link
+            to={runLink(`saltutil.kill_job ${job.jid}`, job.missing.join(','), 'list')}
+            className={CONTROL}
+            title="Kill it on the minions still running it (SIGKILL)"
+          >
+            Kill
+          </Link>
+        </>
+      )}
+    </div>
+  )
+}
+
 export function JobPage() {
   const { jid = '' } = useParams()
   const now = useNow()
   const query = useJob(jid)
   const job = query.data
+  const role = useMe().data?.role
+  const canRun = !!useCapabilities(!!role && role !== 'viewer').data?.commands.length
 
   return (
     <>
@@ -97,17 +148,20 @@ export function JobPage() {
       ) : (
         job && (
           <>
-            <div className="mb-6">
-              <h1 className="font-mono text-3xl font-semibold tracking-tight break-all">
-                {job.fun}
-                {job.args.length > 0 && (
-                  <>
-                    {' '}
-                    <span className="text-muted">{formatArgs(job.args)}</span>
-                  </>
-                )}
-              </h1>
-              <p className="mt-1 font-mono text-sm text-muted">{job.jid}</p>
+            <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
+              <div className="min-w-0">
+                <h1 className="font-mono text-3xl font-semibold tracking-tight break-all">
+                  {job.fun}
+                  {job.args.length > 0 && (
+                    <>
+                      {' '}
+                      <span className="text-muted">{formatArgs(job.args)}</span>
+                    </>
+                  )}
+                </h1>
+                <p className="mt-1 font-mono text-sm text-muted">{job.jid}</p>
+              </div>
+              {canRun && <JobActions job={job} />}
             </div>
 
             <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">

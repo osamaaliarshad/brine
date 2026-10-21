@@ -9,7 +9,7 @@
 
 ---
 
-> **Status: early development.** Every SaltGUI view has a brine page, and commands, templates, orchestrations and key management work, all behind OIDC sign-in and roles. Still to come: job re-run/kill, and packaging (a Docker image and a quickstart). Follow [docs/backlog.md](docs/backlog.md) for progress.
+> **Status: early development.** Every SaltGUI view has a brine page, and commands, templates, orchestrations and key management work, all behind OIDC sign-in and roles. Still to come: packaging (a Docker image and a quickstart). Follow [docs/backlog.md](docs/backlog.md) for progress.
 
 brine plugs into an existing **salt-master + salt-api** and gives your team a clean, fast view of the fleet:
 
@@ -92,6 +92,7 @@ SaltGUI's Highstate page:
 
 One job in full: the command, who ran it, how long it took, which minions never answered, and each
 minion's result. State runs are broken down state by state; anything else is shown as a tree.
+Run it again, or stop it on the minions still running it, from here (through the Run page).
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/job-dark.png">

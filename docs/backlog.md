@@ -79,7 +79,8 @@ Follow-ups found along the way:
 - [x] Who may run what: `commands:` allowlist per role (admins default to anything the Salt ACL allows; viewers never); every run audited; jobs recorded under the person via Salt job metadata (end-to-end test on the demo)
 - [ ] Function help in the command box (`sys.doc`) and autocomplete
 - [ ] Long runners (orchestrations) as async jobs with live progress (`runner_async`), instead of waiting on the request
-- [ ] Grains, beacons, schedules, mine actions; job re-run / terminate / kill
+- [x] Job page: Run again, and Stop / Kill on the minions still running it (through the Run page)
+- [ ] Beacons and schedules actions (enable / disable / run now) on minion and Automation pages
 - [x] Templates: SaltGUI's `saltgui_templates` from the master and `templates:` in brine's config, by category, on the Run page
 - [x] Orchestrations page: every orchestration SLS with its steps; Test / Run through the Run page; the runner and each step's job recorded under the person (Salt runs steps as "salt")
 - [x] Runner commands recorded as jobs (`full_return` gives their jid)
