@@ -35,21 +35,23 @@ from app.salt.client import SaltApiError
 router = APIRouter()
 
 _EPOCH = re.compile(r"([0-9]+):(.*)", re.DOTALL)
-_PARTS = re.compile(r"[0-9]+|~|[^0-9~]+")
+_PACKAGE_PARTS = re.compile(r"[0-9]+|~|[^0-9~]+")
+_PARTS = re.compile(r"[0-9]+|[^0-9]+")
 # How each part ranks against another kind of part at the same place.
 _TILDE, _END, _NUMBER, _TEXT = -2, -1, 0, 1
 
 
-def version_key(text: str) -> tuple[int, list[tuple[int, int | str]]]:
-    """Newer versions sort later. Close to how dpkg and rpm compare versions, but not a full
-    copy: an epoch (`1:`) first, then runs of digits as numbers (2.10 after 2.9), other text
-    as it is, and `~` before anything, even the end (1.0~rc1 before 1.0)."""
+def version_key(text: str, *, package: bool) -> tuple[int, list[tuple[int, int | str]]]:
+    """Newer versions sort later: runs of digits as numbers (2.10 after 2.9), other text as it
+    is. A package's version is compared close to how dpkg and rpm do, but not a full copy: an
+    epoch (`1:`) first, and `~` before anything, even the end (1.0~rc1 before 1.0). A check's
+    value is free text (`8080:80`, a time), so it gets neither rule."""
     epoch = 0
-    if match := _EPOCH.fullmatch(text):
+    if package and (match := _EPOCH.fullmatch(text)):
         epoch, text = int(match[1]), match[2]
     parts: list[tuple[int, int | str]] = []
-    for part in _PARTS.findall(text):
-        if part == "~":
+    for part in (_PACKAGE_PARTS if package else _PARTS).findall(text):
+        if package and part == "~":
             parts.append((_TILDE, ""))
         elif part.isascii() and part.isdigit():
             parts.append((_NUMBER, int(part)))
@@ -170,7 +172,10 @@ async def inventory_values(
         else:
             unknown.append(mid)
     times = [read_at[mid] for mid in accepted if mid in read_at]
-    newest_first = sorted(groups.items(), key=lambda g: (version_key(g[0]), g[0]), reverse=True)
+    package = source == inventory.PACKAGES
+    newest_first = sorted(
+        groups.items(), key=lambda g: (version_key(g[0], package=package), g[0]), reverse=True
+    )
     refused = await session.get(SystemState, inventory.REFUSED_STATE)
     return InventoryDistribution(
         key=inventory.key_of(source, name),

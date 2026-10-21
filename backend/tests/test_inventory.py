@@ -3,6 +3,7 @@
 import re
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -510,6 +511,22 @@ def test_each_sweep_asks_a_batch_per_source(
     assert [kw["tgt"] for _, kw in calls(salt)][3:] == ["rover-02"] * 3
 
 
+def test_whoever_was_asked_longest_ago_goes_first(
+    admin: tuple[Api, FakeSalt], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    api, salt = admin
+    monkeypatch.setattr(sweeper, "BATCH", 2)
+    now = datetime.now(UTC)
+    # None answered: dock-01 was asked a while ago, rover-01 before that, rover-02 never.
+    for mid, at in (("dock-01", now - inv.ANSWER_WAIT), ("rover-01", now - 2 * inv.ANSWER_WAIT)):
+        api.seed(api.ingest.inventory_asked, [mid], "packages", at=at, jid="A1")
+    sweep(api, now)
+    # Never asked first, then the longest wait; by ID alone, dock-01 would always be first.
+    assert salt.asked("pkg.list_pkgs") == ["rover-01", "rover-02"]
+    sweep(api, now + 15 * SECOND)
+    assert salt.asked("pkg.list_pkgs")[2:] == ["dock-01"]
+
+
 def test_nobody_is_asked_on_stale_presence(admin: tuple[Api, FakeSalt]) -> None:
     api, salt = admin
     sweep(api, datetime.now(UTC) + timedelta(hours=1))  # no presence check for an hour
@@ -612,14 +629,15 @@ def test_asking_minions_one_by_one_is_capped(
     admin: tuple[Api, FakeSalt], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     api, salt = admin
-    monkeypatch.setattr(sweeper, "BATCH", 2)  # one by one: at most BATCH a minute
+    monkeypatch.setattr(sweeper, "ONE_BY_ONE_PER_MINUTE", 2)
     rt, now = runtime(api), datetime.now(UTC)
-    for mid in ("dock-01", "rover-01"):
-        assert api.seed(sweeper.ask_now, rt, mid, now).asked == [mid]
+    # An attempt that asked nobody counts too.
+    assert api.seed(sweeper.ask_now, rt, "rover-03", now).reason == "rover-03 isn't online"
+    assert api.seed(sweeper.ask_now, rt, "dock-01", now).asked == ["dock-01"]
     with pytest.raises(sweeper.Throttled, match="one by one") as caught:
-        api.seed(sweeper.ask_now, rt, "rover-02", now)
+        api.seed(sweeper.ask_now, rt, "rover-01", now)
     assert 0 < caught.value.retry_after <= 60
-    assert salt.asked("pkg.list_pkgs") == ["dock-01", "rover-01"]
+    assert salt.asked("pkg.list_pkgs") == ["dock-01"]
     # The whole fleet can still be asked.
     assert api.seed(sweeper.ask_now, rt, None, now).asked == ONLINE
 
@@ -653,8 +671,9 @@ def when(text: str | None) -> datetime | None:
 
 
 def test_versions_sort_like_package_managers() -> None:
+    key = partial(version_key, package=True)
     versions = ["2.10.0", "2.9.1", "10.0", "2.9", "2.9.1-1ubuntu1", "1:1.0-1"]
-    assert sorted(versions, key=version_key) == [
+    assert sorted(versions, key=key) == [
         "2.9",
         "2.9.1",
         "2.9.1-1ubuntu1",
@@ -662,14 +681,29 @@ def test_versions_sort_like_package_managers() -> None:
         "10.0",
         "1:1.0-1",
     ]
-    assert version_key("1:1.0-1") > version_key("2.10-1")  # the epoch comes first
-    assert version_key("1.0~rc1-1") < version_key("1.0-1")  # ~ comes before anything,
-    assert version_key("1.0~rc1") < version_key("1.0")  # even the end
-    assert version_key("1.0~rc1") < version_key("1.0~rc2")
+    assert key("1:1.0-1") > key("2.10-1")  # the epoch comes first
+    assert key("1.0~rc1-1") < key("1.0-1")  # ~ comes before anything,
+    assert key("1.0~rc1") < key("1.0")  # even the end
+    assert key("1.0~rc1") < key("1.0~rc2")
     # A colon after something other than digits isn't an epoch.
-    assert version_key("ghcr.io/acme/web:1.4") < version_key("ghcr.io/acme/web:1.10")
+    assert key("ghcr.io/acme/web:1.4") < key("ghcr.io/acme/web:1.10")
     # A digit to str.isdigit(), but not a number: text, and no crash.
-    assert sorted(["²", "2"], key=version_key) == ["2", "²"]
+    assert sorted(["²", "2"], key=key) == ["2", "²"]
+
+
+def test_check_values_sort_in_natural_order(with_checks: tuple[Api, FakeSalt]) -> None:
+    # A check prints free text, such as a port mapping or a time: no epoch, and ~ is a
+    # character like any other.
+    key = partial(version_key, package=False)
+    assert key("8080:80") < key("9000")
+    assert sorted(["10:30", "9:45", "10:05"], key=key) == ["9:45", "10:05", "10:30"]
+    assert key("1.0") < key("1.0~rc1") < key("1.0~rc2")
+    assert sorted(["²", "2"], key=key) == ["2", "²"]
+    api, _ = with_checks
+    now = datetime.now(UTC)
+    read(api, "rover-01", {"": "8080:80"}, now, source="rover-cli")
+    read(api, "rover-02", {"": "9000"}, now, source="rover-cli")
+    assert [v["text"] for v in values(api, "@rover-cli")["values"]] == ["9000", "8080:80"]
 
 
 def test_values_split_versions_missing_and_unknown(admin: tuple[Api, FakeSalt]) -> None:
@@ -926,10 +960,11 @@ def test_ask_now_when_presence_is_stale_or_nobody_is_online(admin: tuple[Api, Fa
     api, salt = admin
     now = datetime.now(UTC)
     api.seed(api.ingest.presence, ONLINE, at=now - HOUR, method="events")
-    stale = {"asked": [], "queued": True, "failed": {}, "reason": "presence is stale"}
+    stale = {"asked": [], "queued": False, "failed": {}, "reason": "presence is stale"}
     assert ask(api).json() == stale
     assert ask(api).json() == stale  # nothing was queued, so not throttled
     assert ask(api, minion="rover-01").json()["reason"] == "presence is stale"
     api.seed(api.ingest.presence, [], at=now, method="events")
-    assert ask(api).json()["reason"] == "no minions are online"
+    nobody = ask(api).json()
+    assert (nobody["queued"], nobody["reason"]) == (False, "no minions are online")
     assert salt.calls == []

@@ -37,12 +37,15 @@ log = logging.getLogger(__name__)
 
 SWEEP_SECONDS = 15
 # One sweep asks at most this many minions per source; the rest follow on the next sweeps.
-# Minions asked one by one (Ask now for one minion) are capped at this many a minute in all,
-# so a script asking each in turn can't get round it.
 BATCH = 200
 ASK_ALL_EVERY = 60.0  # Ask now for the whole fleet: at most once a minute
 ASK_ONE_EVERY = 10.0  # and for one minion, at most every ten seconds
+# Ask now for one minion: at most this many a minute, whichever minions, so a script asking
+# each in turn can't get round the fleet's once a minute. One sweep's worth.
+ONE_BY_ONE_PER_MINUTE = BATCH
 _MINUTE = 60.0
+# In the sweep's turns, a minion never asked counts as asked before anyone.
+_NEVER = datetime.min.replace(tzinfo=UTC)
 
 # Why Ask now asked nobody.
 STALE = "presence is stale"
@@ -68,7 +71,7 @@ class Asked:
     """What Ask now did."""
 
     asked: list[str]  # the minions asked, or for the whole fleet, made due for the sweep
-    queued: bool  # the whole fleet: the sweep asks them, BATCH at a time
+    queued: bool  # the whole fleet was made due: the sweep asks them, BATCH at a time
     failed: dict[str, str] = field(default_factory=dict)  # source -> why it wasn't asked
     reason: str | None = None  # why no minion was asked
 
@@ -115,6 +118,10 @@ def _state(read: InventoryRead | None) -> ReadState | None:
     )
 
 
+def _asked_at(read: InventoryRead | None) -> datetime:
+    return read.asked_at if read is not None and read.asked_at is not None else _NEVER
+
+
 async def sweep(runtime: Runtime, now: datetime | None = None) -> None:
     """Ask the connected minions for each source they're due, BATCH at a time per source."""
     now = now or datetime.now(UTC)
@@ -142,12 +149,14 @@ async def sweep(runtime: Runtime, now: datetime | None = None) -> None:
             )
         }
     for source in sources(runtime.settings):
-        due = [
-            mid
+        # Whoever was asked longest ago goes first (never asked, before anyone), so a fleet of
+        # more than BATCH can't keep the same minions waiting. The job's target is by ID.
+        due = sorted(
+            (_asked_at(reads.get((mid, source))), mid)
             for mid in mids
             if is_due(_state(reads.get((mid, source))), now=now, every=every, back_at=back.get(mid))
-        ]
-        await ask(runtime, source, due[:BATCH], now)
+        )
+        await ask(runtime, source, sorted(mid for _, mid in due[:BATCH]), now)
 
 
 async def _online(
@@ -178,7 +187,7 @@ def _take_throttle(runtime: Runtime, minion: str | None) -> str:
     if minion is not None:
         _, times = runtime.memo.get(_ONE_BY_ONE_KEY, (clock, []))
         recent = [t for t in times if clock - t < _MINUTE]
-        if len(recent) >= BATCH:
+        if len(recent) >= ONE_BY_ONE_PER_MINUTE:
             raise Throttled(
                 f"{len(recent)} minions were asked one by one in the last minute; try again "
                 "in a minute, or ask for the whole fleet.",
@@ -194,13 +203,15 @@ async def ask_now(runtime: Runtime, minion: str | None, now: datetime) -> Asked:
     not. The whole fleet is made due, for the sweep to ask; one minion is asked straight away.
 
     Throttled when asked too soon. Raises salt-api's error when no source could be asked.
-    Nothing asked or made due leaves the throttle free."""
+    Nothing asked or made due leaves the throttle free. An attempt for one minion still counts
+    towards ONE_BY_ONE_PER_MINUTE even then, on purpose: it may have reached salt-api, and a
+    script trying minion after minion mustn't get round the cap by failing."""
     key = _take_throttle(runtime, minion)
     try:
         mids, reason = await _online(runtime, now, minion)
         if not mids:
             runtime.memo.pop(key, None)
-            return Asked([], queued=minion is None, reason=reason)
+            return Asked([], queued=False, reason=reason)
         if minion is None:
             await runtime.ingest.inventory_want_now(mids, at=now)
             return Asked(mids, queued=True)
