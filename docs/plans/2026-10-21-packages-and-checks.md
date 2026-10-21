@@ -666,7 +666,7 @@ self.ingest.job_return(...)`:
 ```python
             mid = str(d.get("id") or m["mid"])
             fun = str(d.get("fun", ""))
-            changes.merge(await self._inventory_answer(mid, fun, d, at))
+            changes.merge(await self._inventory_answer(mid, m["jid"], fun, d, at))
             user = actor_of(d.get("metadata")) or d.get("user")
             if not self.ingest.is_housekeeping(user, fun) and inventory.may_change_software(fun):
                 await self.ingest.inventory_job_done(mid, jid=m["jid"], user=user, at=at)
@@ -675,25 +675,29 @@ self.ingest.job_return(...)`:
 (compute `mid`/`user` once and reuse them in the `job_return` call above), and add:
 
 ```python
-    async def _inventory_answer(self, mid: str, fun: str, d: dict[str, Any], at: datetime) -> Changes:
+    async def _inventory_answer(
+        self, mid: str, jid: str, fun: str, d: dict[str, Any], at: datetime
+    ) -> Changes:
         """A package list or a configured check's output, from brine or anyone else."""
         data, args = d.get("return"), d.get("fun_args") or []
         if fun == inventory.PACKAGES_FUN and not args and d.get("success") is not False:
             entries, error, truncated = inventory.parse_packages(data)
             if error:
-                return await self.ingest.inventory_failed(mid, inventory.PACKAGES, error, at=at)
+                return await self.ingest.inventory_failed(mid, inventory.PACKAGES, error, at=at, jid=jid)
             return await self.ingest.inventory_read(
-                mid, inventory.PACKAGES, entries, at=at, truncated=truncated
+                mid, inventory.PACKAGES, entries, at=at, truncated=truncated, jid=jid
             )
         if fun == inventory.CHECK_FUN and (name := inventory.check_named(self.settings, args)):
             entries, error, truncated = inventory.parse_check(data)
             if error:
-                return await self.ingest.inventory_failed(mid, name, error, at=at)
-            return await self.ingest.inventory_read(mid, name, entries, at=at, truncated=truncated)
+                return await self.ingest.inventory_failed(mid, name, error, at=at, jid=jid)
+            return await self.ingest.inventory_read(
+                mid, name, entries, at=at, truncated=truncated, jid=jid
+            )
         return Changes()
 ```
 
-In the `_MINION_START` branch add `await self.ingest.inventory_wanted(m["mid"], at=now)`.
+In the `_MINION_START` branch add `await self.ingest.inventory_wanted(m["mid"], at=at)` (the event's stamp: starts, jobs and answers are all timed by the master).
 Import: `from app import inventory`.
 
 **Step 4:** `uv run pytest tests/test_collector.py -v` → PASS.
@@ -790,7 +794,7 @@ async def ask(runtime: Runtime, source: str, mids: list[str], now: datetime) -> 
         command = runtime.settings.inventory.checks[source]
         call = runtime.client.local_async(",".join(mids), CHECK_FUN, arg=[command], tgt_type="list")
     try:
-        await call
+        jid = await call
     except SaltApiForbidden as exc:
         await runtime.ingest.set_state_entry(REFUSED_STATE, source, str(exc))
         return False
@@ -798,7 +802,9 @@ async def ask(runtime: Runtime, source: str, mids: list[str], now: datetime) -> 
         log.warning("asking for %s failed: %s", source, exc)
         return False
     await runtime.ingest.set_state_entry(REFUSED_STATE, source, None)
-    await runtime.ingest.inventory_asked(mids, source, at=now)
+    # The answer can only be matched to this ask once it's recorded; an answer that beats it
+    # counts as someone else's (no credit, the want stays), and the next ask settles it.
+    await runtime.ingest.inventory_asked(mids, source, at=now, jid=jid)
     return True
 
 
@@ -839,7 +845,10 @@ async def sweep(runtime: Runtime, now: datetime | None = None) -> None:
         due = []
         for mid in mids:
             r = reads.get((mid, source))
-            state = None if r is None else ReadState(r.asked_at, r.answered_at, r.wanted_at)
+            state = None if r is None else ReadState(
+                asked_jid=r.asked_jid, asked_at=r.asked_at,
+                answered_at=r.answered_at, wanted_at=r.wanted_at,
+            )
             if is_due(state, now=now, every=every, back_at=back.get(mid)):
                 due.append(mid)
         await ask(runtime, source, due[:BATCH], now)
