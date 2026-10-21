@@ -2,12 +2,15 @@ import type { ReactNode } from 'react'
 import { Link } from 'react-router'
 import type { MinionSummary } from '@/api/types'
 import { Pill } from '@/components/ui'
+import { isInventoryKey, keyDescription, missingLabel } from '@/lib/inventoryKey'
 import { ConnectionCell } from '@/pages/fleet/ConnectionCell'
 import { cellText, type SortKey } from '@/pages/fleet/model'
 
 export type TableColumn = {
   key: SortKey
   label: string
+  /** The header's tooltip. */
+  title?: string
   render: (m: MinionSummary, now: number) => ReactNode
 }
 
@@ -39,13 +42,29 @@ export function baseColumns(): TableColumn[] {
   ]
 }
 
+/** A grain's, package's or check's column. */
 export function grainColumn(grain: string, label: string): TableColumn {
+  const inventory = isInventoryKey(grain)
   return {
     key: `col:${grain}`,
     label,
+    title: keyDescription(grain),
     render: (m) => {
-      const text = cellText(m.columns[grain])
-      return text === null ? <span className="text-muted">—</span> : <Pill title={text}>{text}</Pill>
+      // A package or check the minion hasn't answered for is left out: unknown, not missing.
+      if (inventory && !(grain in m.columns))
+        return (
+          <span className="text-muted" title="No answer from this minion yet, or its last answer was cut short">
+            ?
+          </span>
+        )
+      const value = m.columns[grain]
+      const text = cellText(value)
+      if (text !== null) return <Pill title={text}>{text}</Pill>
+      return (
+        <span className="text-muted" title={inventory && value === null ? missingLabel(grain) : undefined}>
+          —
+        </span>
+      )
     },
   }
 }

@@ -25,6 +25,7 @@ function SortHeader({
       <button
         type="button"
         onClick={() => onSort(column.key)}
+        title={column.title}
         className={cn(
           'inline-flex items-center gap-1 text-xs font-medium uppercase tracking-wider hover:text-fg',
           active ? 'text-fg' : 'text-muted',

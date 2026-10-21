@@ -1,12 +1,25 @@
 import { ArrowDown, ArrowUp, Columns3, Plus, X } from 'lucide-react'
 import { type FormEvent, useEffect, useId, useRef, useState } from 'react'
+import { Link } from 'react-router'
 import { useGrainKeys } from '@/api/queries'
 import type { Column } from '@/api/types'
 import { cn } from '@/lib/cn'
+import { keyDescription, keyKind, keyLabel } from '@/lib/inventoryKey'
 import { addGrain, moveGrain } from '@/pages/fleet/columnPrefs'
 
 const ICON_BTN =
   'flex size-7 items-center justify-center rounded-md text-muted hover:bg-surface-2 hover:text-fg disabled:opacity-30 disabled:hover:bg-transparent'
+
+/** Beside a column's label: a grain's path when the label differs, or whether it's a package or check. */
+function ColumnNote({ column }: { column: Column }) {
+  const kind = keyKind(column.grain)
+  if (kind === 'grain')
+    return column.label === column.grain ? null : (
+      <span className="ml-1.5 font-mono text-xs text-muted">{column.grain}</span>
+    )
+  const name = keyLabel(column.grain)
+  return <span className="ml-1.5 text-xs text-muted">{column.label === name ? kind : `${name} · ${kind}`}</span>
+}
 
 export function ColumnsMenu({
   grainColumns,
@@ -92,7 +105,7 @@ export function ColumnsMenu({
           ))}
 
           <div className="mt-3 mb-1 px-2 text-xs font-medium uppercase tracking-wider text-muted">
-            Grain columns
+            Grains & packages
           </div>
           {grainColumns.length === 0 && (
             <p className="px-2 py-1 text-sm text-muted">None. Add a grain below.</p>
@@ -100,11 +113,9 @@ export function ColumnsMenu({
           <ul>
             {grainColumns.map((col, i) => (
               <li key={col.grain} className="flex items-center gap-1 rounded-lg py-0.5 pr-1 pl-2 hover:bg-surface-2">
-                <span className="min-w-0 flex-1 truncate text-sm" title={col.grain}>
+                <span className="min-w-0 flex-1 truncate text-sm" title={keyDescription(col.grain)}>
                   {col.label}
-                  {col.label !== col.grain && (
-                    <span className="ml-1.5 font-mono text-xs text-muted">{col.grain}</span>
-                  )}
+                  <ColumnNote column={col} />
                 </span>
                 <button
                   type="button"
@@ -163,6 +174,13 @@ export function ColumnsMenu({
               Add
             </button>
           </form>
+          <p className="mt-2 px-2 text-xs text-muted">
+            For a package or check, open{' '}
+            <Link to="/?tab=grains" className="text-fg underline underline-offset-2 hover:text-accent">
+              Grains & packages
+            </Link>{' '}
+            and pick Add as a Fleet column.
+          </p>
 
           <div className="mt-3 flex items-center justify-between border-t px-2 pt-2 text-xs text-muted">
             <span>Saved in this browser</span>

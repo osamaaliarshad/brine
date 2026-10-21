@@ -158,6 +158,50 @@ describe('FleetPage', () => {
     expect(screen.queryByRole('columnheader', { name: /osfinger/ })).toBeNull()
   })
 
+  it('shows package and check columns: the value, — when it is not there, ? when unknown', async () => {
+    const user = userEvent.setup()
+    const columns = [
+      { grain: '@packages:rover-agent', label: 'rover-agent' },
+      { grain: '@containers:web', label: 'web' },
+    ]
+    mockApi({
+      '/api/fleet': fleet(
+        [
+          minion('rover-01', { columns: { '@packages:rover-agent': '2.4.1', '@containers:web': 'ghcr.io/acme/web:1.4' } }),
+          minion('rover-02', { columns: { '@packages:rover-agent': null, '@containers:web': null } }),
+          minion('rover-03', { columns: {} }), // no answer yet
+        ],
+        { columns },
+      ),
+      '/api/status': systemStatus(),
+    })
+    renderApp('/')
+    await screen.findByText('rover-01')
+    const cells = (id: string) => within(screen.getByText(id).closest('tr')!).getAllByRole('cell').slice(3)
+
+    const [agent1, web1] = cells('rover-01')
+    expect(agent1).toHaveTextContent('2.4.1')
+    expect(web1).toHaveTextContent('ghcr.io/acme/web:1.4')
+    const [agent2, web2] = cells('rover-02')
+    expect(within(agent2!).getByText('—')).toHaveAttribute('title', 'Not installed')
+    expect(within(web2!).getByText('—')).toHaveAttribute('title', 'Nothing reported')
+    for (const cell of cells('rover-03'))
+      expect(within(cell).getByText('?')).toHaveAttribute(
+        'title',
+        'No answer from this minion yet, or its last answer was cut short',
+      )
+
+    // Named in plain words, never by their @ keys.
+    const header = screen.getByRole('columnheader', { name: /web/ })
+    expect(within(header).getByRole('button')).toHaveAttribute('title', 'web, from the containers check')
+    await user.click(screen.getByRole('button', { name: 'Columns' }))
+    const menu = screen.getByRole('dialog', { name: 'Choose columns' })
+    expect(within(menu).getByText('package')).toBeInTheDocument()
+    expect(within(menu).getByText('check')).toBeInTheDocument()
+    expect(within(menu).queryByText(/@packages|@containers/)).toBeNull()
+    expect(within(menu).getByRole('link', { name: 'Grains & packages' })).toHaveAttribute('href', '/?tab=grains')
+  })
+
   it('warns when brine has lost salt-api', async () => {
     mockApi({
       '/api/fleet': FLEET,
