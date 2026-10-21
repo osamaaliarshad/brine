@@ -14,6 +14,7 @@ from app.api import (
     commands,
     events,
     fleet,
+    inventory,
     issues,
     jobs,
     keys,
@@ -32,6 +33,7 @@ protected.include_router(automation.router, tags=["automation"])
 protected.include_router(commands.router, tags=["commands"])
 protected.include_router(events.router, tags=["events"])
 protected.include_router(fleet.router, tags=["fleet"])
+protected.include_router(inventory.router, tags=["inventory"])
 protected.include_router(issues.router, tags=["issues"])
 protected.include_router(jobs.router, tags=["jobs"])
 protected.include_router(keys.router, tags=["keys"])

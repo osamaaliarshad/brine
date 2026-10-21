@@ -190,6 +190,69 @@ class GrainDistribution(BaseModel):
     missing: list[str]  # accepted minions that don't report this grain
 
 
+class InventoryKey(BaseModel):
+    key: str  # "@packages:rover-agent", or "@rover-cli" for a check's single value
+    source: str  # "packages" or the check's name
+    name: str  # "" for a check's single value
+    kind: Literal["package", "check"]
+    minions: int  # accepted minions that have it
+
+
+class InventoryDistribution(BaseModel):
+    key: str
+    source: str
+    name: str
+    kind: Literal["package", "check"]
+    total: int  # accepted minions
+    values: list[GrainValue]  # newest version first
+    missing: list[str]  # answered without it
+    unknown: list[str]  # never read successfully (no answer yet, or only failed ones)
+    oldest_read_at: datetime | None  # of the accepted minions' last good reads
+    newest_read_at: datetime | None
+    refused: str | None  # why salt-api refuses to ask for this source, if it does
+
+
+class InventoryChangeView(BaseModel):
+    minion_id: str
+    source: str
+    name: str
+    old: str | None  # None: it wasn't there
+    new: str | None  # None: it went away
+    at: datetime  # the read that found it
+    since: datetime | None  # the read before: it changed between the two
+    jid: str | None  # the job it was found after, if one job
+    user: str | None  # who ran it/them (may be set without jid: several jobs by one person)
+
+
+class InventoryEntry(BaseModel):
+    name: str
+    value: str
+    since: datetime  # first read with this value
+
+
+class InventorySource(BaseModel):
+    source: str
+    kind: Literal["package", "check"]
+    read_at: datetime | None  # last good answer: the entries are as of this
+    first_read_at: datetime | None
+    answered_at: datetime | None  # last answer, good or failed
+    error: str | None  # the last answer's error, if it failed
+    truncated: bool  # the last good answer was cut short, so some entries may be missing
+    entries: list[InventoryEntry]  # by name
+
+
+class MinionInventory(BaseModel):
+    sources: list[InventorySource]  # packages, then each configured check
+
+
+class AskRequest(BaseModel):
+    minion: str | None = None  # None: every online minion
+
+
+class AskResult(BaseModel):
+    asked: list[str]  # the online minions asked; the answers arrive as they come
+
+
 class PresencePoint(BaseModel):
     at: datetime
     connected: bool

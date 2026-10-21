@@ -11,12 +11,13 @@ import yaml
 
 from app import inventory as inv
 from app import inventory_sweep as sweeper
+from app.api.inventory import version_key
 from app.config import Settings, parse_config
 from app.models import InventoryRead
 from app.salt.client import SaltApiUnavailable
 from tests.conftest import T0
 from tests.test_api import Api
-from tests.test_commands import JID, FakeSalt, make_api
+from tests.test_commands import CSRF, JID, FakeSalt, make_api
 
 ROVER_CLI = "/opt/rover/bin/rover-cli --version || true"
 CONTAINERS = "podman ps --format '{{.Names}}={{.Image}}'"
@@ -572,3 +573,249 @@ def test_ask_now_asks_every_source_and_is_throttled(with_checks: tuple[Api, Fake
     assert api.seed(sweeper.ask_now, rt, "rover-01", now) is None
     assert api.seed(sweeper.ask_now, rt, "rover-03", now) == []  # offline: not asked
     assert len(salt.calls) == 6
+
+
+# --- the API ---------------------------------------------------------------------------------
+
+HOUR = timedelta(hours=1)
+
+
+def read(
+    api: Api, mid: str, entries: dict[str, str], at: datetime, source: str = "packages"
+) -> None:
+    api.seed(api.ingest.inventory_read, mid, source, entries, at=at, jid=None)
+
+
+def seed_agent(api: Api, at: datetime) -> None:
+    """rover-agent 2.10.0 on rover-01 (read an hour before `at`) and rover-03, 2.9.1 on
+    rover-02, and not on dock-01."""
+    read(api, "rover-01", {"rover-agent": "2.10.0", "bash": "5.2"}, at - HOUR)
+    read(api, "rover-02", {"rover-agent": "2.9.1", "bash": "5.2"}, at)
+    read(api, "rover-03", {"rover-agent": "2.10.0", "bash": "5.2"}, at)
+    read(api, "dock-01", {"bash": "5.2"}, at)
+
+
+def values(api: Api, key: str) -> Any:
+    return api.get("/api/inventory/values", key=key)
+
+
+def when(text: str | None) -> datetime | None:
+    return None if text is None else datetime.fromisoformat(text)
+
+
+def test_versions_sort_naturally() -> None:
+    versions = ["2.10.0", "2.9.1", "10.0", "2.9", "2.9.1-1ubuntu1", "1:2.3-1"]
+    assert sorted(versions, key=version_key) == [
+        "1:2.3-1",
+        "2.9",
+        "2.9.1",
+        "2.9.1-1ubuntu1",
+        "2.10.0",
+        "10.0",
+    ]
+    assert version_key("²") == [(1, "²")]  # a digit to str.isdigit(), but not a number
+
+
+def test_values_split_versions_missing_and_unknown(admin: tuple[Api, FakeSalt]) -> None:
+    api, _ = admin
+    now = datetime.now(UTC)
+    seed_agent(api, now)
+    d = values(api, "@packages:rover-agent")
+    # Newest version first: 2.10 comes after 2.9.
+    assert d["values"] == [
+        {"value": "2.10.0", "text": "2.10.0", "minions": ["rover-01", "rover-03"]},
+        {"value": "2.9.1", "text": "2.9.1", "minions": ["rover-02"]},
+    ]
+    assert (d["key"], d["source"], d["name"], d["kind"], d["total"]) == (
+        "@packages:rover-agent",
+        "packages",
+        "rover-agent",
+        "package",
+        4,
+    )
+    assert (d["missing"], d["unknown"], d["refused"]) == (["dock-01"], [], None)
+    assert (when(d["oldest_read_at"]), when(d["newest_read_at"])) == (now - HOUR, now)
+
+
+def test_never_read_minions_are_unknown_not_missing(admin: tuple[Api, FakeSalt]) -> None:
+    api, _ = admin
+    now = datetime.now(UTC)
+    read(api, "rover-01", {"rover-agent": "2.4.1"}, now)
+    # Only a failed answer is still unknown. Pending and rejected keys aren't counted at all.
+    api.seed(api.ingest.inventory_failed, "rover-02", "packages", "locked", at=now, jid=None)
+    api.seed(api.ingest.key_event, "rover-05", "reject")
+    for mid in ("rover-04", "rover-05"):
+        read(api, mid, {"rover-agent": "2.3.0"}, now)
+    d = values(api, "@packages:rover-agent")
+    assert [(v["text"], v["minions"]) for v in d["values"]] == [("2.4.1", ["rover-01"])]
+    assert (d["total"], d["missing"]) == (4, [])
+    assert d["unknown"] == ["dock-01", "rover-02", "rover-03"]
+
+
+def test_values_say_when_salt_api_refuses_the_source(admin: tuple[Api, FakeSalt]) -> None:
+    api, _ = admin
+    why = "brine's Salt account isn't allowed to run pkg.list_pkgs"
+    api.seed(api.ingest.set_state_entry, inv.REFUSED_STATE, "packages", why)
+    d = values(api, "@packages:rover-agent")
+    assert (d["refused"], d["values"], d["oldest_read_at"], d["newest_read_at"]) == (
+        why,
+        [],
+        None,
+        None,
+    )
+    assert d["unknown"] == ["dock-01", "rover-01", "rover-02", "rover-03"]
+
+
+def test_values_of_a_check(with_checks: tuple[Api, FakeSalt]) -> None:
+    api, _ = with_checks
+    now = datetime.now(UTC)
+    read(api, "rover-01", {"": "rover-cli 1.2.0"}, now, source="rover-cli")
+    read(api, "rover-02", {}, now, source="rover-cli")  # printed nothing: not there
+    d = values(api, "@rover-cli")
+    assert (d["source"], d["name"], d["kind"]) == ("rover-cli", "", "check")
+    assert [(v["text"], v["minions"]) for v in d["values"]] == [("rover-cli 1.2.0", ["rover-01"])]
+    assert (d["missing"], d["unknown"]) == (["rover-02"], ["dock-01", "rover-03"])
+
+
+def test_keys_list_checks_and_find_packages(with_checks: tuple[Api, FakeSalt]) -> None:
+    api, _ = with_checks
+    now = datetime.now(UTC)
+    seed_agent(api, now)
+    read(api, "rover-04", {"rover-agent": "2.3.0"}, now)  # pending: not counted
+    read(api, "rover-01", {"": "rover-cli 1.2.0"}, now, source="rover-cli")
+    read(api, "rover-01", {"web": "ghcr.io/acme/web:1.4"}, now, source="containers")
+    images = {"web": "ghcr.io/acme/web:1.5", "db": "postgres:16"}
+    read(api, "rover-02", images, now, source="containers")
+    read(api, "rover-01", {"x": "1"}, now, source="old-check")  # no longer configured
+    # Without a search: every check's entries, and no packages.
+    assert [(k["key"], k["kind"], k["minions"]) for k in api.get("/api/inventory/keys")] == [
+        ("@containers:db", "check", 1),
+        ("@containers:web", "check", 2),
+        ("@rover-cli", "check", 1),
+    ]
+    # A search finds packages by part of their name, whatever the case.
+    assert api.get("/api/inventory/keys", q="AGENT") == [
+        {
+            "key": "@packages:rover-agent",
+            "source": "packages",
+            "name": "rover-agent",
+            "kind": "package",
+            "minions": 3,
+        }
+    ]
+    # Checks are searched too (entry or check name), so they can't crowd packages out.
+    assert [k["key"] for k in api.get("/api/inventory/keys", q="web")] == ["@containers:web"]
+    assert [k["key"] for k in api.get("/api/inventory/keys", q="cli")] == ["@rover-cli"]
+    assert api.get("/api/inventory/keys", q="%") == []  # matched as typed, not as a pattern
+    assert len(api.get("/api/inventory/keys", limit=1)) == 1
+    assert api.client.get("/api/inventory/keys", params={"limit": 0}).status_code == 422
+
+
+def test_keys_without_checks(admin: tuple[Api, FakeSalt]) -> None:
+    api, _ = admin
+    seed_agent(api, datetime.now(UTC))
+    assert api.get("/api/inventory/keys") == []
+    found = api.get("/api/inventory/keys", q="agent")
+    assert [(k["key"], k["minions"]) for k in found] == [("@packages:rover-agent", 3)]
+
+
+def test_changes_newest_first_by_key_and_by_minion(admin: tuple[Api, FakeSalt]) -> None:
+    api, _ = admin
+    now = datetime.now(UTC)
+    seed_agent(api, now)
+    read(api, "rover-02", {"rover-agent": "2.10.0", "bash": "5.2"}, now + MINUTE)
+    read(api, "rover-02", {"rover-agent": "2.10.0", "bash": "5.3"}, now + 2 * MINUTE)
+    # dock-01 gets it from alice's job, and brine's read after it finds it.
+    job_at, asked = now + 3 * MINUTE, now + 3 * MINUTE + inv.AFTER_JOB
+    api.seed(api.ingest.inventory_job_done, "dock-01", jid="J1", user="alice", at=job_at)
+    api.seed(api.ingest.inventory_asked, ["dock-01"], "packages", at=asked, jid="A1")
+    found = {"rover-agent": "2.10.0", "bash": "5.2"}
+    api.seed(api.ingest.inventory_read, "dock-01", "packages", found, at=asked, jid="A1")
+
+    by_key = api.get("/api/inventory/changes", key="@packages:rover-agent")
+    assert [(c["minion_id"], c["old"], c["new"], c["jid"], c["user"]) for c in by_key] == [
+        ("dock-01", None, "2.10.0", "J1", "alice"),
+        ("rover-02", "2.9.1", "2.10.0", None, None),
+    ]
+    upgrade = by_key[1]
+    assert (upgrade["source"], upgrade["name"]) == ("packages", "rover-agent")
+    assert (when(upgrade["since"]), when(upgrade["at"])) == (now, now + MINUTE)
+    by_minion = api.get("/api/inventory/changes", minion="rover-02")
+    assert [(c["name"], c["new"]) for c in by_minion] == [
+        ("bash", "5.3"),
+        ("rover-agent", "2.10.0"),
+    ]
+    both = api.get("/api/inventory/changes", key="@packages:rover-agent", minion="rover-02")
+    assert both == [upgrade]
+    assert len(api.get("/api/inventory/changes")) == 3
+    assert [c["minion_id"] for c in api.get("/api/inventory/changes", limit=1)] == ["dock-01"]
+
+
+def test_minion_inventory_lists_every_source(with_checks: tuple[Api, FakeSalt]) -> None:
+    api, _ = with_checks
+    now = datetime.now(UTC)
+    seed_agent(api, now)
+    failed = "exit 127: not found"
+    api.seed(api.ingest.inventory_failed, "rover-01", "rover-cli", failed, at=now, jid=None)
+    packages, cli, containers = api.get("/api/minions/rover-01/inventory")["sources"]
+    assert [(e["name"], e["value"]) for e in packages["entries"]] == [
+        ("bash", "5.2"),
+        ("rover-agent", "2.10.0"),
+    ]
+    assert (packages["source"], packages["kind"], packages["error"], packages["truncated"]) == (
+        "packages",
+        "package",
+        None,
+        False,
+    )
+    times = [when(packages[k]) for k in ("read_at", "first_read_at", "answered_at")]
+    assert times == [now - HOUR] * 3
+    assert when(packages["entries"][0]["since"]) == now - HOUR
+    # A check that failed, and one never read: listed all the same.
+    assert (cli["source"], cli["kind"], cli["error"], cli["read_at"], cli["entries"]) == (
+        "rover-cli",
+        "check",
+        failed,
+        None,
+        [],
+    )
+    assert containers == {
+        "source": "containers",
+        "kind": "check",
+        "read_at": None,
+        "first_read_at": None,
+        "answered_at": None,
+        "error": None,
+        "truncated": False,
+        "entries": [],
+    }
+    assert api.client.get("/api/minions/ghost/inventory").status_code == 404
+
+
+@pytest.mark.parametrize("key", ["app_version", "os:family", "@", "@packages", "@nope:x", "@nope"])
+def test_keys_that_arent_a_package_or_a_check_are_422(
+    admin: tuple[Api, FakeSalt], key: str
+) -> None:
+    api, _ = admin
+    for path in ("/api/inventory/values", "/api/inventory/changes"):
+        resp = api.client.get(path, params={"key": key})
+        assert resp.status_code == 422, path
+        assert "isn't a package or a configured check" in resp.json()["detail"]
+
+
+def ask(api: Api, **body: Any) -> Any:
+    return api.client.post("/api/inventory/ask", json=body, headers=CSRF)
+
+
+def test_ask_now_for_everyone_signed_in(tmp_path: Path) -> None:
+    for api, salt in make_api(tmp_path, "viewer"):  # it only reads
+        assert ask(api).json() == {"asked": ONLINE}
+        throttled = ask(api)
+        assert throttled.status_code == 429
+        assert throttled.json()["detail"] == "Asked a moment ago; try again in a minute."
+        assert ask(api, minion="rover-01").json() == {"asked": ["rover-01"]}
+        assert ask(api, minion="rover-03").json() == {"asked": []}  # offline
+        assert ask(api, minion="ghost").status_code == 404
+        no_csrf = api.client.post("/api/inventory/ask", json={"minion": "dock-01"})
+        assert no_csrf.status_code == 403 and "X-Requested-With" in no_csrf.json()["detail"]
+        assert salt.asked("pkg.list_pkgs") == [*ONLINE, "rover-01"]
