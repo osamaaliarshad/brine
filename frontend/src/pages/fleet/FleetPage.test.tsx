@@ -15,6 +15,23 @@ const FLEET = fleet([
   minion('dock-01', { grains_source: 'master_cache', grains_at: null, columns: { site: 'site-b' } }),
 ])
 
+// A package column and a check column: a value, answered without it, no answer yet, empty.
+const PACKAGE_FLEET = fleet(
+  [
+    minion('rover-01', { columns: { '@packages:rover-agent': '2.4.1', '@containers:web': 'ghcr.io/acme/web:1.4' } }),
+    minion('rover-02', { columns: { '@packages:rover-agent': null, '@containers:web': null } }),
+    minion('rover-03', { columns: {} }),
+    minion('rover-04', { columns: { '@packages:rover-agent': '2.4.1', '@containers:web': '' } }),
+  ],
+  {
+    columns: [
+      { grain: '@packages:rover-agent', label: 'rover-agent' },
+      { grain: '@containers:web', label: 'web' },
+    ],
+  },
+)
+const NO_ANSWER = 'No answer from this minion yet, or its last answer was cut short'
+
 function rows() {
   return screen
     .getAllByRole('row')
@@ -160,22 +177,8 @@ describe('FleetPage', () => {
 
   it('shows package and check columns: the value, — when it is not there, ? when unknown', async () => {
     const user = userEvent.setup()
-    const columns = [
-      { grain: '@packages:rover-agent', label: 'rover-agent' },
-      { grain: '@containers:web', label: 'web' },
-    ]
-    mockApi({
-      '/api/fleet': fleet(
-        [
-          minion('rover-01', { columns: { '@packages:rover-agent': '2.4.1', '@containers:web': 'ghcr.io/acme/web:1.4' } }),
-          minion('rover-02', { columns: { '@packages:rover-agent': null, '@containers:web': null } }),
-          minion('rover-03', { columns: {} }), // no answer yet
-        ],
-        { columns },
-      ),
-      '/api/status': systemStatus(),
-    })
-    renderApp('/')
+    mockApi({ '/api/fleet': PACKAGE_FLEET, '/api/status': systemStatus() })
+    renderApp('/?dir=desc')
     await screen.findByText('rover-01')
     const cells = (id: string) => within(screen.getByText(id).closest('tr')!).getAllByRole('cell').slice(3)
 
@@ -184,12 +187,10 @@ describe('FleetPage', () => {
     expect(web1).toHaveTextContent('ghcr.io/acme/web:1.4')
     const [agent2, web2] = cells('rover-02')
     expect(within(agent2!).getByText('—')).toHaveAttribute('title', 'Not installed')
-    expect(within(web2!).getByText('—')).toHaveAttribute('title', 'Nothing reported')
+    expect(within(web2!).getByText('—')).toHaveAttribute('title', 'Not reported')
     for (const cell of cells('rover-03'))
-      expect(within(cell).getByText('?')).toHaveAttribute(
-        'title',
-        'No answer from this minion yet, or its last answer was cut short',
-      )
+      expect(within(cell).getByText('?')).toHaveAttribute('title', NO_ANSWER)
+    expect(cells('rover-04')[1]).toHaveTextContent('(empty)')
 
     // Named in plain words, never by their @ keys.
     const header = screen.getByRole('columnheader', { name: /web/ })
@@ -199,7 +200,28 @@ describe('FleetPage', () => {
     expect(within(menu).getByText('package')).toBeInTheDocument()
     expect(within(menu).getByText('check')).toBeInTheDocument()
     expect(within(menu).queryByText(/@packages|@containers/)).toBeNull()
-    expect(within(menu).getByRole('link', { name: 'Grains & packages' })).toHaveAttribute('href', '/?tab=grains')
+    // Keeps the table's own settings for when you come back.
+    expect(within(menu).getByRole('link', { name: 'Grains & packages' })).toHaveAttribute('href', '/?dir=desc&tab=grains')
+  })
+
+  it('names package and check values on phone cards, and shows what is missing or unknown', async () => {
+    window.matchMedia = ((query: string) => ({
+      matches: false,
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    })) as unknown as typeof window.matchMedia
+    mockApi({ '/api/fleet': PACKAGE_FLEET, '/api/status': systemStatus() })
+    renderApp('/')
+    const cards = await screen.findByRole('list', { name: 'Minions' })
+    const card = (id: string) => within(cards).getByText(id).closest('a')!
+
+    expect(card('rover-01')).toHaveTextContent('rover-agent 2.4.1')
+    expect(card('rover-01')).toHaveTextContent('web ghcr.io/acme/web:1.4')
+    expect(card('rover-02')).toHaveTextContent('rover-agent: not installed')
+    expect(card('rover-02')).toHaveTextContent('web: not reported')
+    expect(within(card('rover-03')).getByText('rover-agent: ?')).toHaveAttribute('title', NO_ANSWER)
+    expect(card('rover-04')).toHaveTextContent('web: (empty)')
   })
 
   it('warns when brine has lost salt-api', async () => {

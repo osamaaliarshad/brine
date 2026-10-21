@@ -442,13 +442,13 @@ export type InventorySource = {
 export type MinionInventory = { sources: InventorySource[] }
 
 export type AskResult = {
-  /** The minions asked, or with `queued`, queued for brine to read over the next minute. */
+  /** The minions asked, or with `queued`, queued for brine's sweep to read. */
   asked: string[]
   /** The whole fleet was queued. False when nobody was asked, and for one minion (asked straight away). */
   queued: boolean
   /** Source -> why it couldn't be asked. */
   failed: Record<string, string>
-  /** Why nobody was asked: "presence is stale", "rover-03 isn't online". */
+  /** Why nobody was asked: "no minions are online", "rover-03 isn't online". */
   reason: string | null
 }
 

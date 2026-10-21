@@ -16,6 +16,11 @@ export function parseInventoryKey(key: string): { source: string; name: string }
   return source ? { source, name: i < 0 ? '' : rest.slice(i + 1) } : null
 }
 
+/** The key for one entry, such as `@packages:bash`, or `@rover-cli` for a single value. */
+export function keyOf({ source, name }: { source: string; name: string }): string {
+  return name ? `@${source}:${name}` : `@${source}`
+}
+
 export function isInventoryKey(key: string): boolean {
   return parseInventoryKey(key) !== null
 }
@@ -32,10 +37,16 @@ export function keyKind(key: string): KeyKind {
   return parsed.source === 'packages' ? 'package' : 'check'
 }
 
-/** A minion that answered without it: a package isn't installed; a check didn't print it. */
+/** A minion without it: a package isn't installed; a grain or check entry isn't reported. */
 export function missingLabel(key: string): string {
-  return keyKind(key) === 'package' ? 'Not installed' : 'Nothing reported'
+  return keyKind(key) === 'package' ? 'Not installed' : 'Not reported'
 }
+
+/** Minions with no good answer for a package or check yet; the rarer reason is in the detail. */
+export const NO_ANSWER = 'No answer yet'
+export const NO_ANSWER_DETAIL = 'No answer yet, or the last answer was cut short'
+/** The same for one minion, on its `?` cell. */
+export const NO_ANSWER_CELL = 'No answer from this minion yet, or its last answer was cut short'
 
 /** A source in a sentence: "brine can't read packages", "… the containers check". */
 export function describeSource(source: string): string {

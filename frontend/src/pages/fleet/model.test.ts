@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   cellText,
+  columnCell,
   DEFAULT_VIEW,
   filterMinions,
   latestGrainsAt,
@@ -13,6 +14,18 @@ import {
 import { ago, minion } from '@/test/render'
 
 const ids = (list: { id: string }[]) => list.map((m) => m.id)
+
+describe('columnCell', () => {
+  it('tells a value, an empty one, a missing one and an unknown one apart', () => {
+    const m = minion('rover-01', { columns: { site: 'site-a', app_version: null, '@packages:bash': null, '@rover-cli': '' } })
+    expect(columnCell(m, 'site')).toEqual({ kind: 'value', text: 'site-a' })
+    expect(columnCell(m, 'app_version')).toEqual({ kind: 'missing' })
+    expect(columnCell(m, 'osfinger')).toEqual({ kind: 'missing' }) // a grain left out isn't reported
+    expect(columnCell(m, '@packages:bash')).toEqual({ kind: 'missing' })
+    expect(columnCell(m, '@rover-cli')).toEqual({ kind: 'empty' })
+    expect(columnCell(m, '@packages:curl')).toEqual({ kind: 'unknown' }) // a package left out isn't known
+  })
+})
 
 describe('cellText', () => {
   it.each([

@@ -5,6 +5,7 @@ import {
   keyDescription,
   keyKind,
   keyLabel,
+  keyOf,
   missingLabel,
   parseInventoryKey,
 } from '@/lib/inventoryKey'
@@ -23,6 +24,9 @@ describe('inventory keys', () => {
     expect(isInventoryKey('@rover-cli')).toBe(true)
     expect(isInventoryKey('osfinger')).toBe(false)
     expect(isInventoryKey('@')).toBe(false)
+
+    expect(keyOf({ source: 'packages', name: 'bash' })).toBe('@packages:bash')
+    expect(keyOf({ source: 'rover-cli', name: '' })).toBe('@rover-cli')
   })
 
   it('labels each key with its name and kind', () => {
@@ -42,7 +46,8 @@ describe('inventory keys', () => {
     expect(keyDescription('os:family')).toBe('The os:family grain')
 
     expect(missingLabel('@packages:rover-agent')).toBe('Not installed')
-    expect(missingLabel('@containers:web')).toBe('Nothing reported')
+    expect(missingLabel('@containers:web')).toBe('Not reported')
+    expect(missingLabel('os:family')).toBe('Not reported')
     expect(describeSource('packages')).toBe('packages')
     expect(describeSource('containers')).toBe('the containers check')
   })

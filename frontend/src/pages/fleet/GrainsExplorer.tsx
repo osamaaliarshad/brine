@@ -1,11 +1,12 @@
 import { Columns3, Search } from 'lucide-react'
-import { type ReactNode, useState } from 'react'
+import { type ReactNode, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router'
-import { INVENTORY_KEYS_LIMIT, useGrainKeys, useGrainValues, useInventoryKeys } from '@/api/queries'
+import { INVENTORY_KEYS_LIMIT, useAskInventory, useGrainKeys, useGrainValues, useInventoryKeys } from '@/api/queries'
 import type { InventoryKey, MinionStatus } from '@/api/types'
 import { cn } from '@/lib/cn'
-import { isInventoryKey, keyDescription, keyLabel } from '@/lib/inventoryKey'
+import { isInventoryKey, keyDescription, keyLabel, missingLabel } from '@/lib/inventoryKey'
 import { useDebounced } from '@/lib/useDebounced'
+import { useMediaQuery } from '@/lib/useMediaQuery'
 import { InventoryValues } from '@/pages/fleet/InventoryValues'
 import { ValueRow, ValuesHeader } from '@/pages/fleet/ValueRow'
 
@@ -15,6 +16,8 @@ const SEARCH_DELAY_MS = 250
 
 const HEADING = 'px-4 pb-1 text-xs font-medium uppercase tracking-wider text-muted'
 const NOTE = 'px-4 py-2 text-sm text-muted'
+// Short on a phone, so the values below stay within reach.
+const LIST = 'max-h-40 overflow-y-auto pb-2 md:max-h-72'
 
 function pickClass(selected: boolean) {
   return cn(
@@ -31,17 +34,18 @@ function matches(k: InventoryKey, needle: string): boolean {
 function PackagePicker({ filter, selected, onSelect }: { filter: string; selected: string; onSelect: (key: string) => void }) {
   const typed = filter.trim()
   const settled = useDebounced(typed, SEARCH_DELAY_MS)
-  const keys = useInventoryKeys(settled.length >= MIN_SEARCH ? settled : '')
+  const short = typed.length < MIN_SEARCH
+  // Back to the checks as soon as the search is cleared, not after the pause.
+  const keys = useInventoryKeys(short || settled.length < MIN_SEARCH ? '' : settled)
   const needle = typed.toLowerCase()
   const shown = (keys.data ?? []).filter((k) => !needle || matches(k, needle))
-  const short = typed.length < MIN_SEARCH
   // What's typed hasn't been searched for yet (still typing, or the answer is on its way).
   const searching = !short && (settled !== typed || keys.isPlaceholderData)
 
   return (
     <div className="border-t pt-3">
       <div className={HEADING}>Packages and checks</div>
-      <ul aria-label="Packages and checks" className="max-h-56 overflow-y-auto pb-2 md:max-h-72">
+      <ul aria-label="Packages and checks" className={LIST}>
         {shown.map((k) => (
           <li key={k.key}>
             <button
@@ -76,10 +80,12 @@ function PackagePicker({ filter, selected, onSelect }: { filter: string; selecte
 function GrainValues({
   grain,
   statusOf,
+  canRun,
   action,
 }: {
   grain: string
   statusOf: Record<string, MinionStatus>
+  canRun: boolean
   action?: ReactNode
 }) {
   const dist = useGrainValues(grain)
@@ -97,10 +103,24 @@ function GrainValues({
       ) : (
         <ul aria-label={`Values of ${grain}`}>
           {dist.data.values.map((v) => (
-            <ValueRow key={v.text} text={v.text} minions={v.minions} total={dist.data.total} statusOf={statusOf} />
+            <ValueRow
+              key={v.text}
+              text={v.text}
+              minions={v.minions}
+              total={dist.data.total}
+              statusOf={statusOf}
+              canRun={canRun}
+            />
           ))}
           {dist.data.missing.length > 0 && (
-            <ValueRow text="Not reported" minions={dist.data.missing} total={dist.data.total} statusOf={statusOf} muted />
+            <ValueRow
+              text={missingLabel(grain)}
+              minions={dist.data.missing}
+              total={dist.data.total}
+              statusOf={statusOf}
+              muted
+              canRun={canRun}
+            />
           )}
         </ul>
       )}
@@ -127,11 +147,17 @@ export function GrainsExplorer({
   const [params, setParams] = useSearchParams()
   const [filter, setFilter] = useState('')
   const keys = useGrainKeys(true)
+  // Read now covers the whole fleet, so its note stays while you look at other entries.
+  const read = useAskInventory()
+  const sideBySide = useMediaQuery('(min-width: 768px)')
+  const panel = useRef<HTMLDivElement>(null)
   const grain = params.get('grain') ?? columnGrains[0] ?? 'osfinger'
   const select = (key: string) => {
     const next = new URLSearchParams(params)
     next.set('grain', key)
     setParams(next, { replace: true })
+    // On a phone the values are below the lists: take the person there.
+    if (!sideBySide) panel.current?.scrollIntoView({ block: 'start' })
   }
   const needle = filter.trim().toLowerCase()
   const shownKeys = (keys.data ?? []).filter((k) => !needle || k.key.toLowerCase().includes(needle))
@@ -147,7 +173,7 @@ export function GrainsExplorer({
   )
 
   return (
-    <div className="grid border-t md:grid-cols-[16rem_1fr]">
+    <div className="grid border-t md:grid-cols-[18rem_1fr]">
       <div className="border-b md:border-r md:border-b-0">
         <label className="m-3 flex h-9 items-center gap-2 rounded-lg border bg-bg px-2.5">
           <Search className="size-4 text-muted" aria-hidden />
@@ -155,13 +181,13 @@ export function GrainsExplorer({
             type="search"
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
-            placeholder="Find a grain or package…"
-            aria-label="Find a grain or package"
+            placeholder="Find a grain, package or check…"
+            aria-label="Find a grain, package or check"
             className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted"
           />
         </label>
         <div className={HEADING}>Grains</div>
-        <ul aria-label="Grains" className="max-h-56 overflow-y-auto pb-2 md:max-h-72">
+        <ul aria-label="Grains" className={LIST}>
           {shownKeys.map((k) => (
             <li key={k.key}>
               <button
@@ -180,11 +206,20 @@ export function GrainsExplorer({
         <PackagePicker filter={filter} selected={grain} onSelect={select} />
       </div>
 
-      <div className="min-w-0">
+      {/* On a phone, at least a screen tall: a short "Loading…" mustn't undo the scroll to it. */}
+      <div ref={panel} className="min-w-0 scroll-mt-4 max-md:min-h-dvh">
         {isInventoryKey(grain) ? (
-          <InventoryValues key={grain} itemKey={grain} statusOf={statusOf} now={now} canRun={canRun} action={addColumn} />
+          <InventoryValues
+            key={grain}
+            itemKey={grain}
+            statusOf={statusOf}
+            now={now}
+            canRun={canRun}
+            read={read}
+            action={addColumn}
+          />
         ) : (
-          <GrainValues grain={grain} statusOf={statusOf} action={addColumn} />
+          <GrainValues key={grain} grain={grain} statusOf={statusOf} canRun={canRun} action={addColumn} />
         )}
       </div>
     </div>

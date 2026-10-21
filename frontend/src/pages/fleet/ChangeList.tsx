@@ -2,6 +2,7 @@ import { Link } from 'react-router'
 import type { InventoryChange, MinionStatus } from '@/api/types'
 import { MinionChip } from '@/components/MinionChip'
 import { Pill } from '@/components/ui'
+import { keyDescription, keyLabel, keyOf } from '@/lib/inventoryKey'
 import { formatAbsolute, formatRelative, relativeRange } from '@/lib/time'
 
 /**
@@ -59,11 +60,14 @@ export function ChangeList({
   now,
   statusOf = {},
   label,
+  showName = false,
 }: {
   changes: InventoryChange[]
   now: number
   statusOf?: Record<string, MinionStatus>
   label: string
+  /** Say which package or check entry changed (for a list that mixes them). */
+  showName?: boolean
 }) {
   return (
     <ul aria-label={label}>
@@ -78,6 +82,13 @@ export function ChangeList({
           </span>{' '}
           <MinionChip id={c.minion_id} status={statusOf[c.minion_id]} />{' '}
           <span className="flex min-w-0 items-center gap-1.5">
+            {showName && (
+              <>
+                <span className="font-mono text-[13px]" title={keyDescription(keyOf(c))}>
+                  {keyLabel(keyOf(c))}
+                </span>{' '}
+              </>
+            )}
             <OldToNew change={c} />
           </span>{' '}
           <span className="text-muted">

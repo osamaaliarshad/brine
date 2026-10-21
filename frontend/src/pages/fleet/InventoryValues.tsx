@@ -1,16 +1,18 @@
-import { RefreshCw, ShieldAlert, TerminalSquare } from 'lucide-react'
+import { RefreshCw, ShieldAlert } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { Link } from 'react-router'
 import { ApiError } from '@/api/client'
-import { useAskInventory, useInventoryChanges, useInventoryValues } from '@/api/queries'
+import { type useAskInventory, useInventoryChanges, useInventoryValues } from '@/api/queries'
 import type { AskResult, InventoryDistribution, MinionStatus } from '@/api/types'
 import { cn } from '@/lib/cn'
-import { describeSource, keyLabel, missingLabel } from '@/lib/inventoryKey'
+import { describeSource, keyLabel, missingLabel, NO_ANSWER, NO_ANSWER_DETAIL } from '@/lib/inventoryKey'
 import { formatAbsolute, formatRelative, relativeRange } from '@/lib/time'
 import { ChangeList } from '@/pages/fleet/ChangeList'
 import { ValueRow, ValuesHeader } from '@/pages/fleet/ValueRow'
 
-const UNKNOWN = 'Unknown (no answer yet, or the last answer was cut short)'
+/** Read now: asks every online minion at once, so it's shared by every entry in the explorer. */
+export type ReadNow = ReturnType<typeof useAskInventory>
+
 const HOUR = 3600_000
 
 function spread(d: InventoryDistribution): string {
@@ -18,20 +20,6 @@ function spread(d: InventoryDistribution): string {
   const noun = d.kind === 'package' ? 'version' : 'value'
   const text = `${d.values.length} distinct ${noun}${d.values.length === 1 ? '' : 's'} across ${having} of ${d.total} minions`
   return d.kind === 'check' && d.name ? `From the ${d.source} check · ${text}` : text
-}
-
-/** The Run page with exactly these minions as a list target; the person types the command. */
-function RunOnThese({ minions }: { minions: string[] }) {
-  return (
-    <Link
-      to={`/run?${new URLSearchParams({ target: minions.join(','), type: 'list' })}`}
-      title="Open Run with these minions as the target. Nothing runs until you preview it and click Run."
-      className="inline-flex h-8 items-center gap-1.5 rounded-lg border px-3 text-sm hover:bg-surface-2"
-    >
-      <TerminalSquare className="size-4 text-muted" aria-hidden />
-      Run on these
-    </Link>
-  )
 }
 
 function Refused({ source, why }: { source: string; why: string }) {
@@ -67,15 +55,12 @@ function ReadSummary({ oldest, newest, now }: { oldest: string | null; newest: s
 
 function Asked({ result }: { result: AskResult }) {
   const n = result.asked.length
-  const minions = `${n} minion${n === 1 ? '' : 's'}`
   return (
     <div role="status" className="border-t bg-accent/10 px-4 py-2.5 text-sm sm:px-6">
       <p>
         {n === 0
           ? `Nobody was asked${result.reason ? `: ${result.reason}` : ''}.`
-          : result.queued
-            ? `Reading ${minions} over the next minute; answers appear as they arrive.`
-            : `Asked ${minions}; answers appear as they arrive.`}
+          : `Reading ${n} minion${n === 1 ? '' : 's'}; answers appear as they arrive.`}
       </p>
       {Object.entries(result.failed).map(([source, why]) => (
         <p key={source} className="text-danger">
@@ -86,34 +71,33 @@ function Asked({ result }: { result: AskResult }) {
   )
 }
 
-function ReadAndAsk({ d, now }: { d: InventoryDistribution; now: number }) {
-  const ask = useAskInventory()
+function ReadAndAsk({ d, now, read }: { d: InventoryDistribution; now: number; read: ReadNow }) {
+  // Once a newer answer is in, the list shows it: the note has done its job.
+  const answered = !!d.newest_read_at && Date.parse(d.newest_read_at) > read.submittedAt
+  const tooSoon = read.error instanceof ApiError && read.error.status === 429
   return (
     <div className="border-t">
       <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-sm text-muted sm:px-6">
         <ReadSummary oldest={d.oldest_read_at} newest={d.newest_read_at} now={now} />
         <button
           type="button"
-          onClick={() => ask.mutate(null)}
-          disabled={ask.isPending}
-          title="Ask every online minion for its packages and checks again"
+          onClick={() => read.mutate(null)}
+          disabled={read.isPending}
+          title="Read every online minion's packages and checks again"
           className="flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-fg hover:bg-surface-2 disabled:opacity-50"
         >
-          <RefreshCw className={cn('size-3.5', ask.isPending && 'animate-spin')} aria-hidden />
-          Ask now
+          <RefreshCw className={cn('size-3.5', read.isPending && 'animate-spin')} aria-hidden />
+          Read now
         </button>
       </div>
-      {ask.data && <Asked result={ask.data} />}
-      {ask.isError && (
-        // Asked too soon is a wait, not a failure.
+      {read.data && !answered && <Asked result={read.data} />}
+      {read.error && (
+        // Too soon is a wait, not a failure.
         <p
-          role="alert"
-          className={cn(
-            'border-t px-4 py-2.5 text-sm sm:px-6',
-            ask.error instanceof ApiError && ask.error.status === 429 ? 'text-muted' : 'text-danger',
-          )}
+          role={tooSoon ? 'status' : 'alert'}
+          className={cn('border-t px-4 py-2.5 text-sm sm:px-6', tooSoon ? 'text-muted' : 'text-danger')}
         >
-          {ask.error.message}
+          {read.error.message}
         </p>
       )}
     </div>
@@ -155,6 +139,7 @@ export function InventoryValues({
   statusOf,
   now,
   canRun,
+  read,
   action,
 }: {
   itemKey: string
@@ -162,12 +147,12 @@ export function InventoryValues({
   now: number
   /** The signed-in person may run commands: offer Run on these. */
   canRun: boolean
+  read: ReadNow
   /** Beside the heading (Add as a Fleet column). */
   action?: ReactNode
 }) {
   const dist = useInventoryValues(itemKey)
   const label = keyLabel(itemKey)
-  const runOn = (minions: string[]) => (canRun ? <RunOnThese minions={minions} /> : undefined)
   return (
     <>
       <ValuesHeader itemKey={itemKey} summary={dist.data && spread(dist.data)} action={action} />
@@ -188,7 +173,7 @@ export function InventoryValues({
                 minions={v.minions}
                 total={dist.data.total}
                 statusOf={statusOf}
-                action={runOn(v.minions)}
+                canRun={canRun}
               />
             ))}
             {dist.data.missing.length > 0 && (
@@ -198,21 +183,22 @@ export function InventoryValues({
                 total={dist.data.total}
                 statusOf={statusOf}
                 muted
-                action={runOn(dist.data.missing)}
+                canRun={canRun}
               />
             )}
             {dist.data.unknown.length > 0 && (
               <ValueRow
-                text={UNKNOWN}
+                text={NO_ANSWER}
+                title={NO_ANSWER_DETAIL}
                 minions={dist.data.unknown}
                 total={dist.data.total}
                 statusOf={statusOf}
                 muted
-                action={runOn(dist.data.unknown)}
+                canRun={canRun}
               />
             )}
           </ul>
-          <ReadAndAsk d={dist.data} now={now} />
+          <ReadAndAsk d={dist.data} now={now} read={read} />
           <Changes itemKey={itemKey} read={!!dist.data.newest_read_at} statusOf={statusOf} now={now} />
         </>
       )}

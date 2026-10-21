@@ -1,4 +1,5 @@
 import type { MinionStatus, MinionSummary } from '@/api/types'
+import { isInventoryKey } from '@/lib/inventoryKey'
 
 export type StatusFilter = 'all' | MinionStatus
 export type SortDir = 'asc' | 'desc'
@@ -29,6 +30,22 @@ export function cellText(value: unknown): string | null {
   if (Array.isArray(value)) return value.map((v) => cellText(v) ?? '').join(', ')
   if (typeof value === 'object') return JSON.stringify(value)
   return String(value)
+}
+
+/** What a grain, package or check column holds for one minion. */
+export type Cell =
+  | { kind: 'value'; text: string }
+  | { kind: 'empty' } // there, with nothing in it
+  | { kind: 'missing' } // a grain or check entry not reported, a package not installed
+  | { kind: 'unknown' } // a package or check the minion hasn't answered for yet
+
+export function columnCell(minion: MinionSummary, key: string): Cell {
+  // The server leaves out a package or check it doesn't know about for this minion.
+  if (isInventoryKey(key) && !(key in minion.columns)) return { kind: 'unknown' }
+  const value = minion.columns[key]
+  if (value === null || value === undefined) return { kind: 'missing' }
+  const text = cellText(value)
+  return text ? { kind: 'value', text } : { kind: 'empty' }
 }
 
 export function matchesSearch(minion: MinionSummary, query: string): boolean {

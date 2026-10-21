@@ -1,6 +1,6 @@
 import { ArrowDown, ArrowUp, Columns3, Plus, X } from 'lucide-react'
 import { type FormEvent, useEffect, useId, useRef, useState } from 'react'
-import { Link } from 'react-router'
+import { Link, useSearchParams } from 'react-router'
 import { useGrainKeys } from '@/api/queries'
 import type { Column } from '@/api/types'
 import { cn } from '@/lib/cn'
@@ -46,6 +46,10 @@ export function ColumnsMenu({
   const listId = useId()
   const keys = useGrainKeys(open)
   const grains = grainColumns.map((c) => c.grain)
+  // The explorer tab, keeping the table's filters and sort for when the person comes back.
+  const [params] = useSearchParams()
+  const explorer = new URLSearchParams(params)
+  explorer.set('tab', 'grains')
 
   useEffect(() => {
     if (!open) return
@@ -176,7 +180,7 @@ export function ColumnsMenu({
           </form>
           <p className="mt-2 px-2 text-xs text-muted">
             For a package or check, open{' '}
-            <Link to="/?tab=grains" className="text-fg underline underline-offset-2 hover:text-accent">
+            <Link to={{ search: `?${explorer}` }} className="text-fg underline underline-offset-2 hover:text-accent">
               Grains & packages
             </Link>{' '}
             and pick Add as a Fleet column.

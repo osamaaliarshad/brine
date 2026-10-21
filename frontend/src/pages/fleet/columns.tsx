@@ -2,9 +2,9 @@ import type { ReactNode } from 'react'
 import { Link } from 'react-router'
 import type { MinionSummary } from '@/api/types'
 import { Pill } from '@/components/ui'
-import { isInventoryKey, keyDescription, missingLabel } from '@/lib/inventoryKey'
+import { keyDescription, missingLabel, NO_ANSWER_CELL } from '@/lib/inventoryKey'
 import { ConnectionCell } from '@/pages/fleet/ConnectionCell'
-import { cellText, type SortKey } from '@/pages/fleet/model'
+import { columnCell, type SortKey } from '@/pages/fleet/model'
 
 export type TableColumn = {
   key: SortKey
@@ -44,27 +44,30 @@ export function baseColumns(): TableColumn[] {
 
 /** A grain's, package's or check's column. */
 export function grainColumn(grain: string, label: string): TableColumn {
-  const inventory = isInventoryKey(grain)
   return {
     key: `col:${grain}`,
     label,
     title: keyDescription(grain),
     render: (m) => {
-      // A package or check the minion hasn't answered for is left out: unknown, not missing.
-      if (inventory && !(grain in m.columns))
-        return (
-          <span className="text-muted" title="No answer from this minion yet, or its last answer was cut short">
-            ?
-          </span>
-        )
-      const value = m.columns[grain]
-      const text = cellText(value)
-      if (text !== null) return <Pill title={text}>{text}</Pill>
-      return (
-        <span className="text-muted" title={inventory && value === null ? missingLabel(grain) : undefined}>
-          —
-        </span>
-      )
+      const cell = columnCell(m, grain)
+      switch (cell.kind) {
+        case 'value':
+          return <Pill title={cell.text}>{cell.text}</Pill>
+        case 'empty':
+          return <span className="text-muted">(empty)</span>
+        case 'missing':
+          return (
+            <span className="text-muted" title={missingLabel(grain)}>
+              —
+            </span>
+          )
+        case 'unknown':
+          return (
+            <span className="text-muted" title={NO_ANSWER_CELL}>
+              ?
+            </span>
+          )
+      }
     },
   }
 }
