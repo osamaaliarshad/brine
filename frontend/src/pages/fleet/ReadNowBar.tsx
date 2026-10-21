@@ -64,11 +64,7 @@ export function ReadNowBar({
         {children}
         <button
           type="button"
-          onClick={() => {
-            setSeen({ [watch.key]: watch.at })
-            setAnswered(false)
-            ask.mutate(minion)
-          }}
+          onClick={() => read.start(minion, watch.key, watch.at)}
           disabled={ask.isPending}
           title={title}
           className="flex h-8 shrink-0 items-center gap-1.5 rounded-lg border px-2.5 hover:bg-surface-2 disabled:opacity-50"

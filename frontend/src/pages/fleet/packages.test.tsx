@@ -292,6 +292,28 @@ describe('Fleet › Grains & packages', () => {
     await waitFor(() => expect(screen.queryByRole('status')).toBeNull())
   })
 
+  it('lets the note go once the read should be done, answers seen or not', async () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout', 'performance'] })
+    vi.setSystemTime(NOW)
+    // Testing Library only advances Jest's fake timers between steps; let it drive Vitest's.
+    Object.assign(globalThis, { jest: { advanceTimersByTime: (ms: number) => vi.advanceTimersByTime(ms) } })
+    const settle = (ms: number) => act(() => vi.advanceTimersByTimeAsync(ms))
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    const asked = Array.from({ length: 450 }, (_, i) => `rover-${i}`)
+    api({ '/api/inventory/ask': { asked, queued: true, failed: {}, reason: null } })
+    renderApp('/?tab=grains&grain=@packages:rover-agent')
+    await settle(50)
+    await user.click(screen.getByRole('button', { name: 'Read now' }))
+    await settle(50)
+    expect(screen.getByRole('status')).toHaveTextContent('Reading 450 minions')
+
+    // 450 minions are 3 sweeps of 200, 15s apart, and a minute for the answers: 105s.
+    await settle(104_000)
+    expect(screen.getByRole('status')).toHaveTextContent('Reading 450 minions')
+    await settle(1_000)
+    expect(screen.queryByRole('status')).toBeNull()
+  })
+
   it('once an answer is in, keeps the note away on entries opened after, already read anew', async () => {
     const user = userEvent.setup()
     let packagesRead = ago(20 * 60)
