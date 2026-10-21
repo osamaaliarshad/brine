@@ -61,7 +61,7 @@ function ConnectionBanner({ status, now }: { status: SystemStatus | undefined; n
 
 const FLEET_TABS = [
   { key: 'minions', label: 'Minions' },
-  { key: 'grains', label: 'Grains' },
+  { key: 'grains', label: 'Grains & packages' },
   { key: 'nodegroups', label: 'Nodegroups' },
 ] as const
 
@@ -148,6 +148,8 @@ export function FleetPage() {
         {tab === 'grains' && (
           <GrainsExplorer
             statusOf={statusOf}
+            now={now}
+            canRun={canRun}
             columnGrains={(fleet?.columns ?? []).map((c) => c.grain)}
             onAddColumn={(grain) =>
               setPrefs({

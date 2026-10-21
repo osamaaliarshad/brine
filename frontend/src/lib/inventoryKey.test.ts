@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { isInventoryKey, keyDescription, keyKind, keyLabel, parseInventoryKey } from '@/lib/inventoryKey'
+import {
+  describeSource,
+  isInventoryKey,
+  keyDescription,
+  keyKind,
+  keyLabel,
+  missingLabel,
+  parseInventoryKey,
+} from '@/lib/inventoryKey'
 
 describe('inventory keys', () => {
   it('parses packages and checks like the backend, and leaves grains alone', () => {
@@ -32,5 +40,10 @@ describe('inventory keys', () => {
     expect(keyDescription('@containers:web')).toBe('web, from the containers check')
     expect(keyDescription('@rover-cli')).toBe('The rover-cli check')
     expect(keyDescription('os:family')).toBe('The os:family grain')
+
+    expect(missingLabel('@packages:rover-agent')).toBe('Not installed')
+    expect(missingLabel('@containers:web')).toBe('Nothing reported')
+    expect(describeSource('packages')).toBe('packages')
+    expect(describeSource('containers')).toBe('the containers check')
   })
 })

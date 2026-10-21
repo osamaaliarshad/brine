@@ -32,6 +32,16 @@ export function keyKind(key: string): KeyKind {
   return parsed.source === 'packages' ? 'package' : 'check'
 }
 
+/** A minion that answered without it: a package isn't installed; a check didn't print it. */
+export function missingLabel(key: string): string {
+  return keyKind(key) === 'package' ? 'Not installed' : 'Nothing reported'
+}
+
+/** A source in a sentence: "brine can't read packages", "… the containers check". */
+export function describeSource(source: string): string {
+  return source === 'packages' ? 'packages' : `the ${source} check`
+}
+
 /** A short sentence for tooltips: which package, check or grain it is. */
 export function keyDescription(key: string): string {
   const parsed = parseInventoryKey(key)

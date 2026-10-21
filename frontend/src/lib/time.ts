@@ -17,6 +17,17 @@ export function formatRelative(iso: string | null | undefined, now: number = Dat
   return new Date(then).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
+/**
+ * Both ends of a span for "between 3h and 20m ago": the first loses its "ago" when both have one.
+ * null when they'd read the same ("2h ago" and "2h ago").
+ */
+export function relativeRange(from: string, to: string, now: number = Date.now()): [string, string] | null {
+  const start = formatRelative(from, now)
+  const end = formatRelative(to, now)
+  if (start === end) return null
+  return [start.endsWith(' ago') && end.endsWith(' ago') ? start.slice(0, -' ago'.length) : start, end]
+}
+
 /** Local time with UTC alongside, for tooltips. */
 export function formatAbsolute(iso: string | null | undefined): string {
   if (!iso) return 'Never'
