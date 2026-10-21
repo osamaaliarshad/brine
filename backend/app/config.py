@@ -2,7 +2,8 @@
 
 Two ways to get values in from the environment:
 
-* ``${VAR}`` / ``${VAR:-default}`` placeholders anywhere in the YAML, expanded before parsing.
+* ``${VAR}`` / ``${VAR:-default}`` placeholders anywhere in the YAML except check commands,
+  expanded before parsing.
 * ``BRINE__SECTION__KEY=value`` variables, which override (or add) a single nested key
   after parsing, e.g. ``BRINE__SALT_API__PASSWORD``.
 

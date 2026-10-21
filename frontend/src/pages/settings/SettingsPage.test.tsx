@@ -22,6 +22,7 @@ const SETTINGS: Settings = {
     session_hours: 12,
     role_patterns: { viewer: 3, operator: 0, admin: 1 },
   },
+  inventory: { refresh_hours: 6, checks: [], acl: "- '*':\n  - pkg.list_pkgs\n", refused: {} },
 }
 
 describe('SettingsPage', () => {

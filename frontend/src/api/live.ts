@@ -38,6 +38,8 @@ export function createLiveInvalidator(queryClient: QueryClient, debounceMs = DEB
         queue(queryKeys.fleet)
         queue(queryKeys.keys)
         queue(queryKeys.issues)
+        // A read that moves a package or check publishes a fleet change.
+        queue(queryKeys.inventory)
         break
       case 'status':
         queue(queryKeys.status)

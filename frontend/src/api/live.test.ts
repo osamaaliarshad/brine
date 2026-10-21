@@ -25,7 +25,7 @@ describe('createLiveInvalidator', () => {
     expect(invalidate).not.toHaveBeenCalled()
 
     vi.advanceTimersByTime(100)
-    expect(keys()).toEqual([['fleet'], ['keys'], ['issues'], ['minion', 'rover-01'], ['jobs']])
+    expect(keys()).toEqual([['fleet'], ['keys'], ['issues'], ['inventory'], ['minion', 'rover-01'], ['jobs']])
   })
 
   it('status changes refresh the fleet too (stale/online depends on them)', () => {

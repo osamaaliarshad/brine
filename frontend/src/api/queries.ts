@@ -1,6 +1,7 @@
 import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { fetchJson, postJson } from '@/api/client'
 import type {
+  AskResult,
   AuditPage,
   AuthInfo,
   Capabilities,
@@ -14,6 +15,9 @@ import type {
   GrainDistribution,
   GrainKey,
   GrainsChange,
+  InventoryChange,
+  InventoryDistribution,
+  InventoryKey,
   Issue,
   JobDetail,
   JobPage,
@@ -24,6 +28,7 @@ import type {
   LiveKind,
   LiveView,
   MinionDetail,
+  MinionInventory,
   Nodegroups,
   Orchestrations,
   Reactor,
@@ -46,6 +51,8 @@ export const queryKeys = {
   jobs: ['jobs'] as const,
   keys: ['keys'] as const,
   issues: ['issues'] as const,
+  // Packages and checks across the fleet; one minion's are under ['minion', id].
+  inventory: ['inventory'] as const,
 }
 
 /** `/api/fleet`, with `?column=` for each grain when the user picked their own columns. */
@@ -249,6 +256,60 @@ export function useGrainValues(grain: string | null) {
     enabled: !!grain,
     staleTime: 30_000,
     placeholderData: keepPreviousData,
+  })
+}
+
+/** How many packages and checks the explorer's picker lists at once. */
+export const INVENTORY_KEYS_LIMIT = 50
+
+/** Every check's entries, or with `q`, the packages and checks whose name contains it. */
+export function useInventoryKeys(q: string) {
+  return useQuery({
+    queryKey: [...queryKeys.inventory, 'keys', q],
+    queryFn: () =>
+      fetchJson<InventoryKey[]>(`/api/inventory/keys?${new URLSearchParams({ q, limit: String(INVENTORY_KEYS_LIMIT) })}`),
+    staleTime: 60_000,
+    placeholderData: keepPreviousData,
+  })
+}
+
+export function useInventoryValues(key: string | null) {
+  return useQuery({
+    queryKey: [...queryKeys.inventory, 'values', key],
+    queryFn: () => fetchJson<InventoryDistribution>(`/api/inventory/values?key=${enc(key ?? '')}`),
+    enabled: !!key,
+  })
+}
+
+/** What appeared, changed or went away, newest first: for one package or check entry, or one minion. */
+export function useInventoryChanges(filter: { key: string } | { minion: string }, enabled = true) {
+  return useQuery({
+    queryKey:
+      'minion' in filter
+        ? [...queryKeys.minion(filter.minion), 'inventory-changes']
+        : [...queryKeys.inventory, 'changes', filter.key],
+    queryFn: () => fetchJson<InventoryChange[]>(`/api/inventory/changes?${new URLSearchParams(filter)}`),
+    enabled,
+  })
+}
+
+export function useMinionInventory(id: string, enabled: boolean) {
+  return useQuery({
+    queryKey: [...queryKeys.minion(id), 'inventory'],
+    queryFn: () => fetchJson<MinionInventory>(`/api/minions/${enc(id)}/inventory`),
+    enabled,
+  })
+}
+
+/** Ask now: every online minion (null), or one, for its packages and checks. */
+export function useAskInventory() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (minion: string | null) => postJson<AskResult>('/api/inventory/ask', { minion }),
+    onSuccess: (_, minion) => {
+      void client.invalidateQueries({ queryKey: queryKeys.inventory })
+      if (minion !== null) void client.invalidateQueries({ queryKey: [...queryKeys.minion(minion), 'inventory'] })
+    },
   })
 }
 

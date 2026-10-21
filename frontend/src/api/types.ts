@@ -337,13 +337,119 @@ export type Settings = {
     session_hours: number
     role_patterns: Record<Role, number>
   }
+  inventory: {
+    refresh_hours: number
+    /** In the config's order. */
+    checks: { name: string; command: string }[]
+    /** The external_auth lines brine's Salt account needs (YAML). */
+    acl: string
+    /** Source -> why salt-api refuses to ask for it (configured sources only). */
+    refused: Record<string, string>
+  }
+}
+
+export type GrainValue = {
+  value: unknown
+  /** How it reads in a table (lists joined, objects as JSON). */
+  text: string
+  minions: string[]
 }
 
 export type GrainDistribution = {
   grain: string
   total: number
-  values: { value: unknown; text: string; minions: string[] }[]
+  values: GrainValue[]
   missing: string[]
+}
+
+export type InventoryKind = 'package' | 'check'
+
+/** A package or a check's entry the fleet has, for the explorer's picker. */
+export type InventoryKey = {
+  /** `@packages:rover-agent`, or `@rover-cli` for a check's single value. */
+  key: string
+  /** "packages" or the check's name. */
+  source: string
+  /** "" for a check's single value. */
+  name: string
+  kind: InventoryKind
+  /** Accepted minions that have it. */
+  minions: number
+}
+
+export type InventoryDistribution = {
+  key: string
+  source: string
+  name: string
+  kind: InventoryKind
+  /** Accepted minions. */
+  total: number
+  /** Newest version first. */
+  values: GrainValue[]
+  /** Answered without it. */
+  missing: string[]
+  /** No answer yet (or only failed ones), or the last answer was cut short and doesn't list it. */
+  unknown: string[]
+  /** Of the accepted minions' last good reads. */
+  oldest_read_at: string | null
+  newest_read_at: string | null
+  /** Why salt-api refuses to ask for this source, if it does. */
+  refused: string | null
+}
+
+export type InventoryChange = {
+  minion_id: string
+  source: string
+  name: string
+  /** null: it wasn't there. */
+  old: string | null
+  /** null: it went away. */
+  new: string | null
+  /** The read that found it. */
+  at: string
+  /** The read before: it changed between the two. */
+  since: string | null
+  /** The job it was found after, if one job. */
+  jid: string | null
+  /** Who ran it, or them: set without `jid` for several jobs by one person. */
+  user: string | null
+}
+
+export type InventoryEntry = {
+  name: string
+  value: string
+  /** First read with this value. */
+  since: string
+}
+
+export type InventorySource = {
+  source: string
+  kind: InventoryKind
+  /** Last good answer: the entries are as of this. */
+  read_at: string | null
+  first_read_at: string | null
+  /** Last answer, good or failed. */
+  answered_at: string | null
+  /** The last answer's error, if it failed. */
+  error: string | null
+  /** The last good answer was cut short, so some entries may be missing. */
+  truncated: boolean
+  /** By name. */
+  entries: InventoryEntry[]
+}
+
+/** Packages, then each configured check. */
+export type MinionInventory = { sources: InventorySource[] }
+
+export type AskResult = {
+  /** The minions asked, or with `queued`, queued for brine to read over the next minute. */
+  asked: string[]
+  /** The whole fleet was queued. False when nobody was asked, and for one minion (asked straight away). */
+  queued: boolean
+  /** Source -> why it couldn't be asked. */
+  failed: Record<string, string>
+  /** Why nobody was asked: "presence is stale", "rover-03 isn't online". */
+  reason: string | null
 }
 
 export type Nodegroups = {
