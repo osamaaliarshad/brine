@@ -397,6 +397,22 @@ async def test_the_return_says_what_moved(ingest: Ingest) -> None:
     assert not late  # older than the last good read: nothing moves
 
 
+async def test_cut_short_or_whole_again_says_what_moved(ingest: Ingest) -> None:
+    # Same entries, but cut short: the source drops out of comparisons and the fleet's "not
+    # installed" becomes "?", so both are redone. Whole again brings it back.
+    await ingest.inventory_read("a", "rover", {"x": "1"}, at=T0, jid=None)
+    cut = await ingest.inventory_read(
+        "a", "rover", {"x": "1"}, at=T0 + HOUR, jid=None, truncated=True
+    )
+    assert cut.fleet and cut.inventory == {"a"}
+    still = await ingest.inventory_read(
+        "a", "rover", {"x": "1"}, at=T0 + 2 * HOUR, jid=None, truncated=True
+    )
+    assert not still.fleet and not still.inventory
+    whole = await ingest.inventory_read("a", "rover", {"x": "1"}, at=T0 + 3 * HOUR, jid=None)
+    assert whole.fleet and whole.inventory == {"a"}
+
+
 async def test_a_truncated_answer_removes_nothing(ingest: Ingest, sessions: Sessions) -> None:
     await ingest.inventory_read("a", "packages", {"bash": "5.2", "agent": "2.3.0"}, at=T0, jid=None)
     # Cut short: what's missing may only have been cut off, so it isn't gone.

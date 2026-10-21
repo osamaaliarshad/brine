@@ -474,13 +474,16 @@ class Ingest:
                 )
             if brines_answer:
                 self._settle(read)
+            was_truncated = bool(read.truncated)
             read.read_at, read.truncated = at, truncated
             read.first_read_at = read.first_read_at or at
             # A failure newer than this answer (it came in first) stays the last answer.
             if read.answered_at is None or at >= read.answered_at:
                 read.answered_at, read.error = at, None
-        # A first read moves the fleet view even when empty: "not read" becomes "nothing".
-        recorded = first or bool(moved)
+        # A first read moves the fleet view even when empty: "not read" becomes "nothing". So
+        # does a read cut short after a whole one, or whole again: what it doesn't list turns
+        # unknown (or missing), and the source leaves (or rejoins) comparisons.
+        recorded = first or bool(moved) or truncated != was_truncated
         return Changes(fleet=recorded, minions={mid}, inventory={mid} if recorded else set())
 
     async def inventory_failed(
