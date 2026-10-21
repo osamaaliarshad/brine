@@ -273,8 +273,8 @@ class Ingest:
     # * Several jobs before brine's answer credit none of them: `after_jid` is None,
     #   `after_user` the person if it was the same one each time, `after_at` the latest job.
     # * An orchestration's steps run as "salt"; `job_owner` later gives a step's credit, made or
-    #   waiting, to the person who ran it. After several steps there's no one job to find it
-    #   by, so it stays "salt's".
+    #   waiting, to the person who ran it, and a step reported after that takes the person from
+    #   its job. After several steps there's no one job to find it by, so it stays "salt's".
     # * Jobs brine imports from the master's job cache (after a reconnect) want no read: the
     #   next refresh, or the read when a minion comes back, finds their changes, uncredited.
     # * Late answers (no newer than the last good read, or for a failure the last answer)
@@ -369,6 +369,11 @@ class Ingest:
         """A person's job that may change software finished on `mid` at `at`: read each source
         again shortly, and credit what that read finds to the job."""
         async with self._lock, self._sessions() as s, s.begin():
+            if user == "salt":
+                # An orchestration step reported after job_owner gave its job to the person.
+                owner = await s.scalar(select(Job.user).where(Job.jid == jid))
+                if owner not in (None, "salt"):
+                    user = owner
             for read in await s.scalars(select(InventoryRead).filter_by(minion_id=mid)):
                 answered_since = read.answered_at is not None and read.answered_at > at
                 if answered_since or read.after_jid == jid:

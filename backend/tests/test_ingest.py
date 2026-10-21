@@ -765,6 +765,24 @@ async def test_an_orchestrations_steps_credit_the_person_who_ran_it(
     assert (await read_row(sessions, "c")).after_user == "salt"
 
 
+async def test_a_step_reported_after_job_owner_credits_the_person(
+    ingest: Ingest, sessions: Sessions
+) -> None:
+    job_at = T0 + HOUR
+    for mid in ("a", "b", "c"):
+        await ingest.inventory_read(mid, "packages", {"agent": "2.3.0"}, at=T0, jid=None)
+    # S1 is already the person's when its return comes; S2 is still salt's; S3 isn't recorded.
+    for jid in ("S1", "S2"):
+        await ingest.job_new(jid=jid, kind="local", fun="state.sls", at=job_at, user="salt")
+    await ingest.job_owner(["S1"], "alice@example.com")
+    for mid, jid in (("a", "S1"), ("b", "S2"), ("c", "S3")):
+        await ingest.inventory_job_done(mid, jid=jid, user="salt", at=job_at)
+    read = await read_row(sessions, "a")
+    assert (read.after_jid, read.after_user) == ("S1", "alice@example.com")
+    assert (await read_row(sessions, "b")).after_user == "salt"
+    assert (await read_row(sessions, "c")).after_user == "salt"
+
+
 async def test_two_jobs_before_the_read_credit_neither(ingest: Ingest, sessions: Sessions) -> None:
     job_at = T0 + HOUR
     for mid, second_user in (("a", "alice"), ("b", "bob")):

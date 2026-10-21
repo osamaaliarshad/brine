@@ -444,6 +444,12 @@ async def test_a_package_list_salt_says_failed_is_a_failed_read(
         T0 + 10 * SECOND,
     )
     assert await inventory_of(sessions) == {("packages", "bash", "5.2")}
+    # Without a retcode, the message doesn't make one up.
+    latest = "2026-10-20T12:00:15.000000"
+    event = job_ret("106", "pkg.list_pkgs", {"bash": "5.4"}, success=False, _stamp=latest)
+    del event.data["retcode"]
+    await collector.handle(event)
+    assert (await read_of(sessions)).error == "Salt said the call failed"
 
 
 async def test_a_package_list_without_fun_args_is_still_an_answer(

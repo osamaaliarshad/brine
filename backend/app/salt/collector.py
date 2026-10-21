@@ -430,7 +430,10 @@ class Collector:
         # "unexpected answer"), but one that reads well may still be partial: a command inside
         # it failed, say.
         if d.get("success") is False and not error:
-            error = f"Salt said the call failed (retcode {d.get('retcode')})"
+            retcode = d.get("retcode")
+            error = "Salt said the call failed"
+            if retcode is not None:
+                error += f" (retcode {retcode})"
         if error:
             return await self.ingest.inventory_failed(mid, source, error, at=at, jid=jid)
         return await self.ingest.inventory_read(
