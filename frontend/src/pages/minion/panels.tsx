@@ -154,8 +154,10 @@ function timeline(grains: GrainsChange[], changes: InventoryChange[]): { entries
     const key = `${c.at} ${c.source}`
     reads.set(key, [...(reads.get(key) ?? []), c])
   }
-  for (const group of reads.values())
+  for (const group of reads.values()) {
+    group.sort((a, b) => a.name.localeCompare(b.name))
     entries.push({ kind: 'read', at: group[0]!.at, source: group[0]!.source, changes: group })
+  }
   // Each list stops at its limit; past the end of either, the other would go on alone, as if
   // nothing else changed. So the timeline stops there.
   const ends = [grainsFull ? null : grains.at(-1)?.collected_at, changesFull ? null : changes.at(-1)?.at]

@@ -441,6 +441,40 @@ export type InventorySource = {
 /** Packages, then each configured check. */
 export type MinionInventory = { sources: InventorySource[] }
 
+export type ComparedMinion = {
+  minion_id: string
+  /** It and the reference both have a whole read of at least one source (else the counts are 0). */
+  read: boolean
+  /** The same name, another value. */
+  different: number
+  /** The reference has it, this minion doesn't ("missing"). */
+  only_reference: number
+  /** This minion has it, the reference doesn't ("extra"). */
+  only_minion: number
+}
+
+/** How every other accepted minion differs from the reference, by ID. */
+export type FleetComparison = { reference: string; minions: ComparedMinion[] }
+
+export type InventoryDifference = {
+  source: string
+  /** "" for a check's single value. */
+  name: string
+  /** null: the reference doesn't have it. */
+  reference: string | null
+  /** null: the minion doesn't have it. */
+  minion: string | null
+}
+
+export type MinionComparison = {
+  reference: string
+  minion: string
+  /** Both have a whole read of these: packages, then each check. */
+  sources_compared: string[]
+  /** By source (as above), then name. */
+  differences: InventoryDifference[]
+}
+
 export type AskResult = {
   /** The minions asked, or with `queued`, queued for brine's sweep to read. */
   asked: string[]

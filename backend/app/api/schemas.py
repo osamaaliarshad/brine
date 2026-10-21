@@ -263,6 +263,35 @@ class MinionInventory(BaseModel):
     sources: list[InventorySource]  # packages, then each configured check
 
 
+class ComparedMinion(BaseModel):
+    minion_id: str
+    # It and the reference both have a whole read (good, not cut short) of at least one
+    # source; the counts are over those sources. False: nothing to compare yet, counts 0.
+    read: bool
+    different: int  # the same name, another value
+    only_reference: int  # the reference has it, this minion doesn't ("missing")
+    only_minion: int  # this minion has it, the reference doesn't ("extra")
+
+
+class FleetComparison(BaseModel):
+    reference: str
+    minions: list[ComparedMinion]  # every other accepted minion, by ID
+
+
+class InventoryDifference(BaseModel):
+    source: str
+    name: str  # "" for a check's single value
+    reference: str | None  # None: the reference doesn't have it
+    minion: str | None  # None: the minion doesn't have it
+
+
+class MinionComparison(BaseModel):
+    reference: str
+    minion: str
+    sources_compared: list[str]  # both have a whole read of these: packages, then each check
+    differences: list[InventoryDifference]  # by source (as above), then name
+
+
 class AskRequest(BaseModel):
     minion: str | None = None  # None: every online minion
 

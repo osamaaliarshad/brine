@@ -2,9 +2,9 @@ import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { GRAINS_HISTORY_LIMIT, MINION_CHANGES_LIMIT } from '@/api/queries'
-import type { InventoryChange, InventorySource, MinionDetail, MinionInventory } from '@/api/types'
+import type { InventoryChange, InventorySource, MinionComparison, MinionDetail, MinionInventory } from '@/api/types'
 import { FakeEventSource } from '@/test/setup'
-import { ago, minion, mockApi, NOW, renderApp, systemStatus } from '@/test/render'
+import { ago, fleet, minion, mockApi, NOW, renderApp, systemStatus } from '@/test/render'
 
 const DETAIL: MinionDetail = {
   ...minion('rover-01', { ip: '10.0.0.11' }),
@@ -75,6 +75,16 @@ const INVENTORY: MinionInventory = {
 const day = (iso: string) => new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 
 const region = (name: string) => screen.getByRole('region', { name })
+
+/** The Packages tab with a fleet to compare with. */
+function renderWith(extra: Record<string, unknown>, path = '/minions/rover-01?tab=packages') {
+  const fetchMock = api({
+    '/api/minions/rover-01/inventory': INVENTORY,
+    '/api/fleet': fleet(['dock-01', 'rover-01', 'rover-02', 'rover-03'].map((id) => minion(id))),
+    ...extra,
+  })
+  return { fetchMock, ...renderApp(path) }
+}
 
 describe('MinionPage', () => {
   beforeEach(() => {
@@ -204,6 +214,102 @@ describe('MinionPage', () => {
     expect(await screen.findByRole('status')).toHaveTextContent('Already reading; try again in a few seconds.')
     await user.click(read)
     expect(await screen.findByRole('status')).toHaveTextContent("Not asked: rover-01 isn't online.")
+  })
+
+  it('compares with another minion, picked or from the link', async () => {
+    const user = userEvent.setup()
+    const comparison = (minion: string, patch: Partial<MinionComparison> = {}): MinionComparison => ({
+      reference: 'rover-01',
+      minion,
+      sources_compared: ['packages', 'rover-cli'],
+      differences: [],
+      ...patch,
+    })
+    const { router } = renderWith(
+      {
+        '/api/inventory/compare/rover-03': comparison('rover-03', {
+          differences: [
+            { source: 'packages', name: 'rover-agent', reference: '2.4.1', minion: '2.3.0' },
+            { source: 'packages', name: 'vim', reference: null, minion: '9.0' },
+            { source: 'rover-cli', name: '', reference: 'rover-cli 1.2.0', minion: '' },
+          ],
+        }),
+        '/api/inventory/compare/dock-01': comparison('dock-01'),
+      },
+      '/minions/rover-01?tab=packages&compare=rover-03',
+    )
+    const table = await screen.findByRole('table', { name: 'Where rover-01 and rover-03 differ' })
+    expect(within(table).getAllByRole('columnheader').map((h) => h.textContent)).toEqual([
+      'Package or check',
+      'rover-01',
+      'rover-03',
+    ])
+    expect(within(table).getAllByRole('row').slice(1).map((r) => r.textContent)).toEqual([
+      'rover-agentpackage2.4.12.3.0',
+      'vimpackage—9.0',
+      'rover-clicheckrover-cli 1.2.0(empty)',
+    ])
+    expect(within(table).getByRole('link', { name: 'vim' })).toHaveAttribute('href', '/?tab=grains&grain=%40packages%3Avim')
+    expect(screen.getByText('3 differences')).toBeInTheDocument()
+    // Sources only one of them has read in full aren't compared, and it says which.
+    expect(screen.getByText(/Not compared: the containers, ports and gpu checks/)).toBeInTheDocument()
+    const pick = screen.getByRole('combobox', { name: 'Compare with' })
+    expect(pick).toHaveValue('rover-03')
+    expect(within(pick).getAllByRole('option').map((o) => o.textContent)).toEqual([
+      'Compare with…',
+      'dock-01',
+      'rover-02',
+      'rover-03',
+    ])
+
+    await user.click(screen.getByRole('button', { name: 'Stop comparing' }))
+    expect(screen.queryByRole('table', { name: /differ/ })).toBeNull()
+    expect(Object.fromEntries(new URLSearchParams(router.state.location.search))).toEqual({ tab: 'packages' })
+
+    await user.selectOptions(pick, 'dock-01')
+    expect(Object.fromEntries(new URLSearchParams(router.state.location.search))).toEqual({
+      tab: 'packages',
+      compare: 'dock-01',
+    })
+    expect(await screen.findByText('Same packages and checks.')).toBeInTheDocument()
+  })
+
+  it('shows how the fleet differs from this minion, most different first', async () => {
+    const user = userEvent.setup()
+    const fetchMock = renderWith({
+      '/api/inventory/compare': (url: URL) => ({
+        reference: url.searchParams.get('reference'),
+        minions: [
+          { minion_id: 'dock-01', read: true, different: 0, only_reference: 1, only_minion: 0 },
+          { minion_id: 'rover-02', read: true, different: 0, only_reference: 0, only_minion: 0 },
+          { minion_id: 'rover-03', read: true, different: 3, only_reference: 1, only_minion: 2 },
+          { minion_id: 'rover-05', read: false, different: 0, only_reference: 0, only_minion: 0 },
+        ],
+      }),
+      '/api/inventory/compare/rover-03': {
+        reference: 'rover-01',
+        minion: 'rover-03',
+        sources_compared: ['packages'],
+        differences: [{ source: 'packages', name: 'vim', reference: null, minion: '9.0' }],
+      },
+    }).fetchMock
+    const open = await screen.findByRole('button', { name: 'How the fleet differs from rover-01' })
+    expect(fetchMock.mock.calls.some(([u]) => String(u).includes('/api/inventory/compare'))).toBe(false)
+
+    await user.click(open)
+    expect(open).toHaveAttribute('aria-expanded', 'true')
+    const list = await screen.findByRole('list', { name: 'How the fleet differs from rover-01' })
+    expect(within(list).getAllByRole('listitem').map((r) => r.textContent)).toEqual([
+      'rover-033 different · 1 missing · 2 extraCompare',
+      'dock-011 missingCompare',
+      'rover-02Same as rover-01Compare',
+      'rover-05Not read yet',
+    ])
+    expect(screen.getByText("Missing: rover-01 has it, they don't. Extra: they have it, rover-01 doesn't.")).toBeInTheDocument()
+
+    await user.click(within(list).getByRole('link', { name: 'Compare with rover-03' }))
+    expect(await screen.findByRole('table', { name: 'Where rover-01 and rover-03 differ' })).toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: 'Compare with' })).toHaveValue('rover-03')
   })
 
   it('shows grains, package and check changes in one history, newest first', async () => {

@@ -5,17 +5,18 @@ import { useMinionInventory } from '@/api/queries'
 import type { InventoryEntry, InventorySource, MinionDetail } from '@/api/types'
 import { Badge } from '@/components/ui'
 import { cn } from '@/lib/cn'
-import { keyOf } from '@/lib/inventoryKey'
+import { explorerPath, keyOf } from '@/lib/inventoryKey'
 import { formatAbsolute, formatDay, formatRelative } from '@/lib/time'
 import { useMediaQuery } from '@/lib/useMediaQuery'
 import { useReadNow } from '@/lib/useReadNow'
 import { ReadNowBar } from '@/pages/fleet/ReadNowBar'
+import { Compare } from '@/pages/minion/Compare'
 
 const NOTE = 'px-4 pb-4 text-sm text-muted sm:px-6'
 
 /** The explorer on this package or check entry: who else has it, and which version. */
 function explorerLink(source: string, name: string): string {
-  return `/?${new URLSearchParams({ tab: 'grains', grain: keyOf({ source, name }) })}`
+  return explorerPath(keyOf({ source, name }))
 }
 
 function sinceText(entry: InventoryEntry, s: InventorySource, now: number) {
@@ -182,6 +183,7 @@ export function PackagesPanel({ minion, now }: { minion: MinionDetail; now: numb
 
   return (
     <div>
+      {minion.key_state === 'accepted' && <Compare minionId={minion.id} sources={sources} />}
       <ReadNowBar
         read={read}
         minion={minion.id}

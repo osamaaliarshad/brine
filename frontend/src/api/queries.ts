@@ -11,6 +11,7 @@ import type {
   CommandResult,
   CommandTemplate,
   Fleet,
+  FleetComparison,
   FleetLiveView,
   GrainDistribution,
   GrainKey,
@@ -27,6 +28,7 @@ import type {
   KeyActionResult,
   LiveKind,
   LiveView,
+  MinionComparison,
   MinionDetail,
   MinionInventory,
   Nodegroups,
@@ -308,6 +310,27 @@ export function useMinionInventory(id: string, enabled: boolean) {
     queryKey: [...queryKeys.minion(id), 'inventory'],
     queryFn: () => fetchJson<MinionInventory>(`/api/minions/${enc(id)}/inventory`),
     enabled,
+  })
+}
+
+/** How every other accepted minion's packages and checks differ from `reference`'s. */
+export function useFleetComparison(reference: string, enabled: boolean) {
+  return useQuery({
+    queryKey: [...queryKeys.inventory, 'compare', reference],
+    queryFn: () => fetchJson<FleetComparison>(`/api/inventory/compare?${new URLSearchParams({ reference })}`),
+    enabled,
+  })
+}
+
+/** Where `minion`'s packages and checks differ from `reference`'s. */
+export function useComparison(reference: string, minion: string | null) {
+  return useQuery({
+    queryKey: [...queryKeys.inventory, 'compare', reference, minion],
+    queryFn: () =>
+      fetchJson<MinionComparison>(
+        `/api/inventory/compare/${enc(minion ?? '')}?${new URLSearchParams({ reference })}`,
+      ),
+    enabled: !!minion,
   })
 }
 

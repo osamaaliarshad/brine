@@ -48,6 +48,11 @@ export const NO_ANSWER_DETAIL = 'No answer yet, or the last answer was cut short
 /** The same for one minion, on its `?` cell. */
 export const NO_ANSWER_CELL = 'No answer from this minion yet, or its last answer was cut short'
 
+/** The explorer on a grain, package or check entry: which minions have which value. */
+export function explorerPath(key: string): string {
+  return `/?${new URLSearchParams({ tab: 'grains', grain: key })}`
+}
+
 /** A source in a sentence: "brine can't read packages", "… the containers check". */
 export function describeSource(source: string): string {
   return source === 'packages' ? 'packages' : `the ${source} check`

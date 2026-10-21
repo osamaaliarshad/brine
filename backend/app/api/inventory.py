@@ -11,8 +11,9 @@ from datetime import UTC, datetime
 from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Query
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import Select, and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app import inventory
 from app.api.deps import RuntimeDep, SessionDep
@@ -20,12 +21,16 @@ from app.api.errors import salt_http_error
 from app.api.schemas import (
     AskRequest,
     AskResult,
+    ComparedMinion,
+    FleetComparison,
     GrainValue,
     InventoryChangeView,
+    InventoryDifference,
     InventoryDistribution,
     InventoryEntry,
     InventoryKey,
     InventorySource,
+    MinionComparison,
     MinionInventory,
 )
 from app.config import Settings
@@ -269,6 +274,146 @@ async def minion_inventory(
             )
         )
     return MinionInventory(sources=found)
+
+
+async def _accepted(session: AsyncSession, minion_id: str) -> None:
+    """404 unless brine has the minion and its key is accepted."""
+    minion = await session.get(Minion, minion_id)
+    if minion is None or minion.key_state != "accepted":
+        raise HTTPException(404, f"no accepted minion {minion_id!r}")
+
+
+def _whole_reads(settings: Settings) -> Select[str, str]:
+    """`(minion_id, source)` of each good read not cut short, of a configured source. Only
+    these are compared: a source missing from one side, or cut short, would count as gone."""
+    return select(InventoryRead.minion_id, InventoryRead.source).where(
+        InventoryRead.source.in_(inventory.sources(settings)),
+        InventoryRead.read_at.is_not(None),
+        InventoryRead.truncated.is_(False),
+    )
+
+
+@router.get("/inventory/compare", response_model=FleetComparison)
+async def compare_fleet(
+    runtime: RuntimeDep,
+    session: SessionDep,
+    reference: str = Query(..., description="the minion every other one is compared with"),
+) -> FleetComparison:
+    """How each other accepted minion's packages and checks differ from `reference`'s, over the
+    sources both have read whole. Counted in the database: a fleet can be 500 minions with 1,500
+    packages each."""
+    await _accepted(session, reference)
+    ref_reads = _whole_reads(runtime.settings).where(InventoryRead.minion_id == reference)
+    whole = _whole_reads(runtime.settings).subquery()
+    shared = (
+        select(whole.c.minion_id, whole.c.source)
+        .join(Minion, Minion.id == whole.c.minion_id)
+        .where(
+            Minion.key_state == "accepted",
+            Minion.id != reference,
+            whole.c.source.in_(ref_reads.with_only_columns(InventoryRead.source)),
+        )
+        .subquery()
+    )
+    ref, theirs = aliased(InventoryItem), aliased(InventoryItem)
+    # Each of the reference's entries, looked up on the minion: there (with the same value or
+    # another), or missing. Both lookups go by the primary key.
+    from_reference = (
+        select(
+            shared.c.minion_id,
+            func.count(theirs.name),
+            func.sum(case((theirs.name.is_(None), 1), else_=0)),
+            func.sum(case((theirs.value != ref.value, 1), else_=0)),
+        )
+        .select_from(shared)
+        .join(ref, and_(ref.minion_id == reference, ref.source == shared.c.source))
+        .outerjoin(
+            theirs,
+            and_(
+                theirs.minion_id == shared.c.minion_id,
+                theirs.source == ref.source,
+                theirs.name == ref.name,
+            ),
+        )
+        .group_by(shared.c.minion_id)
+    )
+    # How many entries each minion has of each source both read: those the reference doesn't
+    # have are the rest. Counted per source by the primary key; joined to the entries instead,
+    # SQLite goes through the name index and sorts them all, several times slower.
+    entries = (
+        select(func.count())
+        .where(
+            InventoryItem.minion_id == shared.c.minion_id,
+            InventoryItem.source == shared.c.source,
+        )
+        .scalar_subquery()
+    )
+    total: dict[str, int] = {}
+    for mid, n in await session.execute(select(shared.c.minion_id, entries)):
+        total[mid] = total.get(mid, 0) + int(n)
+    counted = {
+        mid: (int(both), int(missing), int(different))
+        for mid, both, missing, different in await session.execute(from_reference)
+    }
+    others = await session.scalars(
+        select(Minion.id)
+        .where(Minion.key_state == "accepted", Minion.id != reference)
+        .order_by(Minion.id)
+    )
+    rows = []
+    for mid in others:
+        both, missing, different = counted.get(mid, (0, 0, 0))
+        rows.append(
+            ComparedMinion(
+                minion_id=mid,
+                read=mid in total,
+                different=different,
+                only_reference=missing,
+                only_minion=total.get(mid, 0) - both,
+            )
+        )
+    return FleetComparison(reference=reference, minions=rows)
+
+
+@router.get("/inventory/compare/{minion_id}", response_model=MinionComparison)
+async def compare_minion(
+    minion_id: str,
+    runtime: RuntimeDep,
+    session: SessionDep,
+    reference: str = Query(..., description="the minion to compare it with"),
+) -> MinionComparison:
+    """Every package or check entry where `minion_id` differs from `reference`, over the
+    sources both have read whole: a different value, or there on one side only."""
+    await _accepted(session, reference)
+    await _accepted(session, minion_id)
+    both = [reference, minion_id]
+    order = inventory.sources(runtime.settings)
+    whole = set(
+        await session.execute(
+            _whole_reads(runtime.settings).where(InventoryRead.minion_id.in_(both))
+        )
+    )
+    compared = [s for s in order if (reference, s) in whole and (minion_id, s) in whole]
+    items: dict[str, dict[tuple[str, str], str]] = {reference: {}, minion_id: {}}
+    for mid, source, name, value in await session.execute(
+        select(
+            InventoryItem.minion_id, InventoryItem.source, InventoryItem.name, InventoryItem.value
+        ).where(InventoryItem.minion_id.in_(both), InventoryItem.source.in_(compared))
+    ):
+        items[mid][(source, name)] = value
+    ours, theirs = items[reference], items[minion_id]
+    rank = {source: i for i, source in enumerate(order)}
+    entries = sorted(ours.keys() | theirs.keys(), key=lambda e: (rank[e[0]], e[1]))
+    return MinionComparison(
+        reference=reference,
+        minion=minion_id,
+        sources_compared=compared,
+        differences=[
+            InventoryDifference(source=entry[0], name=entry[1], reference=a, minion=b)
+            for entry in entries
+            if (a := ours.get(entry)) != (b := theirs.get(entry))
+        ],
+    )
 
 
 @router.post("/inventory/ask", response_model=AskResult)

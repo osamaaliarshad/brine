@@ -1123,3 +1123,133 @@ def test_ask_now_when_presence_is_stale_or_nobody_is_online(admin: tuple[Api, Fa
     nobody = ask(api).json()
     assert (nobody["queued"], nobody["reason"]) == (False, "no minions are online")
     assert salt.calls == []
+
+
+# --- comparing with a reference minion ---------------------------------------------------------
+
+
+def compared(api: Api, reference: str) -> dict[str, tuple[bool, int, int, int]]:
+    """Each minion's (read, different, only_reference, only_minion) against `reference`."""
+    body = api.get("/api/inventory/compare", reference=reference)
+    assert body["reference"] == reference
+    return {
+        r["minion_id"]: (r["read"], r["different"], r["only_reference"], r["only_minion"])
+        for r in body["minions"]
+    }
+
+
+def differences(api: Api, minion: str, reference: str) -> Any:
+    return api.get(f"/api/inventory/compare/{minion}", reference=reference)
+
+
+def seed_golden(api: Api, at: datetime) -> None:
+    """rover-01 is the one to compare with: rover-02 is the same, rover-03 has an older agent
+    and vim besides, and dock-01 has no agent."""
+    read(api, "rover-01", {"agent": "2.4.1", "bash": "5.2"}, at)
+    read(api, "rover-02", {"agent": "2.4.1", "bash": "5.2"}, at)
+    read(api, "rover-03", {"agent": "2.3.0", "bash": "5.2", "vim": "9"}, at)
+    read(api, "dock-01", {"bash": "5.2"}, at)
+
+
+def test_the_fleet_against_a_reference(admin: tuple[Api, FakeSalt]) -> None:
+    api, _ = admin
+    now = datetime.now(UTC)
+    seed_golden(api, now)
+    read(api, "rover-04", {"agent": "1.0"}, now)  # pending: not listed
+    # Every other accepted minion, by ID: not the reference itself.
+    assert compared(api, "rover-01") == {
+        "dock-01": (True, 0, 1, 0),
+        "rover-02": (True, 0, 0, 0),
+        "rover-03": (True, 1, 0, 1),
+    }
+    # The other way round, missing and extra swap.
+    assert compared(api, "rover-03")["dock-01"] == (True, 0, 2, 0)
+    assert compared(api, "dock-01")["rover-03"] == (True, 0, 0, 2)
+
+
+def test_one_minion_against_a_reference(admin: tuple[Api, FakeSalt]) -> None:
+    api, _ = admin
+    seed_golden(api, datetime.now(UTC))
+    pair = differences(api, "rover-03", "rover-01")
+    assert (pair["reference"], pair["minion"], pair["sources_compared"]) == (
+        "rover-01",
+        "rover-03",
+        ["packages"],
+    )
+    assert pair["differences"] == [
+        {"source": "packages", "name": "agent", "reference": "2.4.1", "minion": "2.3.0"},
+        {"source": "packages", "name": "vim", "reference": None, "minion": "9"},
+    ]
+    assert differences(api, "dock-01", "rover-01")["differences"] == [
+        {"source": "packages", "name": "agent", "reference": "2.4.1", "minion": None}
+    ]
+    assert differences(api, "rover-02", "rover-01")["differences"] == []
+
+
+def test_only_sources_both_have_read_whole_are_compared(
+    with_checks: tuple[Api, FakeSalt],
+) -> None:
+    api, _ = with_checks
+    now = datetime.now(UTC)
+    read(api, "rover-01", {"bash": "5.2"}, now)
+    read(api, "rover-01", {"": "rover-cli 1.2.0"}, now, source="rover-cli")
+    read(api, "rover-01", {"web": "web:1.4"}, now, source="containers")
+    read(api, "rover-01", {"x": "1"}, now, source="old-check")  # no longer configured
+    # rover-02: another bash and rover-cli; its containers answer was cut short.
+    read(api, "rover-02", {"bash": "5.3"}, now)
+    read(api, "rover-02", {"": "rover-cli 1.1.0"}, now, source="rover-cli")
+    cut = {"db": "postgres:16"}
+    api.seed(
+        api.ingest.inventory_read, "rover-02", "containers", cut, at=now, jid=None, truncated=True
+    )
+    read(api, "rover-02", {"x": "2"}, now, source="old-check")
+    # dock-01: packages failed (never read), containers has one more.
+    api.seed(api.ingest.inventory_failed, "dock-01", "packages", "locked", at=now, jid=None)
+    read(api, "dock-01", {"web": "web:1.4", "db": "postgres:16"}, now, source="containers")
+    # rover-03: never read at all.
+    assert compared(api, "rover-01") == {
+        "dock-01": (True, 0, 0, 1),
+        "rover-02": (True, 2, 0, 0),
+        "rover-03": (False, 0, 0, 0),
+    }
+    pair = differences(api, "rover-02", "rover-01")
+    assert pair["sources_compared"] == ["packages", "rover-cli"]
+    # By source, packages first, then the checks in the config's order.
+    assert pair["differences"] == [
+        {"source": "packages", "name": "bash", "reference": "5.2", "minion": "5.3"},
+        {
+            "source": "rover-cli",
+            "name": "",
+            "reference": "rover-cli 1.2.0",
+            "minion": "rover-cli 1.1.0",
+        },
+    ]
+    assert differences(api, "rover-03", "rover-01") == {
+        "reference": "rover-01",
+        "minion": "rover-03",
+        "sources_compared": [],
+        "differences": [],
+    }
+    # The reference's own answer cut short leaves that source out for everyone.
+    later = now + MINUTE
+    api.seed(
+        api.ingest.inventory_read, "rover-01", "containers", {}, at=later, jid=None, truncated=True
+    )
+    assert compared(api, "rover-01")["dock-01"] == (False, 0, 0, 0)
+
+
+@pytest.mark.parametrize(
+    ("path", "reference"),
+    [
+        ("/api/inventory/compare", "ghost"),
+        ("/api/inventory/compare", "rover-04"),  # pending
+        ("/api/inventory/compare/rover-02", "ghost"),
+        ("/api/inventory/compare/ghost", "rover-01"),
+        ("/api/inventory/compare/rover-04", "rover-01"),
+    ],
+)
+def test_comparing_with_a_minion_brine_doesnt_have_is_404(
+    admin: tuple[Api, FakeSalt], path: str, reference: str
+) -> None:
+    api, _ = admin
+    assert api.client.get(path, params={"reference": reference}).status_code == 404
