@@ -107,6 +107,18 @@ class AuthSettings(BaseModel):
     role_patterns: RoleCounts
 
 
+class InventoryCheck(BaseModel):
+    name: str
+    command: str
+
+
+class InventorySettings(BaseModel):
+    refresh_hours: float
+    checks: list[InventoryCheck]  # in the config's order
+    acl: str  # the external_auth lines brine's Salt account needs (YAML)
+    refused: dict[str, str]  # source -> why salt-api refuses to ask for it (configured only)
+
+
 class SettingsView(BaseModel):
     """The running configuration, minus every secret."""
 
@@ -118,6 +130,7 @@ class SettingsView(BaseModel):
     retention: dict[str, int]  # days each kind of history is kept; 0 = forever
     database: DatabaseSettings
     auth: AuthSettings
+    inventory: InventorySettings
 
 
 class Issue(BaseModel):

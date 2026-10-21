@@ -12,8 +12,10 @@ from typing import Literal
 from fastapi import APIRouter
 from sqlalchemy import case, func, select
 
+from app import inventory
 from app.api.deps import RuntimeDep, SessionDep
 from app.api.fleet import grain_value, presence_blind, presence_info
+from app.api.inventory import refused_sources
 from app.api.jobs import latest_state_runs
 from app.api.schemas import Issue
 from app.models import Job, JobReturn, Minion
@@ -91,6 +93,17 @@ async def issues(runtime: RuntimeDep, session: SessionDep) -> list[Issue]:
                 f"The last presence check was over {stale_minutes} minutes ago, "
                 "so online/offline can't be trusted.",
                 since=presence.checked_at,
+            )
+        )
+    for source, why in (await refused_sources(session, runtime.settings)).items():
+        what = "packages" if source == inventory.PACKAGES else f"the {source} check"
+        found.append(
+            _issue(
+                f"inventory:{source}",
+                "warning",
+                f"brine can't read {what}",
+                f"{why}. Settings › Packages and checks has the lines "  # noqa: RUF001 (the UI's separator)
+                "to add to brine's Salt account.",
             )
         )
 

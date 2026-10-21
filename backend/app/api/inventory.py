@@ -12,6 +12,7 @@ from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import and_, func, or_, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import inventory
 from app.api.deps import RuntimeDep, SessionDep
@@ -27,6 +28,7 @@ from app.api.schemas import (
     InventorySource,
     MinionInventory,
 )
+from app.config import Settings
 from app.inventory_sweep import Throttled, ask_now
 from app.models import InventoryChange, InventoryItem, InventoryRead, Minion, SystemState
 from app.runtime import Runtime
@@ -71,6 +73,15 @@ def _split(key: str, runtime: Runtime) -> tuple[str, str]:
     if parsed is None:
         raise HTTPException(422, f"{key!r} isn't a package or a configured check")
     return parsed
+
+
+async def refused_sources(session: AsyncSession, settings: Settings) -> dict[str, str]:
+    """Why salt-api refuses to ask for each source it does, packages then each check. Only
+    configured sources: a check removed from the config is never asked again, so its last
+    refusal is never cleared."""
+    row = await session.get(SystemState, inventory.REFUSED_STATE)
+    why = (row.value or {}) if row is not None else {}
+    return {source: why[source] for source in inventory.sources(settings) if source in why}
 
 
 def _has(column: Any, needle: str) -> Any:
@@ -172,7 +183,7 @@ async def inventory_values(
     newest_first = sorted(
         groups.items(), key=lambda g: (version_key(g[0], package=package), g[0]), reverse=True
     )
-    refused = await session.get(SystemState, inventory.REFUSED_STATE)
+    refused = await refused_sources(session, runtime.settings)
     return InventoryDistribution(
         key=inventory.key_of(source, name),
         source=source,
@@ -184,7 +195,7 @@ async def inventory_values(
         unknown=unknown,
         oldest_read_at=min(times, default=None),
         newest_read_at=max(times, default=None),
-        refused=(refused.value or {}).get(source) if refused is not None else None,
+        refused=refused.get(source),
     )
 
 

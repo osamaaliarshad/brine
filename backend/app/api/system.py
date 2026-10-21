@@ -7,12 +7,16 @@ from collections.abc import AsyncIterator
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
+from app import inventory
 from app.api.deps import RuntimeDep, SessionDep
 from app.api.fleet import configured_columns, presence_info
+from app.api.inventory import refused_sources
 from app.api.schemas import (
     AuthSettings,
     DatabaseSettings,
     FleetSettings,
+    InventoryCheck,
+    InventorySettings,
     PresenceSettings,
     RoleCounts,
     SaltApiSettings,
@@ -69,7 +73,7 @@ async def stream(request: Request, runtime: RuntimeDep) -> StreamingResponse:
 
 
 @router.get("/settings", response_model=SettingsView)
-async def settings_view(request: Request, runtime: RuntimeDep) -> SettingsView:
+async def settings_view(request: Request, runtime: RuntimeDep, session: SessionDep) -> SettingsView:
     s = runtime.settings
     db_url = async_url(s.database)
     return SettingsView(
@@ -112,5 +116,14 @@ async def settings_view(request: Request, runtime: RuntimeDep) -> SettingsView:
                 operator=len(s.roles.operator),
                 admin=len(s.roles.admin),
             ),
+        ),
+        inventory=InventorySettings(
+            refresh_hours=s.inventory.refresh_hours,
+            checks=[
+                InventoryCheck(name=name, command=command)
+                for name, command in s.inventory.checks.items()
+            ],
+            acl=inventory.acl_lines(s),
+            refused=await refused_sources(session, s),
         ),
     )

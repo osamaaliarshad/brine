@@ -992,6 +992,54 @@ def test_default_columns_can_be_packages(tmp_path: Path) -> None:
         assert asked == [{"grain": "@packages:bash", "label": "Shell"}]
 
 
+def test_settings_show_the_checks_and_the_acl(with_checks: tuple[Api, FakeSalt]) -> None:
+    api, _ = with_checks
+    api.seed(api.ingest.set_state_entry, inv.REFUSED_STATE, "containers", "not allowed")
+    # A check since removed from the config: its last refusal is never cleared, nor shown.
+    api.seed(api.ingest.set_state_entry, inv.REFUSED_STATE, "old-check", "not allowed")
+    shown = api.get("/api/settings")["inventory"]
+    assert shown["refresh_hours"] == 6
+    assert shown["checks"] == [
+        {"name": "rover-cli", "command": ROVER_CLI},
+        {"name": "containers", "command": CONTAINERS},
+    ]
+    assert shown["acl"] == inv.acl_lines(runtime(api).settings)
+    assert "pkg.list_pkgs" in shown["acl"] and shown["acl"].count("cmd.run_all") == 2
+    assert shown["refused"] == {"containers": "not allowed"}
+
+
+def test_settings_without_checks(admin: tuple[Api, FakeSalt]) -> None:
+    api, _ = admin
+    assert api.get("/api/settings")["inventory"] == {
+        "refresh_hours": 6,
+        "checks": [],
+        "acl": "- '*':\n  - pkg.list_pkgs\n",
+        "refused": {},
+    }
+
+
+def test_a_refused_source_is_an_issue(with_checks: tuple[Api, FakeSalt]) -> None:
+    api, salt = with_checks
+    salt.forbidden |= {"pkg.list_pkgs", "cmd.run_all"}
+    sweep(api, datetime.now(UTC))
+    api.seed(api.ingest.set_state_entry, inv.REFUSED_STATE, "old-check", "not allowed")
+    found = {i["key"]: i for i in api.get("/api/issues") if i["key"].startswith("inventory:")}
+    # Not the check since removed from the config.
+    assert sorted(found) == ["inventory:containers", "inventory:packages", "inventory:rover-cli"]
+    packages = found["inventory:packages"]
+    assert (packages["severity"], packages["title"]) == ("warning", "brine can't read packages")
+    assert packages["detail"] == (
+        "brine's Salt account isn't allowed to run pkg.list_pkgs. "
+        "Settings › Packages and checks has the lines to add to brine's Salt account."  # noqa: RUF001
+    )
+    assert found["inventory:rover-cli"]["title"] == "brine can't read the rover-cli check"
+    assert "allowed to run cmd.run_all" in found["inventory:rover-cli"]["detail"]
+    # Once asking works again, the issue goes.
+    salt.forbidden.clear()
+    sweep(api, datetime.now(UTC) + inv.ANSWER_WAIT)
+    assert not [i for i in api.get("/api/issues") if i["key"] == "inventory:packages"]
+
+
 def ask(api: Api, **body: Any) -> Any:
     return api.client.post("/api/inventory/ask", json=body, headers=CSRF)
 
