@@ -271,8 +271,8 @@ class AskResult(BaseModel):
     # The online minions asked, or with `queued`, made due for the sweep to ask (BATCH at a
     # time, every few seconds). The answers arrive as they come.
     asked: list[str]
-    # The whole fleet was queued for the sweep. False when nobody was online, and for one
-    # minion: it's asked straight away.
+    # The whole fleet was queued for the sweep. False when nobody was asked (stale presence,
+    # nobody online), and for one minion: it's asked straight away.
     queued: bool
     failed: dict[str, str] = Field(default_factory=dict)  # source -> why it couldn't be asked
     reason: str | None = None  # why nobody was asked: "presence is stale", "... isn't online"

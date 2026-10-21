@@ -12,7 +12,6 @@ import yaml
 
 from app import inventory as inv
 from app import inventory_sweep as sweeper
-from app.api.inventory import version_key
 from app.config import Settings, parse_config
 from app.models import InventoryRead
 from app.salt.client import SaltApiUnavailable
@@ -228,6 +227,43 @@ def test_keys_round_trip(source: str, name: str, key: str) -> None:
 @pytest.mark.parametrize("key", ["app_version", "os:family", "@", ""])
 def test_grain_paths_are_not_inventory_keys(key: str) -> None:
     assert inv.parse_key(key) is None
+
+
+def test_inventory_keys_start_with_an_at_sign() -> None:
+    # Grain paths never do. "@" alone is a key too, but names nothing (parse_key gives None).
+    assert all(inv.is_key(k) for k in ("@packages:bash", "@rover-cli", "@"))
+    assert not any(inv.is_key(k) for k in ("app_version", "os:family", "a@b", ""))
+
+
+def test_versions_sort_like_package_managers() -> None:
+    key = partial(inv.version_key, package=True)
+    versions = ["2.10.0", "2.9.1", "10.0", "2.9", "2.9.1-1ubuntu1", "1:1.0-1"]
+    assert sorted(versions, key=key) == [
+        "2.9",
+        "2.9.1",
+        "2.9.1-1ubuntu1",
+        "2.10.0",
+        "10.0",
+        "1:1.0-1",
+    ]
+    assert key("1:1.0-1") > key("2.10-1")  # the epoch comes first
+    assert key("1.0~rc1-1") < key("1.0-1")  # ~ comes before anything,
+    assert key("1.0~rc1") < key("1.0")  # even the end
+    assert key("1.0~rc1") < key("1.0~rc2")
+    # A colon after something other than digits isn't an epoch.
+    assert key("ghcr.io/acme/web:1.4") < key("ghcr.io/acme/web:1.10")
+    # A digit to str.isdigit(), but not a number: text, and no crash.
+    assert sorted(["²", "2"], key=key) == ["2", "²"]
+
+
+def test_check_values_sort_in_natural_order() -> None:
+    # A check prints free text, such as a port mapping or a time: no epoch, and ~ is a
+    # character like any other.
+    key = partial(inv.version_key, package=False)
+    assert key("8080:80") < key("9000")
+    assert sorted(["10:30", "9:45", "10:05"], key=key) == ["9:45", "10:05", "10:30"]
+    assert key("1.0") < key("1.0~rc1") < key("1.0~rc2")
+    assert sorted(["²", "2"], key=key) == ["2", "²"]
 
 
 @pytest.mark.parametrize(
@@ -670,39 +706,12 @@ def when(text: str | None) -> datetime | None:
     return None if text is None else datetime.fromisoformat(text)
 
 
-def test_versions_sort_like_package_managers() -> None:
-    key = partial(version_key, package=True)
-    versions = ["2.10.0", "2.9.1", "10.0", "2.9", "2.9.1-1ubuntu1", "1:1.0-1"]
-    assert sorted(versions, key=key) == [
-        "2.9",
-        "2.9.1",
-        "2.9.1-1ubuntu1",
-        "2.10.0",
-        "10.0",
-        "1:1.0-1",
-    ]
-    assert key("1:1.0-1") > key("2.10-1")  # the epoch comes first
-    assert key("1.0~rc1-1") < key("1.0-1")  # ~ comes before anything,
-    assert key("1.0~rc1") < key("1.0")  # even the end
-    assert key("1.0~rc1") < key("1.0~rc2")
-    # A colon after something other than digits isn't an epoch.
-    assert key("ghcr.io/acme/web:1.4") < key("ghcr.io/acme/web:1.10")
-    # A digit to str.isdigit(), but not a number: text, and no crash.
-    assert sorted(["²", "2"], key=key) == ["2", "²"]
-
-
-def test_check_values_sort_in_natural_order(with_checks: tuple[Api, FakeSalt]) -> None:
-    # A check prints free text, such as a port mapping or a time: no epoch, and ~ is a
-    # character like any other.
-    key = partial(version_key, package=False)
-    assert key("8080:80") < key("9000")
-    assert sorted(["10:30", "9:45", "10:05"], key=key) == ["9:45", "10:05", "10:30"]
-    assert key("1.0") < key("1.0~rc1") < key("1.0~rc2")
-    assert sorted(["²", "2"], key=key) == ["2", "²"]
+def test_a_checks_values_are_listed_in_natural_order(with_checks: tuple[Api, FakeSalt]) -> None:
     api, _ = with_checks
     now = datetime.now(UTC)
     read(api, "rover-01", {"": "8080:80"}, now, source="rover-cli")
     read(api, "rover-02", {"": "9000"}, now, source="rover-cli")
+    # Not 8080:80 first, as a package version with epoch 8080 would be.
     assert [v["text"] for v in values(api, "@rover-cli")["values"]] == ["9000", "8080:80"]
 
 
@@ -930,14 +939,15 @@ def test_fleet_columns_show_values_missing_and_unknown(with_checks: tuple[Api, F
     read(api, "dock-01", {"db": "postgres:16"}, now, source="containers")
     read(api, "rover-01", {"": "rover-cli 1.2.0"}, now, source="rover-cli")
     read(api, "dock-01", {}, now, source="rover-cli")  # printed nothing: not there
-    columns, cells = fleet_with(
-        api, "app_version", "@packages:rover-agent", "@containers:web", "@rover-cli"
-    )
+    # Two keys for the same entry: brine writes the first, a person may type the second.
+    keys = ["@packages:rover-agent", "@containers:web", "@rover-cli", "@rover-cli:"]
+    columns, cells = fleet_with(api, "app_version", *keys)
     assert columns == [
         {"grain": "app_version", "label": "app_version"},
         {"grain": "@packages:rover-agent", "label": "rover-agent"},
         {"grain": "@containers:web", "label": "web"},
         {"grain": "@rover-cli", "label": "rover-cli"},  # a single value: the check's name
+        {"grain": "@rover-cli:", "label": "rover-cli"},
     ]
     # A value, None (answered without it), or no cell at all (unknown). Grain columns are
     # always there.
@@ -947,15 +957,24 @@ def test_fleet_columns_show_values_missing_and_unknown(with_checks: tuple[Api, F
             "@packages:rover-agent": None,
             "@containers:web": None,
             "@rover-cli": None,
+            "@rover-cli:": None,
         },
         "rover-01": {
             "app_version": None,
             "@packages:rover-agent": "2.4.1",
             "@rover-cli": "rover-cli 1.2.0",
+            "@rover-cli:": "rover-cli 1.2.0",
         },
         "rover-02": {"app_version": None, "@containers:web": "web:1.4"},
         "rover-03": {"app_version": None},
     }
+    # The explorer tells versions, missing and unknown apart the same way.
+    for key in keys:
+        d = values(api, key)
+        held = {mid: c[key] for mid, c in cells.items() if c.get(key) is not None}
+        assert {mid: v["value"] for v in d["values"] for mid in v["minions"]} == held, key
+        assert d["missing"] == [mid for mid, c in cells.items() if key in c and c[key] is None]
+        assert d["unknown"] == [mid for mid, c in cells.items() if key not in c], key
 
 
 def test_fleet_columns_that_arent_a_package_or_a_check_are_unknown(
@@ -987,6 +1006,9 @@ def test_default_columns_can_be_packages(tmp_path: Path) -> None:
         assert rover["columns"] == {"@packages:rover-agent": "2.4.1", "@packages:bash": None}
         assert api.get("/api/minions/rover-01")["columns"] == rover["columns"]
         assert api.get("/api/minions/rover-02")["columns"] == {}
+        # Only accepted minions' entries count: rover-04's key is pending.
+        read(api, "rover-04", {"rover-agent": "2.4.1"}, datetime.now(UTC))
+        assert api.get("/api/minions/rover-04")["columns"] == {}
         # A configured label wins when the column is asked for.
         asked, _ = fleet_with(api, "@packages:bash")
         assert asked == [{"grain": "@packages:bash", "label": "Shell"}]

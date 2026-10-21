@@ -7,11 +7,12 @@ from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Query
-from sqlalchemy import and_, or_, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import inventory
 from app.api.deps import RuntimeDep, SessionDep
+from app.api.inventory import inventory_cells
 from app.api.schemas import (
     CatchUpRun,
     Column,
@@ -27,12 +28,9 @@ from app.api.schemas import (
     PresenceInfo,
     PresencePoint,
 )
-from app.config import Settings
 from app.ingest import PRESENCE_BLIND_STATE
 from app.models import (
     GrainsSnapshot,
-    InventoryItem,
-    InventoryRead,
     Job,
     JobReturn,
     Minion,
@@ -136,50 +134,14 @@ def requested_columns(runtime: Runtime, grains: list[str] | None) -> list[Column
     return [Column(grain=g, label=labels.get(g) or column_label(g)) for g in picked]
 
 
-async def inventory_cells(
-    session: AsyncSession, settings: Settings, columns: list[Column], only: str | None = None
-) -> dict[str, dict[str, str | None]]:
-    """The `@` columns' cells, per minion (or just `only`): the value it has, or None when its
-    last good read of that source is whole and doesn't list it. An unknown cell is left out:
-    no good read, or one cut short that doesn't list it. A key that isn't a package or a
-    configured check is unknown everywhere (a browser may keep a removed check's column)."""
-    by_entry: dict[tuple[str, str], list[str]] = {}  # (source, name) -> its column keys
-    by_source: dict[str, list[str]] = {}
-    for c in columns:
-        if (parsed := inventory.configured_key(settings, c.grain)) is not None:
-            by_entry.setdefault(parsed, []).append(c.grain)
-            by_source.setdefault(parsed[0], []).append(c.grain)
-    if not by_entry:
-        return {}
-    whole = select(InventoryRead.minion_id, InventoryRead.source).where(
-        InventoryRead.source.in_(list(by_source)),
-        InventoryRead.read_at.is_not(None),
-        InventoryRead.truncated.is_(False),
-    )
-    held = select(
-        InventoryItem.minion_id, InventoryItem.source, InventoryItem.name, InventoryItem.value
-    ).where(or_(*(and_(InventoryItem.source == s, InventoryItem.name == n) for s, n in by_entry)))
-    if only is not None:
-        whole = whole.where(InventoryRead.minion_id == only)
-        held = held.where(InventoryItem.minion_id == only)
-    cells: dict[str, dict[str, str | None]] = {}
-    for mid, source in await session.execute(whole):
-        for key in by_source[source]:
-            cells.setdefault(mid, {})[key] = None
-    for mid, source, name, value in await session.execute(held):
-        for key in by_entry[(source, name)]:
-            cells.setdefault(mid, {})[key] = value
-    return cells
-
-
 def column_values(
     minion: Minion, columns: list[Column], cells: Mapping[str, str | None]
 ) -> dict[str, Any]:
     """Each column's value: a grain column always has one (None when it isn't reported), an
-    `@` column only when it's known (from `inventory_cells`)."""
+    `@` column only when it's known (`cells`, the minion's from `inventory_cells`)."""
     values: dict[str, Any] = {}
     for c in columns:
-        if not c.grain.startswith("@"):
+        if not inventory.is_key(c.grain):
             values[c.grain] = grain_value(minion.grains, c.grain)
         elif c.grain in cells:
             values[c.grain] = cells[c.grain]
@@ -191,9 +153,10 @@ def summarize(
     runtime: Runtime,
     presence: PresenceInfo,
     now: datetime,
-    columns: list[Column] | None = None,
+    *,
+    columns: list[Column],
+    cells: Mapping[str, Mapping[str, str | None]],
     blind: set[str] | frozenset[str] = frozenset(),
-    cells: Mapping[str, Mapping[str, str | None]] | None = None,
 ) -> MinionSummary:
     """`cells`: the `@` columns' cells per minion, from `inventory_cells`."""
     stale_after = timedelta(minutes=runtime.settings.fleet.stale_after_minutes)
@@ -215,11 +178,7 @@ def summarize(
         ip=primary_ip(minion.grains),
         grains_at=minion.grains_at,
         grains_source=minion.grains_source,
-        columns=column_values(
-            minion,
-            configured_columns(runtime) if columns is None else columns,
-            (cells or {}).get(minion.id, {}),
-        ),
+        columns=column_values(minion, columns, cells.get(minion.id, {})),
     )
 
 
@@ -241,10 +200,10 @@ async def fleet(
     presence = await presence_info(session)
     columns = requested_columns(runtime, column)
     blind = await presence_blind(session)
-    cells = await inventory_cells(session, runtime.settings, columns)
+    cells = await inventory_cells(session, runtime.settings, (c.grain for c in columns))
     rows = (await session.scalars(select(Minion).order_by(Minion.id))).all()
     accepted = [
-        summarize(m, runtime, presence, now, columns, blind, cells)
+        summarize(m, runtime, presence, now, columns=columns, cells=cells, blind=blind)
         for m in rows
         if m.key_state == "accepted"
     ]
@@ -331,14 +290,15 @@ async def minion_detail(
         raise HTTPException(404, f"no minion {minion_id!r}")
     presence = await presence_info(session)
     columns = configured_columns(runtime)
+    keys = (c.grain for c in columns)
     summary = summarize(
         minion,
         runtime,
         presence,
         datetime.now(UTC),
-        columns,
+        columns=columns,
+        cells=await inventory_cells(session, runtime.settings, keys, minion=minion_id),
         blind=await presence_blind(session),
-        cells=await inventory_cells(session, runtime.settings, columns, only=minion_id),
     )
 
     changes = await session.scalars(

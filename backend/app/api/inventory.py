@@ -6,7 +6,7 @@ Keys are `@packages:<name>` for a package, `@<check>:<name>` for a check's entry
 
 from __future__ import annotations
 
-import re
+from collections.abc import Iterable
 from datetime import UTC, datetime
 from typing import Any, Literal
 
@@ -36,31 +36,6 @@ from app.salt.client import SaltApiError
 
 router = APIRouter()
 
-_EPOCH = re.compile(r"([0-9]+):(.*)", re.DOTALL)
-_PACKAGE_PARTS = re.compile(r"[0-9]+|~|[^0-9~]+")
-_PARTS = re.compile(r"[0-9]+|[^0-9]+")
-# How each part ranks against another kind of part at the same place.
-_TILDE, _END, _NUMBER, _TEXT = -2, -1, 0, 1
-
-
-def version_key(text: str, *, package: bool) -> tuple[int, list[tuple[int, int | str]]]:
-    """Newer versions sort later: runs of digits as numbers (2.10 after 2.9), other text as it
-    is. A package's version is compared close to how dpkg and rpm do, but not a full copy: an
-    epoch (`1:`) first, and `~` before anything, even the end (1.0~rc1 before 1.0). A check's
-    value is free text (`8080:80`, a time), so it gets neither rule."""
-    epoch = 0
-    if package and (match := _EPOCH.fullmatch(text)):
-        epoch, text = int(match[1]), match[2]
-    parts: list[tuple[int, int | str]] = []
-    for part in (_PACKAGE_PARTS if package else _PARTS).findall(text):
-        if package and part == "~":
-            parts.append((_TILDE, ""))
-        elif part.isascii() and part.isdigit():
-            parts.append((_NUMBER, int(part)))
-        else:
-            parts.append((_TEXT, part))
-    return epoch, [*parts, (_END, "")]
-
 
 def _kind(source: str) -> Literal["package", "check"]:
     return "package" if source == inventory.PACKAGES else "check"
@@ -82,6 +57,53 @@ async def refused_sources(session: AsyncSession, settings: Settings) -> dict[str
     row = await session.get(SystemState, inventory.REFUSED_STATE)
     why = (row.value or {}) if row is not None else {}
     return {source: why[source] for source in inventory.sources(settings) if source in why}
+
+
+async def inventory_cells(
+    session: AsyncSession, settings: Settings, keys: Iterable[str], minion: str | None = None
+) -> dict[str, dict[str, str | None]]:
+    """What the accepted minions (or just `minion`) have for each key: the value, or None
+    (missing) when the minion's last good read of that source is whole and doesn't list it.
+    A key left out is unknown: no good read yet, or one cut short that doesn't list it. A key
+    that isn't a package or a configured check is unknown everywhere (a browser may keep a
+    removed check's column). The explorer and the fleet's columns both go by this."""
+    by_entry: dict[tuple[str, str], list[str]] = {}  # (source, name) -> its keys
+    by_source: dict[str, list[str]] = {}
+    for key in dict.fromkeys(keys):
+        if (parsed := inventory.configured_key(settings, key)) is not None:
+            by_entry.setdefault(parsed, []).append(key)
+            by_source.setdefault(parsed[0], []).append(key)
+    if not by_entry:
+        return {}
+    whose = [Minion.key_state == "accepted"]
+    if minion is not None:
+        whose.append(Minion.id == minion)
+    whole = (
+        select(InventoryRead.minion_id, InventoryRead.source)
+        .join(Minion, Minion.id == InventoryRead.minion_id)
+        .where(
+            *whose,
+            InventoryRead.source.in_(list(by_source)),
+            InventoryRead.read_at.is_not(None),
+            InventoryRead.truncated.is_(False),
+        )
+    )
+    entries = or_(*(and_(InventoryItem.source == s, InventoryItem.name == n) for s, n in by_entry))
+    held = (
+        select(
+            InventoryItem.minion_id, InventoryItem.source, InventoryItem.name, InventoryItem.value
+        )
+        .join(Minion, Minion.id == InventoryItem.minion_id)
+        .where(*whose, entries)
+    )
+    cells: dict[str, dict[str, str | None]] = {}
+    for mid, source in await session.execute(whole):
+        for key in by_source[source]:
+            cells.setdefault(mid, {})[key] = None
+    for mid, source, name, value in await session.execute(held):
+        for key in by_entry[(source, name)]:
+            cells.setdefault(mid, {})[key] = value
+    return cells
 
 
 def _has(column: Any, needle: str) -> Any:
@@ -147,41 +169,33 @@ async def inventory_values(
             select(Minion.id).where(Minion.key_state == "accepted").order_by(Minion.id)
         )
     ).all()
-    # Minions with a good read of the source (a failed answer only isn't one), and those whose
-    # last good read was cut short: an entry it doesn't list may be past the cut.
-    read_at: dict[str, datetime] = {}
-    truncated: set[str] = set()
-    for mid, at, cut in await session.execute(
-        select(InventoryRead.minion_id, InventoryRead.read_at, InventoryRead.truncated).where(
-            InventoryRead.source == source
-        )
-    ):
-        if at is not None:
-            read_at[mid] = at
-            if cut:
-                truncated.add(mid)
-    held: dict[str, str] = {
-        mid: value
-        for mid, value in await session.execute(
-            select(InventoryItem.minion_id, InventoryItem.value).where(
-                InventoryItem.source == source, InventoryItem.name == name
-            )
-        )
-    }
+    cells = await inventory_cells(session, runtime.settings, [key])
     groups: dict[str, list[str]] = {}
     missing: list[str] = []
     unknown: list[str] = []
     for mid in accepted:
-        if mid in held:
-            groups.setdefault(held[mid], []).append(mid)
-        elif mid in read_at and mid not in truncated:
+        cell = cells.get(mid, {})
+        if key not in cell:
+            unknown.append(mid)
+        elif (value := cell[key]) is None:
             missing.append(mid)
         else:
-            unknown.append(mid)
-    times = [read_at[mid] for mid in accepted if mid in read_at]
+            groups.setdefault(value, []).append(mid)
+    # How old the accepted minions' last good reads of the source are (cut short or not).
+    times = [
+        at
+        for at in await session.scalars(
+            select(InventoryRead.read_at)
+            .join(Minion, Minion.id == InventoryRead.minion_id)
+            .where(Minion.key_state == "accepted", InventoryRead.source == source)
+        )
+        if at is not None
+    ]
     package = source == inventory.PACKAGES
     newest_first = sorted(
-        groups.items(), key=lambda g: (version_key(g[0], package=package), g[0]), reverse=True
+        groups.items(),
+        key=lambda g: (inventory.version_key(g[0], package=package), g[0]),
+        reverse=True,
     )
     refused = await refused_sources(session, runtime.settings)
     return InventoryDistribution(

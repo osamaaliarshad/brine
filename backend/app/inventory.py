@@ -63,6 +63,13 @@ _SOFTWARE_PREFIXES = (
 # check's single value is its lines joined by them.
 _CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f]")
 
+# For version_key.
+_EPOCH = re.compile(r"([0-9]+):(.*)", re.DOTALL)
+_PACKAGE_PARTS = re.compile(r"[0-9]+|~|[^0-9~]+")
+_PARTS = re.compile(r"[0-9]+|[^0-9]+")
+# How each part ranks against another kind of part at the same place.
+_TILDE, _END, _NUMBER, _TEXT = -2, -1, 0, 1
+
 
 def sources(settings: Settings) -> list[str]:
     """Everything brine reads from each minion: the packages, then each check."""
@@ -74,13 +81,38 @@ def key_of(source: str, name: str) -> str:
     return f"@{source}:{name}" if name else f"@{source}"
 
 
+def is_key(key: str) -> bool:
+    """Whether a column (or anything that may be a grain path) is a package's or check's key.
+    Grain paths never start with ``@``. The key may still name nothing, such as ``@``."""
+    return key.startswith("@")
+
+
 def parse_key(key: str) -> tuple[str, str] | None:
     """``(source, name)`` from a key; None for anything else, such as a grain path."""
-    if not key.startswith("@"):
+    if not is_key(key):
         return None
     # Source names have no colon, so the first one ends it (package names may have more).
     source, _, name = key[1:].partition(":")
     return (source, name) if source else None
+
+
+def version_key(text: str, *, package: bool) -> tuple[int, list[tuple[int, int | str]]]:
+    """Newer versions sort later: runs of digits as numbers (2.10 after 2.9), other text as it
+    is. A package's version is compared close to how dpkg and rpm do, but not a full copy: an
+    epoch (``1:``) first, and ``~`` before anything, even the end (1.0~rc1 before 1.0). A
+    check's value is free text (``8080:80``, a time), so it gets neither rule."""
+    epoch = 0
+    if package and (match := _EPOCH.fullmatch(text)):
+        epoch, text = int(match[1]), match[2]
+    parts: list[tuple[int, int | str]] = []
+    for part in (_PACKAGE_PARTS if package else _PARTS).findall(text):
+        if package and part == "~":
+            parts.append((_TILDE, ""))
+        elif part.isascii() and part.isdigit():
+            parts.append((_NUMBER, int(part)))
+        else:
+            parts.append((_TEXT, part))
+    return epoch, [*parts, (_END, "")]
 
 
 def configured_key(settings: Settings, key: str) -> tuple[str, str] | None:
