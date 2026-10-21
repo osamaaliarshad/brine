@@ -776,6 +776,22 @@ class Ingest:
         else:
             row.value, row.updated_at = value, self._clock()
 
+    async def set_state_entry(self, key: str, entry: str, value: Any) -> None:
+        """Set (or with None, remove) one entry of a dict kept in system state. Nothing is
+        written when nothing changes."""
+        async with self._lock, self._sessions() as s, s.begin():
+            row = await s.get(SystemState, key)
+            current = dict(row.value or {}) if row is not None else {}
+            if value is None:
+                if entry not in current:
+                    return
+                del current[entry]
+            elif current.get(entry) == value:
+                return
+            else:
+                current[entry] = value
+            await self._set_state(s, key, current)
+
     async def presence_blind(self, cached_grains: dict[str, Any]) -> Changes:
         """From `runner cache.grains`: remember accepted minions presence can't see."""
         async with self._lock, self._sessions() as s, s.begin():

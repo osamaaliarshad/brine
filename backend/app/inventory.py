@@ -40,6 +40,8 @@ CREDIT_WINDOW = AFTER_JOB + ANSWER_WAIT + timedelta(minutes=2)
 # ANSWER_WAIT as for any ask rather than asking again on every sweep. Salt's jids are digits,
 # so no answer can match it.
 NO_JOB = "none"
+# System state: {source: why salt-api refused to ask for it}, for Settings and Issues.
+REFUSED_STATE = "inventory_refused"
 
 # Caps on how much of a check's answer is read. Past them the answer is kept but marked
 # truncated: cut short, so some entries may be missing (and none are taken as gone).

@@ -1,15 +1,22 @@
 """Packages and checks: parsing, due rules, the sweep, ingest and the API."""
 
 import re
-from datetime import datetime, timedelta
+from collections.abc import Iterator
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 import pytest
 import yaml
 
 from app import inventory as inv
+from app import inventory_sweep as sweeper
 from app.config import Settings, parse_config
+from app.models import InventoryRead
+from app.salt.client import SaltApiUnavailable
 from tests.conftest import T0
+from tests.test_api import Api
+from tests.test_commands import JID, FakeSalt, make_api
 
 ROVER_CLI = "/opt/rover/bin/rover-cli --version || true"
 CONTAINERS = "podman ps --format '{{.Names}}={{.Image}}'"
@@ -363,3 +370,205 @@ def test_the_credit_window_covers_the_wait_and_one_lost_answer() -> None:
 def test_the_ask_made_for_a_job_is_past_the_clock_margin() -> None:
     # It comes AFTER_JOB after the job, so it's never taken as sent before it.
     assert inv.CLOCK_MARGIN < inv.AFTER_JOB
+
+
+# --- the sweep and Ask now ------------------------------------------------------------------
+
+SECOND, MINUTE = timedelta(seconds=1), timedelta(minutes=1)
+ONLINE = ["dock-01", "rover-01", "rover-02"]  # make_api: rover-03 offline, rover-04 pending
+CHECKS = yaml.safe_dump(
+    {"inventory": {"checks": {"rover-cli": ROVER_CLI, "containers": CONTAINERS}}}, sort_keys=False
+)
+
+
+@pytest.fixture
+def admin(tmp_path: Path) -> Iterator[tuple[Api, FakeSalt]]:
+    yield from make_api(tmp_path, "admin")
+
+
+@pytest.fixture
+def with_checks(tmp_path: Path) -> Iterator[tuple[Api, FakeSalt]]:
+    yield from make_api(tmp_path, "admin", CHECKS)
+
+
+def runtime(api: Api) -> Any:
+    return api.client.app.state.runtime  # type: ignore[attr-defined]
+
+
+def sweep(api: Api, now: datetime) -> None:
+    api.seed(sweeper.sweep, runtime(api), now)
+
+
+def read_of(api: Api, mid: str, source: str = "packages") -> InventoryRead | None:
+    async def get() -> InventoryRead | None:
+        async with runtime(api).sessions() as s:
+            return await s.get(InventoryRead, (mid, source))  # type: ignore[no-any-return]
+
+    return api.seed(get)  # type: ignore[no-any-return]
+
+
+def answer(
+    api: Api, mid: str, entries: dict[str, str], *, at: datetime, source: str = "packages"
+) -> None:
+    """The minion answers brine's ask still out."""
+    read = read_of(api, mid, source)
+    assert read is not None and read.asked_jid is not None
+    api.seed(api.ingest.inventory_read, mid, source, entries, at=at, jid=read.asked_jid)
+
+
+def calls(salt: FakeSalt) -> list[tuple[str, dict[str, Any]]]:
+    return [(fun, kw) for kind, fun, kw in salt.calls if kind == "local_async"]
+
+
+def test_connected_minions_are_asked_once_until_due(admin: tuple[Api, FakeSalt]) -> None:
+    api, salt = admin
+    now = datetime.now(UTC)
+    sweep(api, now)
+    # One job for all of them; not rover-03 (offline) or rover-04 (pending).
+    assert calls(salt) == [
+        ("pkg.list_pkgs", {"tgt": "dock-01,rover-01,rover-02", "tgt_type": "list"})
+    ]
+    read = read_of(api, "rover-01")
+    assert read is not None and (read.asked_at, read.asked_jid) == (now, JID)
+    sweep(api, now + MINUTE)  # waiting for the answers
+    assert len(salt.calls) == 1
+    sweep(api, now + inv.ANSWER_WAIT)  # none came: asked again
+    assert salt.asked("pkg.list_pkgs") == ONLINE * 2
+
+
+def test_answered_minions_wait_for_the_refresh(admin: tuple[Api, FakeSalt]) -> None:
+    api, salt = admin
+    now = datetime.now(UTC)
+    sweep(api, now)
+    for mid in ONLINE:
+        answer(api, mid, {"bash": "5.2"}, at=now + 5 * SECOND)
+    sweep(api, now + inv.ANSWER_WAIT)
+    assert len(salt.calls) == 1
+    # refresh_hours (6) after the answers, with a fresh presence check then.
+    due = now + 5 * SECOND + timedelta(hours=6)
+    api.seed(api.ingest.presence, ONLINE, at=due - SECOND, method="events")
+    sweep(api, due - SECOND)
+    assert len(salt.calls) == 1
+    sweep(api, due)
+    assert salt.asked("pkg.list_pkgs") == ONLINE * 2
+
+
+def test_a_job_wants_a_read_shortly_after(admin: tuple[Api, FakeSalt]) -> None:
+    api, salt = admin
+    now = datetime.now(UTC)
+    sweep(api, now)
+    for mid in ONLINE:
+        answer(api, mid, {"bash": "5.2"}, at=now + 5 * SECOND)
+    job_at = now + MINUTE
+    api.seed(api.ingest.inventory_job_done, "rover-01", jid="J1", user="alice", at=job_at)
+    sweep(api, job_at + inv.AFTER_JOB - SECOND)
+    assert len(salt.calls) == 1
+    sweep(api, job_at + inv.AFTER_JOB)
+    assert salt.asked("pkg.list_pkgs") == [*ONLINE, "rover-01"]
+    read = read_of(api, "rover-01")
+    assert read is not None and read.asked_at == job_at + inv.AFTER_JOB
+
+
+def test_a_minion_that_came_back_is_asked(admin: tuple[Api, FakeSalt]) -> None:
+    api, salt = admin
+    now = datetime.now(UTC)
+    sweep(api, now)
+    for mid in ONLINE:
+        answer(api, mid, {"bash": "5.2"}, at=now + 5 * SECOND)
+    # rover-02 drops off and comes back after its answer; rover-03 comes back, never read.
+    api.seed(api.ingest.presence_change, new=[], lost=["rover-02"], at=now + 10 * SECOND)
+    back = ["rover-02", "rover-03"]
+    api.seed(api.ingest.presence_change, new=back, lost=[], at=now + 20 * SECOND)
+    sweep(api, now + MINUTE)
+    assert salt.asked("pkg.list_pkgs") == [*ONLINE, *back]
+
+
+def test_checks_are_asked_with_their_exact_command(with_checks: tuple[Api, FakeSalt]) -> None:
+    api, salt = with_checks
+    sweep(api, datetime.now(UTC))
+    target = "dock-01,rover-01,rover-02"
+    assert calls(salt) == [
+        ("pkg.list_pkgs", {"tgt": target, "tgt_type": "list"}),
+        ("cmd.run_all", {"tgt": target, "arg": [ROVER_CLI], "tgt_type": "list"}),
+        ("cmd.run_all", {"tgt": target, "arg": [CONTAINERS], "tgt_type": "list"}),
+    ]
+    # Each source waits for its own job.
+    reads = [read_of(api, "rover-01", source) for source in ("packages", "rover-cli", "containers")]
+    assert [r.asked_jid for r in reads if r] == [JID, str(int(JID) + 1), str(int(JID) + 2)]
+
+
+def test_each_sweep_asks_a_batch_per_source(
+    with_checks: tuple[Api, FakeSalt], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    api, salt = with_checks
+    monkeypatch.setattr(sweeper, "BATCH", 2)
+    now = datetime.now(UTC)
+    sweep(api, now)
+    assert [kw["tgt"] for _, kw in calls(salt)] == ["dock-01,rover-01"] * 3
+    sweep(api, now + 15 * SECOND)
+    assert [kw["tgt"] for _, kw in calls(salt)][3:] == ["rover-02"] * 3
+
+
+def test_nobody_is_asked_on_stale_presence(admin: tuple[Api, FakeSalt]) -> None:
+    api, salt = admin
+    sweep(api, datetime.now(UTC) + timedelta(hours=1))  # no presence check for an hour
+    assert salt.calls == []
+
+
+def test_a_refused_source_is_remembered_until_asking_works(
+    admin: tuple[Api, FakeSalt],
+) -> None:
+    api, salt = admin
+    salt.forbidden.add("pkg.list_pkgs")
+    now = datetime.now(UTC)
+    sweep(api, now)
+    refused = api.seed(api.ingest.get_state, inv.REFUSED_STATE)
+    assert "isn't allowed to run pkg.list_pkgs" in refused["packages"]
+    # Not asked again on every sweep: each refusal makes brine log in to salt-api again.
+    sweep(api, now + MINUTE)
+    assert len(salt.calls) == 1
+    salt.forbidden.clear()
+    sweep(api, now + inv.ANSWER_WAIT)
+    assert salt.asked("pkg.list_pkgs") == ONLINE * 2
+    assert api.seed(api.ingest.get_state, inv.REFUSED_STATE) == {}
+
+
+def test_asking_again_when_salt_api_fails(admin: tuple[Api, FakeSalt]) -> None:
+    api, salt = admin
+    salt.start_error = SaltApiUnavailable("can't reach salt-api")
+    now = datetime.now(UTC)
+    sweep(api, now)
+    assert read_of(api, "rover-01") is None  # nothing was asked
+    assert api.seed(api.ingest.get_state, inv.REFUSED_STATE) is None
+    salt.start_error = None
+    sweep(api, now + 15 * SECOND)
+    assert salt.asked("pkg.list_pkgs") == ONLINE * 2
+
+
+def test_an_ask_that_matched_no_minion_is_waited_for(admin: tuple[Api, FakeSalt]) -> None:
+    api, salt = admin
+
+    async def matched_nothing(tgt: str, fun: str, **kwargs: Any) -> str | None:
+        salt.calls.append(("local_async", fun, {"tgt": tgt, **kwargs}))
+        return None
+
+    salt.local_async = matched_nothing  # type: ignore[method-assign]
+    now = datetime.now(UTC)
+    sweep(api, now)
+    read = read_of(api, "rover-01")
+    assert read is not None and read.asked_jid == inv.NO_JOB
+    sweep(api, now + 15 * SECOND)
+    assert len(salt.calls) == 1
+
+
+def test_ask_now_asks_every_source_and_is_throttled(with_checks: tuple[Api, FakeSalt]) -> None:
+    api, salt = with_checks
+    rt, now = runtime(api), datetime.now(UTC)
+    assert api.seed(sweeper.ask_now, rt, None, now) == ONLINE
+    assert [fun for fun, _ in calls(salt)] == ["pkg.list_pkgs", "cmd.run_all", "cmd.run_all"]
+    assert api.seed(sweeper.ask_now, rt, None, now) is None  # once a minute for everyone
+    # One minion: asked again although its answers are still out.
+    assert api.seed(sweeper.ask_now, rt, "rover-01", now) == ["rover-01"]
+    assert api.seed(sweeper.ask_now, rt, "rover-01", now) is None
+    assert api.seed(sweeper.ask_now, rt, "rover-03", now) == []  # offline: not asked
+    assert len(salt.calls) == 6

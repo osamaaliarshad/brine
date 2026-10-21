@@ -66,6 +66,15 @@ class FakeSalt:
             return jid, tgt.split(",")
         return jid, ["rover-01", "rover-02", "rover-03"]
 
+    async def local_async(self, tgt: str, fun: str, **kwargs: Any) -> str | None:
+        self.calls.append(("local_async", fun, {"tgt": tgt, **kwargs}))
+        if fun in self.forbidden:
+            raise SaltApiForbidden(f"brine's Salt account isn't allowed to run {fun}", 403)
+        if self.start_error:
+            raise self.start_error
+        jid, self.next_jid = str(self.next_jid), self.next_jid + 1
+        return jid
+
     async def run(self, lowstate: dict[str, Any], **kwargs: Any) -> Any:
         self.calls.append(("run", lowstate["fun"], {**lowstate, **kwargs}))
         return self.answers[lowstate["fun"]]
@@ -73,16 +82,27 @@ class FakeSalt:
     def started(self) -> list[dict[str, Any]]:
         return [kw for kind, _, kw in self.calls if kind == "start_job"]
 
+    def asked(self, fun: str) -> list[str]:
+        """Minions asked for `fun` by brine itself (local_async), in order."""
+        return [
+            mid
+            for kind, f, kw in self.calls
+            if kind == "local_async" and f == fun
+            for mid in kw["tgt"].split(",")
+        ]
+
     async def close(self) -> None:
         pass
 
 
-def make_api(tmp_path: Path, role: str) -> Iterator[tuple[Api, FakeSalt]]:
+def make_api(tmp_path: Path, role: str, extra_config: str = "") -> Iterator[tuple[Api, FakeSalt]]:
+    """rover-01, rover-02 and dock-01 online (fresh presence), rover-03 offline, rover-04
+    pending. `extra_config` is appended to the config (YAML)."""
     settings = parse_config(
         "salt_api: {url: 'https://salt.test:8000', username: brine, password: x}\n"
         f"auth: {{provider: none, anonymous_role: {role}}}\n"
         "commands: {operator: ['test.*', 'runners.manage.*']}\n"
-        f"database: 'sqlite:///{(tmp_path / 'brine.db').as_posix()}'\n",
+        f"database: 'sqlite:///{(tmp_path / 'brine.db').as_posix()}'\n" + extra_config,
         {},
     )
     app = create_app(settings, frontend_dist=Path("/nonexistent"), run_collector=False)
