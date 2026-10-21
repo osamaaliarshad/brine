@@ -63,6 +63,8 @@ export type LiveMessage =
   | { type: 'status' }
   | { type: 'resync' }
   | { type: 'minion'; id: string }
+  // Its packages or checks moved (always with a 'minion' hint for it).
+  | { type: 'inventory'; id: string }
   | { type: 'job'; jid: string }
 
 export type PresencePoint = { at: string; connected: boolean }

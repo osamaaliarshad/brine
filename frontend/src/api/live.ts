@@ -48,7 +48,9 @@ export function createLiveInvalidator(queryClient: QueryClient, debounceMs = DEB
         break
       case 'minion':
         queue(queryKeys.minion(message.id))
-        // The fleet compared with it: a new read of the reference changes every row.
+        break
+      case 'inventory':
+        // Its packages or checks moved: every row of the fleet compared with it may have too.
         queue([...queryKeys.inventoryCompare, message.id])
         break
       case 'job':

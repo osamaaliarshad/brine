@@ -55,7 +55,7 @@ export const queryKeys = {
   issues: ['issues'] as const,
   // Packages and checks across the fleet; one minion's are under ['minion', id].
   inventory: ['inventory'] as const,
-  // The fleet against one minion: apart from ['inventory'], so live updates don't redo it.
+  // The fleet against one minion: apart from ['inventory'], so fleet updates don't redo it.
   inventoryCompare: ['inventory-compare'] as const,
 }
 
@@ -317,8 +317,9 @@ export function useMinionInventory(id: string, enabled: boolean) {
 
 /**
  * How every other accepted minion's packages and checks differ from `reference`'s. Heavy across
- * a big fleet, so not under ['inventory']: live updates leave it be. It's kept a minute, and
- * redone on Read now or when asked.
+ * a big fleet, so not under ['inventory'], which every fleet update redoes. It's kept a minute,
+ * and redone when the reference's packages or checks move (an 'inventory' hint), on Read now,
+ * or when asked.
  */
 export function useFleetComparison(reference: string, enabled: boolean) {
   return useQuery({

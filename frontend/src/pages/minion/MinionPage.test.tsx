@@ -343,6 +343,7 @@ describe('MinionPage', () => {
     const user = userEvent.setup()
     const compares = () => fetchMock.mock.calls.filter(([u]) => String(u).includes('/api/inventory/compare?')).length
     const fleets = () => fetchMock.mock.calls.filter(([u]) => String(u).startsWith('/api/fleet')).length
+    const minions = () => fetchMock.mock.calls.filter(([u]) => String(u).startsWith('/api/minions/rover-01')).length
     const row = (id: string, read: boolean, sources: string[], counts: number[]) => ({
       minion_id: id,
       read,
@@ -384,16 +385,20 @@ describe('MinionPage', () => {
     ])
     expect(screen.getByText("Missing: rover-01 has it, they don't. Extra: they have it, rover-01 doesn't.")).toBeInTheDocument()
 
-    // Heavy across a big fleet: kept for a minute, not redone on every live update, and redone on Refresh.
+    // Heavy across a big fleet: kept for a minute, not redone on every live update (nor on every
+    // job on the reference), and redone on Compare again.
     expect(screen.getByText('Compared just now')).toBeInTheDocument()
     const before = fleets()
     FakeEventSource.instances[0]!.emit({ type: 'fleet' })
     await waitFor(() => expect(fleets()).toBeGreaterThan(before))
-    expect(compares()).toBe(1)
-    await user.click(screen.getByRole('button', { name: 'Compare the fleet again' }))
-    await waitFor(() => expect(compares()).toBe(2))
-    // Redone, too, when the reference itself changes (its new read lands).
+    const minionBefore = minions()
     FakeEventSource.instances[0]!.emit({ type: 'minion', id: 'rover-01' })
+    await waitFor(() => expect(minions()).toBeGreaterThan(minionBefore))
+    expect(compares()).toBe(1)
+    await user.click(screen.getByRole('button', { name: 'Compare again' }))
+    await waitFor(() => expect(compares()).toBe(2))
+    // Redone, too, when the reference's packages or checks move (its new read lands).
+    FakeEventSource.instances[0]!.emit({ type: 'inventory', id: 'rover-01' })
     await waitFor(() => expect(compares()).toBe(3))
 
     await user.click(within(list).getByRole('link', { name: 'Compare with rover-03' }))

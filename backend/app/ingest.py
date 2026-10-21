@@ -63,6 +63,9 @@ class Changes:
     minions: set[str] = field(default_factory=set)
     jobs: set[str] = field(default_factory=set)
     status: bool = False
+    # Minions whose packages or checks moved (a first read, or anything changed): the fleet
+    # compared with one is redone. Each is in `minions` too.
+    inventory: set[str] = field(default_factory=set)
 
     def __bool__(self) -> bool:
         return self.fleet or self.status or bool(self.minions) or bool(self.jobs)
@@ -72,6 +75,7 @@ class Changes:
         self.status |= other.status
         self.minions |= other.minions
         self.jobs |= other.jobs
+        self.inventory |= other.inventory
         return self
 
 
@@ -476,7 +480,8 @@ class Ingest:
             if read.answered_at is None or at >= read.answered_at:
                 read.answered_at, read.error = at, None
         # A first read moves the fleet view even when empty: "not read" becomes "nothing".
-        return Changes(fleet=first or bool(moved), minions={mid})
+        recorded = first or bool(moved)
+        return Changes(fleet=recorded, minions={mid}, inventory={mid} if recorded else set())
 
     async def inventory_failed(
         self, mid: str, source: str, error: str, *, at: datetime, jid: str | None

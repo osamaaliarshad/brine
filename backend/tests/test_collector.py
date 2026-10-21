@@ -605,6 +605,31 @@ async def test_a_failure_recording_packages_or_checks_doesnt_end_the_session(
     assert api.count("grains.items") == (1 if method == "inventory_wanted" else 0)
 
 
+async def test_browsers_hear_when_a_minions_packages_or_checks_move(make_collector: Any) -> None:
+    """An "inventory" hint redoes the fleet compared with that minion: only when a read
+    records something (a first read, or anything moved), never for other returns."""
+    collector = make_collector(FakeSaltApi([]))
+
+    async def hints(event: SaltEvent) -> list[dict[str, Any]]:
+        async with collector.bus.subscribe() as queue:
+            await collector.handle(event)
+            found = []
+            while not queue.empty():
+                found.append(queue.get_nowait())
+        return found
+
+    stamp = "2026-10-20T12:00:{:02d}.000000"
+    inventory = {"type": "inventory", "id": "rover-01"}
+    first = await hints(job_ret("1", "pkg.list_pkgs", {"bash": "5.2"}, _stamp=stamp.format(1)))
+    assert inventory in first
+    same = await hints(job_ret("2", "pkg.list_pkgs", {"bash": "5.2"}, _stamp=stamp.format(2)))
+    assert {"type": "minion", "id": "rover-01"} in same and inventory not in same
+    moved = await hints(job_ret("3", "pkg.list_pkgs", {"bash": "5.3"}, _stamp=stamp.format(3)))
+    assert moved.count(inventory) == 1
+    ping = await hints(job_ret("4", "test.ping", True, user="alice", _stamp=stamp.format(4)))
+    assert ping and inventory not in ping
+
+
 async def test_a_persons_job_is_credited_with_brines_read_after_it(
     make_collector: Any, ingest: Ingest, sessions: Sessions
 ) -> None:

@@ -46,6 +46,8 @@ class EventBus:
             self.publish({"type": "status"})
         for mid in sorted(changes.minions):
             self.publish({"type": "minion", "id": mid})
+        for mid in sorted(changes.inventory):
+            self.publish({"type": "inventory", "id": mid})
         for jid in sorted(changes.jobs):
             self.publish({"type": "job", "jid": jid})
 

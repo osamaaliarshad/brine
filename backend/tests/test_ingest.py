@@ -383,14 +383,18 @@ async def test_later_reads_record_each_change(ingest: Ingest, sessions: Sessions
 
 async def test_the_return_says_what_moved(ingest: Ingest) -> None:
     # A source's first read moves the fleet view even with nothing in it: no more "?".
+    # `inventory`: what the minion has moved, so the fleet compared with it is redone.
     first = await ingest.inventory_read("a", "rover", {}, at=T0, jid=None)
-    assert first.minions == {"a"} and first.fleet
+    assert first.minions == {"a"} and first.fleet and first.inventory == {"a"}
     again = await ingest.inventory_read("a", "rover", {}, at=T0 + HOUR, jid=None)
     assert again.minions == {"a"} and not again.fleet  # the page refreshes ("as of" moved)
+    assert not again.inventory
     moved = await ingest.inventory_read("a", "rover", {"": "1.0"}, at=T0 + 2 * HOUR, jid=None)
-    assert moved.minions == {"a"} and moved.fleet
+    assert moved.minions == {"a"} and moved.fleet and moved.inventory == {"a"}
     failed = await ingest.inventory_failed("a", "rover", "exit 1", at=T0 + 3 * HOUR, jid=None)
-    assert failed.minions == {"a"} and not failed.fleet
+    assert failed.minions == {"a"} and not failed.fleet and not failed.inventory
+    late = await ingest.inventory_read("a", "rover", {"": "0.9"}, at=T0 + HOUR, jid=None)
+    assert not late  # older than the last good read: nothing moves
 
 
 async def test_a_truncated_answer_removes_nothing(ingest: Ingest, sessions: Sessions) -> None:

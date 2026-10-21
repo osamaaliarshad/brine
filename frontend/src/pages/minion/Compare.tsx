@@ -163,11 +163,10 @@ function FleetDifferences({
             type="button"
             onClick={() => void comparison.refetch()}
             disabled={comparison.isFetching}
-            aria-label="Compare the fleet again"
             className="flex items-center gap-1 text-fg hover:text-accent disabled:opacity-50"
           >
             <RefreshCw className={cn('size-3.5', comparison.isFetching && 'animate-spin')} aria-hidden />
-            Refresh
+            Compare again
           </button>
         </span>
       </div>

@@ -290,7 +290,9 @@ async def _accepted(session: AsyncSession, minion_id: str) -> None:
 
 class _CrossJoin(Join):
     """``left CROSS JOIN right``: SQLite always loops over `left` first, whatever its statistics
-    say (PostgreSQL takes it as a plain join). What joins them goes in the WHERE clause."""
+    say (PostgreSQL takes it as a plain join). What joins them goes in the WHERE clause. See
+    "Manual Control Of Query Plans Using CROSS JOIN" in SQLite's query optimizer overview:
+    https://www.sqlite.org/optoverview.html#crossjoin"""
 
     inherit_cache = True
 
