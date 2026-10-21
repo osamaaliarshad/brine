@@ -573,6 +573,25 @@ async def test_a_start_reported_late_keeps_the_later_want(
     assert (await read_row(sessions, "a")).wanted_at == T0 + timedelta(hours=2)
 
 
+async def test_a_repeated_start_doesnt_want_another_read(
+    ingest: Ingest, sessions: Sessions
+) -> None:
+    await ingest.inventory_read("a", "packages", {"agent": "2.3.0"}, at=T0)
+    await ingest.inventory_read("a", "rover", {"": "1.0"}, at=T0)
+    started = T0 + timedelta(hours=1)
+    await ingest.inventory_wanted("a", at=started)
+    await ingest.inventory_asked(["a"], "packages", at=started + timedelta(seconds=5), jid="A1")
+    await ingest.inventory_read(
+        "a", "packages", {"agent": "2.3.0"}, at=started + timedelta(seconds=10), jid="A1"
+    )
+    assert (await read_row(sessions, "a")).wanted_at is None
+    # The same start reported again: the packages read after it stands. The rover check, not
+    # read since, still wants one.
+    await ingest.inventory_wanted("a", at=started)
+    assert (await read_row(sessions, "a")).wanted_at is None
+    assert (await read_row(sessions, "a", "rover")).wanted_at == started
+
+
 async def test_a_job_wants_a_read_shortly_after_it(ingest: Ingest, sessions: Sessions) -> None:
     await ingest.inventory_asked(["a"], "packages", at=T0, jid="A0")
     await ingest.inventory_read(

@@ -298,6 +298,8 @@ class Ingest:
         rows, and is due anyway."""
         async with self._lock, self._sessions() as s, s.begin():
             for read in await s.scalars(select(InventoryRead).filter_by(minion_id=mid)):
+                if read.read_at is not None and at < read.read_at:
+                    continue  # reported again, or late: a newer read stands
                 read.wanted_at = _later(read.wanted_at, at)
 
     async def inventory_job_done(
