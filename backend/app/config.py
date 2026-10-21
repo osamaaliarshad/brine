@@ -127,6 +127,23 @@ class CommandsConfig(_Strict):
     admin: list[str] = Field(default_factory=lambda: ["*"])
 
 
+class TemplateConfig(_Strict):
+    """A command people can pick on the Run page. Same fields as SaltGUI's
+    `saltgui_templates`, which brine also reads from the master config."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, populate_by_name=True)
+
+    description: str = ""
+    target: str = ""
+    # SaltGUI spells it `targettype`; both work.
+    target_type: Literal["glob", "list", "compound", "grain", "nodegroup", "pcre"] = Field(
+        default="glob", alias="targettype"
+    )
+    command: str = ""  # a template may only fill in the target
+    category: str | None = None
+    categories: list[str] = Field(default_factory=list)
+
+
 class JobsConfig(_Strict):
     # On (re)connect, import up to this many jobs from the master's job cache.
     backfill_limit: int = Field(default=200, ge=0)
@@ -139,6 +156,7 @@ class Settings(_Strict):
     fleet: FleetConfig = Field(default_factory=FleetConfig)
     presence: PresenceConfig = Field(default_factory=PresenceConfig)
     commands: CommandsConfig = Field(default_factory=CommandsConfig)
+    templates: dict[str, TemplateConfig] = Field(default_factory=dict)
     jobs: JobsConfig = Field(default_factory=JobsConfig)
     database: str = "sqlite:///data/brine.db"
     # How browsers reach brine, e.g. https://brine.example.com. Used for the sign-in redirect;

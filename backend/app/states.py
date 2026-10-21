@@ -1,4 +1,5 @@
-"""Make sense of Salt state output (state.apply / state.highstate / state.sls returns)."""
+"""Make sense of Salt state output (state.apply / state.highstate / state.sls returns, and
+orchestrations, whose steps come back in the same shape)."""
 
 from __future__ import annotations
 
@@ -9,6 +10,8 @@ from pydantic import BaseModel
 STATE_FUNCTIONS = frozenset(
     {"state.apply", "state.highstate", "state.sls", "state.sls_id", "state.single"}
 )
+# Runner functions whose return is a state run on the master, one step per state.
+ORCHESTRATE_FUNCTIONS = frozenset({"state.orchestrate", "state.orch", "state.orchestrate_single"})
 
 
 class StateResult(BaseModel):
@@ -20,6 +23,17 @@ class StateResult(BaseModel):
     changed: bool
     comment: str
     duration_ms: float | None
+    jid: str | None = None  # orchestration steps: the job the step started
+
+
+def unwrap_orchestration(data: Any) -> Any:
+    """An orchestration answers {"data": {"<master>_master": {states}}, "outputter": ...};
+    return the states inside, or `data` unchanged if it isn't that."""
+    if isinstance(data, dict) and isinstance(data.get("data"), dict) and "outputter" in data:
+        runs = [v for v in data["data"].values() if isinstance(v, dict | list)]
+        if len(runs) == 1:
+            return runs[0]
+    return data
 
 
 def parse_state_return(data: Any) -> list[StateResult] | None:
@@ -63,6 +77,7 @@ def parse_state_return(data: Any) -> list[StateResult] | None:
                     changed=bool(value.get("changes")),
                     comment=str(value.get("comment", "")),
                     duration_ms=float(duration) if isinstance(duration, int | float) else None,
+                    jid=str(value["__jid__"]) if value.get("__jid__") else None,
                 ),
             )
         )

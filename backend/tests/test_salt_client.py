@@ -246,3 +246,34 @@ def test_parse_job_start_time() -> None:
         2026, 10, 20, 14, 1, 33, 273737, tzinfo=UTC
     )
     assert parse_job_start_time("nope") is None
+
+
+FLAKY = {"status": 500, "return": "An unexpected error occurred"}
+
+
+@respx.mock
+async def test_salt_api_500s_are_retried_when_safe(client: SaltApiClient) -> None:
+    respx.post(f"{API}/login").mock(return_value=login_ok("t"))
+    run = respx.post(f"{API}/").mock(
+        side_effect=[
+            httpx.Response(500, json=FLAKY),
+            httpx.Response(200, json={"return": [{"up": ["m1"], "down": []}]}),
+        ]
+    )
+    assert await client.runner("manage.status") == {"up": ["m1"], "down": []}
+    assert run.call_count == 2
+
+
+@respx.mock
+async def test_starting_a_job_is_never_retried(client: SaltApiClient) -> None:
+    # The 500 may have come after the job started: retrying could run it twice.
+    respx.post(f"{API}/login").mock(return_value=login_ok("t"))
+    run = respx.post(f"{API}/").mock(
+        side_effect=[
+            httpx.Response(500, json=FLAKY),
+            httpx.Response(200, json={"return": [{"jid": "j1", "minions": ["m1"]}]}),
+        ]
+    )
+    with pytest.raises(SaltApiError) as caught:
+        await client.start_job("m1", "state.apply")
+    assert caught.value.status == 500 and run.call_count == 1

@@ -18,13 +18,13 @@ TOP_TIMEOUT_SECONDS = 15
 MAX_FILE_CHARS = 512_000
 
 
-def _walk(tree: Any, prefix: str = "") -> list[str]:
+def walk_files(tree: Any, prefix: str = "") -> list[str]:
     """`file_roots.list_env` nests directories as dicts and marks files with "f"."""
     files: list[str] = []
     for name, node in (tree or {}).items():
         path = f"{prefix}{name}"
         if isinstance(node, dict):
-            files.extend(_walk(node, f"{path}/"))
+            files.extend(walk_files(node, f"{path}/"))
         else:
             files.append(path)
     return files
@@ -66,7 +66,7 @@ async def state_files(runtime: RuntimeDep, saltenv: str = Query("base")) -> list
     files = [
         StateFile(root=str(root), path=path)
         for root, tree in (roots or {}).items()
-        for path in _walk(tree)
+        for path in walk_files(tree)
     ]
     return sorted(files, key=lambda f: (f.path.count("/"), f.path))
 

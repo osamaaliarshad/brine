@@ -33,14 +33,25 @@ class FakeSalt:
         self.forbidden: set[str] = set()
         self.grain_matches = ["rover-01"]
         self.answers: dict[str, Any] = {}
+        self.job_cache: dict[str, Any] = {}
+        self.master_config: dict[str, Any] = {}
 
     async def permissions(self) -> list[Any]:
         return []
 
     async def runner(self, fun: str, **kwargs: Any) -> Any:
         self.calls.append(("runner", fun, kwargs))
+        if fun == "jobs.list_job":
+            return self.job_cache[kwargs["jid"]]
         assert fun == "cache.grains"
         return {m: {"os": "Debian"} for m in self.grain_matches}
+
+    async def wheel(self, fun: str, **kwargs: Any) -> Any:
+        self.calls.append(("wheel", fun, kwargs))
+        if fun in self.forbidden:
+            raise SaltApiForbidden(f"brine's Salt account isn't allowed to run wheel {fun}", 403)
+        assert fun == "config.values"
+        return self.master_config
 
     async def start_job(self, tgt: str, fun: str, **kwargs: Any) -> tuple[str | None, list[str]]:
         self.calls.append(("start_job", fun, {"tgt": tgt, **kwargs}))
@@ -301,7 +312,7 @@ def test_cache_targets_ask_the_master(operator: tuple[Api, FakeSalt], target_typ
 
 def test_runner_commands_answer_directly(operator: tuple[Api, FakeSalt]) -> None:
     api, salt = operator
-    salt.answers["manage.status"] = {"up": ["rover-01"], "down": ["rover-03"]}
+    salt.answers["manage.status"] = {"up": ["rover-01"], "down": ["rover-03"]}  # no full_return
     preview = post(api, "preview", command="runners.manage.status").json()
     assert preview["client"] == "runner" and preview["minions"] == []
     resp = post(api, "run", command="runners.manage.status")
@@ -316,11 +327,156 @@ def test_runner_commands_answer_directly(operator: tuple[Api, FakeSalt]) -> None
 def test_wheel_commands_unwrap_the_answer(admin: tuple[Api, FakeSalt]) -> None:
     api, salt = admin
     salt.answers["key.list_all"] = {
-        "tag": "x",
-        "data": {"return": {"minions": ["a"]}, "success": True},
+        "tag": "salt/wheel/20261020120000000009",
+        "data": {"return": {"minions": ["a"]}, "success": True, "jid": "20261020120000000009"},
     }
     resp = post(api, "run", command="wheel.key.list_all")
     assert resp.json()["result"] == {"minions": ["a"]} and resp.json()["success"] is True
+    assert resp.json()["jid"] is None  # wheel calls aren't kept as jobs
+
+
+RUNNER_JID = "20261020120000000100"
+
+
+def full_return(value: Any, success: bool = True) -> dict[str, Any]:
+    """What salt-api answers a runner asked for full_return."""
+    data = {"jid": RUNNER_JID, "return": value, "success": success, "user": "brine"}
+    return {"tag": f"salt/run/{RUNNER_JID}/ret", "data": data}
+
+
+def test_runner_commands_are_kept_as_jobs_under_the_person(
+    operator: tuple[Api, FakeSalt],
+) -> None:
+    api, salt = operator
+    salt.answers["manage.status"] = full_return({"up": ["rover-01"], "down": []})
+    resp = post(api, "run", command="runners.manage.status").json()
+    assert resp["jid"] == RUNNER_JID and resp["result"] == {"up": ["rover-01"], "down": []}
+    assert salt.calls[-1][2]["full_return"] is True
+    job = api.get(f"/api/jobs/{RUNNER_JID}")
+    assert (job["kind"], job["fun"], job["user"]) == ("runner", "manage.status", "local")
+    assert job["results"][0]["minion_id"] == "master"
+
+
+def orchestration_return() -> dict[str, Any]:
+    step = {"changes": {}, "duration": 120.5, "__sls__": "orch.rollout"}
+    return {
+        "data": {
+            "salt-master_master": {
+                "salt_|-rovers-answer_|-test.ping_|-function": {
+                    **step,
+                    "name": "test.ping",
+                    "result": True,
+                    "comment": "Function ran successfully.",
+                    "__jid__": "20261020120000000201",
+                    "__run_num__": 0,
+                    "__id__": "rovers-answer",
+                },
+                "salt_|-dock-calibration_|-dock-calibration_|-state": {
+                    **step,
+                    "name": "dock-calibration",
+                    "result": False,
+                    "comment": "Run failed on minions: dock-01",
+                    "__jid__": "20261020120000000202",
+                    "__run_num__": 1,
+                    "__id__": "dock-calibration",
+                },
+            }
+        },
+        "outputter": "highstate",
+        "retcode": 1,
+    }
+
+
+def test_orchestrations_and_their_steps_belong_to_the_person(
+    admin: tuple[Api, FakeSalt],
+) -> None:
+    api, salt = admin
+    salt.answers["state.orchestrate"] = full_return(orchestration_return())
+    started = "2026, Oct 20 12:00:00.000000"
+    salt.job_cache = {
+        "20261020120000000201": {
+            "Function": "test.ping",
+            "Arguments": [],
+            "Target": "rover-*",
+            "Target-type": "glob",
+            "User": "salt",
+            "StartTime": started,
+            "Minions": ["rover-01"],
+            "Result": {"rover-01": {"return": True, "retcode": 0, "success": True}},
+        },
+        "20261020120000000202": {
+            "Function": "state.sls",
+            "Arguments": ["dock"],
+            "Target": "dock-01",
+            "Target-type": "glob",
+            "User": "salt",
+            "StartTime": started,
+            "Minions": ["dock-01"],
+            "Result": {"dock-01": {"return": ["boom"], "retcode": 1, "success": False}},
+        },
+    }
+    resp = post(api, "run", command="runners.state.orchestrate orch.rollout").json()
+    # Salt calls the runner a success; a failed step says otherwise.
+    assert resp["jid"] == RUNNER_JID and resp["success"] is False
+
+    job = api.get(f"/api/jobs/{RUNNER_JID}")
+    steps = job["results"][0]["states"]
+    assert [(s["id"], s["result"], s["jid"]) for s in steps] == [
+        ("rovers-answer", True, "20261020120000000201"),
+        ("dock-calibration", False, "20261020120000000202"),
+    ]
+    for jid in ("20261020120000000201", "20261020120000000202"):
+        step_job = api.get(f"/api/jobs/{jid}")
+        assert step_job["user"] == "local" and step_job["returned"] == 1
+
+
+def test_templates_from_brine_and_the_master(tmp_path: Path) -> None:
+    settings = parse_config(
+        "salt_api: {url: 'https://salt.test:8000', username: brine, password: x}\n"
+        "auth: {provider: none, anonymous_role: operator}\n"
+        "commands: {operator: ['test.*']}\n"
+        "templates:\n"
+        "  ping-docks: {description: 'Docks answering?', target: 'dock-*', command: test.ping}\n"
+        "  versions: {description: brine's own, command: runners.manage.versions}\n"
+        f"database: 'sqlite:///{(tmp_path / 'brine.db').as_posix()}'\n",
+        {},
+    )
+    app = create_app(settings, frontend_dist=Path("/nonexistent"), run_collector=False)
+    salt = FakeSalt()
+    salt.master_config = {
+        "saltgui_templates": {
+            "versions": {"command": "runners.manage.versions", "description": "master's"},
+            "fib": {
+                "description": "First template",
+                "target": "*",
+                "command": "test.fib num=10",
+                "key": "f",  # SaltGUI's keyboard shortcut: ignored, not an error
+                "category": "cat1",
+                "categories": ["cat1", "cat2"],
+            },
+            "only-target": {"targettype": "list", "target": "rover-01,rover-02"},
+            "broken": {"targettype": "nonsense", "command": "test.ping"},
+        }
+    }
+    with TestClient(app) as client:
+        client.app.state.runtime.client = salt  # type: ignore[attr-defined]
+        body = Api(client).get("/api/commands/templates")
+    by_name = {t["name"]: t for t in body}
+    assert list(by_name) == ["fib", "only-target", "ping-docks", "versions"]
+    assert by_name["fib"]["categories"] == ["cat1", "cat2"]
+    assert by_name["fib"]["source"] == "master" and by_name["fib"]["allowed"] is True
+    assert by_name["only-target"]["target_type"] == "list"
+    assert by_name["only-target"]["allowed"] is True  # it only fills in the target
+    # brine's own template wins a name clash; operators may not run runners here.
+    assert by_name["versions"]["description"] == "brine's own"
+    assert by_name["versions"]["source"] == "brine" and by_name["versions"]["allowed"] is False
+    assert by_name["ping-docks"]["target"] == "dock-*"
+
+
+def test_templates_without_master_access_still_list_brines(operator: tuple[Api, FakeSalt]) -> None:
+    api, salt = operator
+    salt.forbidden.add("config.values")
+    assert api.get("/api/commands/templates") == []
 
 
 def test_salt_refusing_says_what_to_add(admin: tuple[Api, FakeSalt]) -> None:

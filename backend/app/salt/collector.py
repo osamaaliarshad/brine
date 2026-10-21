@@ -226,38 +226,10 @@ class Collector:
             log.info("backfilled %d job(s) from the master's job cache", len(missing))
 
     async def _backfill_job(self, jid: str, info: dict[str, Any]) -> None:
-        started = parse_job_start_time(info.get("StartTime")) or self.clock()
-        fun = str(info.get("Function", ""))
-        detail = await self.client.runner("jobs.list_job", jid=jid)
-        detail = detail if isinstance(detail, dict) else {}
-        changes = await self.ingest.job_new(
-            jid=jid,
-            kind="local",
-            fun=fun,
-            at=started,
-            args=info.get("Arguments") or [],
-            target=_as_text(info.get("Target")),
-            target_type=info.get("Target-type"),
-            user=_job_user(info),
-            minions=detail.get("Minions") or [],
-        )
-        for mid, result in (detail.get("Result") or {}).items():
-            result = result if isinstance(result, dict) else {"return": result}
-            changes.merge(
-                await self.ingest.job_return(
-                    jid=jid,
-                    kind="local",
-                    minion_id=mid,
-                    fun=fun,
-                    # The job cache doesn't keep per-minion return times; use the start time.
-                    at=started,
-                    data=result.get("return"),
-                    success=result.get("success"),
-                    retcode=result.get("retcode"),
-                    user=_job_user(info),
-                )
-            )
-        self._publish(changes)
+        await self.import_job(jid, user=_job_user(info))
+
+    async def import_job(self, jid: str, *, user: str | None = None) -> None:
+        self._publish(await import_job(self.client, self.ingest, jid, user=user, now=self.clock()))
 
     # --- presence -------------------------------------------------------------------------
 
@@ -387,6 +359,46 @@ class Collector:
             await self.client.local_async(m["mid"], "grains.items", tgt_type="list")
 
         self._publish(changes)
+
+
+async def import_job(
+    client: SaltApi | Any, ingest: Ingest, jid: str, *, user: str | None, now: datetime
+) -> Changes:
+    """Record a minion job from the master's job cache (`jobs.list_job`), under `user` if given
+    (an orchestration step someone ran through brine) or Salt's own user otherwise."""
+    detail = await client.runner("jobs.list_job", jid=jid)
+    info = detail if isinstance(detail, dict) else {}
+    started = parse_job_start_time(info.get("StartTime")) or now
+    fun = str(info.get("Function", ""))
+    user = user or _job_user(info)
+    changes = await ingest.job_new(
+        jid=jid,
+        kind="local",
+        fun=fun,
+        at=started,
+        args=info.get("Arguments") or [],
+        target=_as_text(info.get("Target")),
+        target_type=info.get("Target-type"),
+        user=user,
+        minions=info.get("Minions") or [],
+    )
+    for mid, result in (info.get("Result") or {}).items():
+        result = result if isinstance(result, dict) else {"return": result}
+        changes.merge(
+            await ingest.job_return(
+                jid=jid,
+                kind="local",
+                minion_id=mid,
+                fun=fun,
+                # The job cache doesn't keep per-minion return times; use the start time.
+                at=started,
+                data=result.get("return"),
+                success=result.get("success"),
+                retcode=result.get("retcode"),
+                user=user,
+            )
+        )
+    return changes
 
 
 def _job_user(info: dict[str, Any]) -> Any:

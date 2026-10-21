@@ -217,3 +217,33 @@ def test_demo_command_box(settings: Settings) -> None:
         )
         assert versions.status_code == 200, versions.text
         assert "Master" in versions.json()["result"]
+
+
+def test_demo_orchestrations_and_templates(settings: Settings) -> None:
+    """The demo's orchestrations and SaltGUI-style templates, read from the real master; running
+    an orchestration records it and every step's job under the person who ran it."""
+    csrf = {"X-Requested-With": "brine"}
+    with TestClient(create_app(settings, frontend_dist=Path("/nonexistent"))) as c:
+        orchestrations = get(c, "/api/orchestrations")["orchestrations"]
+        assert {o["sls"]: [s["id"] for s in o["steps"]] for o in orchestrations} == {
+            "orch.health": ["everyone-answers", "salt-versions"],
+            "orch.rollout": ["rovers-answer", "rovers-motd", "dock-calibration"],
+        }
+        templates = {t["name"]: t for t in get(c, "/api/commands/templates")}
+        assert templates["ping-rovers"]["target"] == "rover-*"
+        assert templates["refresh-grains"]["categories"] == ["Maintenance", "Health"]
+
+        run = c.post(
+            "/api/commands/run",
+            json={"command": "runners.state.orchestrate orch.health"},
+            headers=csrf,
+        )
+        assert run.status_code == 200, run.text
+        assert run.json()["success"] is True
+        job = get(c, f"/api/jobs/{run.json()['jid']}")
+        assert (job["kind"], job["fun"], job["user"]) == ("runner", "state.orchestrate", "local")
+        steps = job["results"][0]["states"]
+        assert [s["id"] for s in steps] == ["everyone-answers", "salt-versions"]
+        for step in steps:
+            step_job = get(c, f"/api/jobs/{step['jid']}")
+            assert step_job["user"] == "local" and step_job["returned"] >= 1

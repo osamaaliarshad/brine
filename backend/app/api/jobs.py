@@ -17,7 +17,13 @@ from app.api.schemas import (
     StateRuns,
 )
 from app.models import Job, JobReturn, Minion
-from app.states import STATE_FUNCTIONS, parse_state_return
+from app.states import (
+    ORCHESTRATE_FUNCTIONS,
+    STATE_FUNCTIONS,
+    StateResult,
+    parse_state_return,
+    unwrap_orchestration,
+)
 
 router = APIRouter()
 
@@ -160,7 +166,14 @@ async def job_detail(jid: str, session: SessionDep) -> JobDetail:
             select(JobReturn).where(JobReturn.jid == jid).order_by(JobReturn.minion_id)
         )
     ).all()
-    is_state = job.fun in STATE_FUNCTIONS
+    is_orchestration = job.kind == "runner" and job.fun in ORCHESTRATE_FUNCTIONS
+    is_state = job.fun in STATE_FUNCTIONS or is_orchestration
+
+    def states(data: Any) -> list[StateResult] | None:
+        if not is_state:
+            return None
+        return parse_state_return(unwrap_orchestration(data) if is_orchestration else data)
+
     return JobDetail(
         **_summary(*row).model_dump(),
         args=job.args,
@@ -173,7 +186,7 @@ async def job_detail(jid: str, session: SessionDep) -> JobDetail:
                 success=r.success,
                 retcode=r.retcode,
                 data=r.data,
-                states=parse_state_return(r.data) if is_state else None,
+                states=states(r.data),
             )
             for r in returns
         ],

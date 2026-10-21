@@ -19,6 +19,7 @@ from app.api import (
     keys,
     live,
     nodegroups,
+    orchestrations,
     statefiles,
     system,
 )
@@ -36,6 +37,7 @@ protected.include_router(jobs.router, tags=["jobs"])
 protected.include_router(keys.router, tags=["keys"])
 protected.include_router(live.router, tags=["live"])
 protected.include_router(nodegroups.router, tags=["nodegroups"])
+protected.include_router(orchestrations.router, tags=["orchestrations"])
 protected.include_router(statefiles.router, tags=["states"])
 protected.include_router(system.router, tags=["system"])
 

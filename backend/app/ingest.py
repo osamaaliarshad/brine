@@ -260,7 +260,10 @@ class Ingest:
             job.fun = fun
             job.started_at = min(job.started_at, at)
             job.args = args or []
-            job.target, job.target_type, job.user = target, target_type, user
+            job.target, job.target_type = target, target_type
+            # Who a job belongs to, once known, sticks: an orchestration step's events say
+            # "salt", but brine has already recorded the person who ran the orchestration.
+            job.user = job.user or user
             job.minions = minions or []
         return Changes(jobs={jid})
 
@@ -287,6 +290,40 @@ class Ingest:
             job.args, job.target, job.target_type = args, target, target_type
             job.user, job.minions = actor, minions
         return Changes(jobs={jid})
+
+    async def master_command(
+        self,
+        *,
+        jid: str,
+        fun: str,
+        args: list[Any],
+        actor: str,
+        at: datetime,
+        data: Any,
+        success: bool | None,
+    ) -> Changes:
+        """A runner someone ran through brine, with its answer: recorded as a runner job under
+        them (Salt's own events name brine's service account, so they're skipped)."""
+        async with self._lock, self._sessions() as s, s.begin():
+            job = await s.get(Job, jid)
+            if job is None:
+                job = Job(jid=jid, kind="runner", fun=fun, started_at=at)
+                s.add(job)
+            job.args, job.user = args, actor
+            ret = await s.get(JobReturn, (jid, "master"))
+            if ret is None:
+                ret = JobReturn(jid=jid, minion_id="master", returned_at=at, data=data)
+                s.add(ret)
+            ret.returned_at, ret.data, ret.success, ret.retcode = at, data, success, None
+        return Changes(jobs={jid})
+
+    async def job_owner(self, jids: Iterable[str], actor: str) -> Changes:
+        """These jobs belong to `actor` (an orchestration's steps, started as "salt")."""
+        wanted = set(jids)
+        async with self._lock, self._sessions() as s, s.begin():
+            for job in (await s.scalars(select(Job).where(Job.jid.in_(wanted)))).all():
+                job.user = actor
+        return Changes(jobs=wanted)
 
     async def job_return(
         self,

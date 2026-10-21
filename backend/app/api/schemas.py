@@ -334,9 +334,44 @@ class CommandPreview(BaseModel):
     from_cache: bool  # matched from the master's cache (grain, compound, nodegroup)
 
 
+class OrchestrationStep(BaseModel):
+    id: str
+    function: str  # salt.state, salt.function, salt.runner, salt.wheel
+    what: str  # the SLS a salt.state step applies, or the function the others run
+    target: str | None
+    target_type: str | None
+    needs: list[str]  # requisites: step IDs it requires, "watch x", "onfail y", ...
+    details: dict[str, Any]  # every other argument
+
+
+class Orchestration(BaseModel):
+    sls: str  # what state.orchestrate takes: orch.rollout
+    path: str
+    steps: list[OrchestrationStep]
+    error: str | None  # the master couldn't render it
+
+
+class Orchestrations(BaseModel):
+    saltenv: str
+    orchestrations: list[Orchestration]
+    truncated: bool  # more .sls files than brine reads in one listing
+    can_run: bool  # whether the signed-in person may run runners.state.orchestrate
+
+
+class CommandTemplate(BaseModel):
+    name: str
+    description: str
+    target: str
+    target_type: str
+    command: str
+    categories: list[str]
+    source: Literal["brine", "master"]  # brine's config, or saltgui_templates on the master
+    allowed: bool  # whether the signed-in person may use it (run its command)
+
+
 class CommandResult(BaseModel):
     client: str
-    jid: str | None = None  # minion commands: follow it on the job page
+    jid: str | None = None  # minion and runner commands: follow it on the job page
     minions: list[str] = Field(default_factory=list)
     result: Any = None  # runner/wheel: what the master answered
     success: bool | None = None

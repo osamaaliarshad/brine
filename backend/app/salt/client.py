@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
 import httpx
@@ -21,6 +21,11 @@ log = logging.getLogger(__name__)
 
 # Re-login when the token has less than this long to live.
 REFRESH_MARGIN_SECONDS = 60
+# salt-api (rest_cherrypy) now and then fails a request with a bare 500, "An unexpected error
+# occurred", when several arrive at once; on the demo, 1 in 30 at four in flight, none at two.
+# brine keeps a few in flight at most and retries the calls that are safe to repeat.
+MAX_IN_FLIGHT = 4
+RETRIES_AFTER_500 = 2
 
 
 class SaltApiError(Exception):
@@ -50,9 +55,11 @@ class SaltApiClient:
         *,
         transport: httpx.AsyncBaseTransport | None = None,
         clock: Callable[[], float] = time.time,
+        pause: Callable[[float], Awaitable[None]] = asyncio.sleep,
     ) -> None:
         self._config = config
         self._clock = clock
+        self._pause = pause
         self._http = httpx.AsyncClient(
             base_url=str(config.url),
             verify=config.verify_tls,
@@ -64,6 +71,7 @@ class SaltApiClient:
         self._expires_at = 0.0
         self._perms: list[Any] = []
         self._login_lock = asyncio.Lock()
+        self._in_flight = asyncio.Semaphore(MAX_IN_FLIGHT)
 
     @property
     def username(self) -> str:
@@ -132,12 +140,29 @@ class SaltApiClient:
         _raise_for_status(resp)
         return resp
 
-    async def run(self, lowstate: dict[str, Any], *, wait_seconds: float | None = None) -> Any:
+    async def run(
+        self,
+        lowstate: dict[str, Any],
+        *,
+        wait_seconds: float | None = None,
+        repeatable: bool = True,
+    ) -> Any:
         """POST one lowstate chunk to salt-api and return its result. `wait_seconds` overrides
-        the configured timeout, for calls that wait on slow work."""
+        the configured timeout, for calls that wait on slow work. Calls that aren't
+        `repeatable` (starting a job, a person's runner) are never retried."""
         extra: dict[str, Any] = {"timeout": wait_seconds} if wait_seconds is not None else {}
+        attempts = 1 + (RETRIES_AFTER_500 if repeatable else 0)
         try:
-            resp = await self._authed("POST", "/", json=[lowstate], **extra)
+            for attempt in range(attempts):
+                try:
+                    async with self._in_flight:
+                        resp = await self._authed("POST", "/", json=[lowstate], **extra)
+                    break
+                except SaltApiError as exc:
+                    if exc.status != 500 or attempt + 1 == attempts:
+                        raise
+                    log.info("salt-api 500 on %s; trying again", lowstate.get("fun"))
+                    await self._pause(0.2 * (attempt + 1))
         except SaltApiForbidden as exc:
             client, fun = str(lowstate.get("client", "")), lowstate.get("fun")
             what = fun if client.startswith("local") else f"{client} {fun}"
@@ -202,7 +227,8 @@ class SaltApiClient:
         }
         if metadata:
             lowstate["metadata"] = metadata
-        result = await self.run(lowstate)
+        # Never retried: a 500 may come after the job started, and it mustn't run twice.
+        result = await self.run(lowstate, repeatable=False)
         if not isinstance(result, dict) or not result.get("jid"):
             return None, []
         return str(result["jid"]), [str(m) for m in result.get("minions") or []]

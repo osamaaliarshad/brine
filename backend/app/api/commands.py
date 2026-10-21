@@ -7,17 +7,20 @@ recorded under the person who ran them.
 
 from __future__ import annotations
 
+import logging
 import re
 from datetime import UTC, datetime
 from fnmatch import fnmatchcase
+from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import RuntimeDep, SessionDep
 from app.api.fleet import reachable
-from app.api.schemas import CommandPreview, CommandRequest, CommandResult
+from app.api.schemas import CommandPreview, CommandRequest, CommandResult, CommandTemplate
 from app.audit import record
 from app.auth.users import CurrentUser, User
 from app.commands import (
@@ -28,9 +31,15 @@ from app.commands import (
     is_allowed,
     parse_command,
 )
+from app.config import TemplateConfig
+from app.ingest import Changes
 from app.models import Minion
 from app.runtime import Runtime
 from app.salt.client import SaltApiError, SaltApiForbidden
+from app.salt.collector import import_job
+from app.states import ORCHESTRATE_FUNCTIONS, parse_state_return, unwrap_orchestration
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/commands")
 
@@ -89,6 +98,56 @@ async def _resolve(
     return sorted(cached) if isinstance(cached, dict) else [], [], True
 
 
+def _may_run(text: str, patterns: list[str]) -> bool:
+    try:
+        return is_allowed(parse_command(text), patterns)
+    except CommandError:
+        return False
+
+
+# SaltGUI's template fields brine understands (it also has `key`, a keyboard shortcut).
+TEMPLATE_FIELDS = {*TemplateConfig.model_fields, "targettype"}
+
+
+@router.get("/templates", response_model=list[CommandTemplate])
+async def templates(runtime: RuntimeDep, user: CurrentUser) -> list[CommandTemplate]:
+    """Ready-made commands: brine's `templates:` and SaltGUI's `saltgui_templates` from the
+    master config (so a team moving from SaltGUI keeps theirs). brine's win on a name clash."""
+    found: dict[str, tuple[TemplateConfig, Literal["brine", "master"]]] = {}
+    try:
+        values = await runtime.client.wheel("config.values")
+    except SaltApiError as exc:
+        log.info("no master templates: %s", exc)
+        values = {}
+    master = values.get("saltgui_templates") if isinstance(values, dict) else None
+    for name, spec in master.items() if isinstance(master, dict) else []:
+        if not isinstance(spec, dict):
+            continue
+        try:
+            known = {k: v for k, v in spec.items() if k in TEMPLATE_FIELDS}
+            found[str(name)] = (TemplateConfig.model_validate(known), "master")
+        except ValidationError:
+            continue  # like SaltGUI, skip what can't be used
+    for name, template in runtime.settings.templates.items():
+        found[name] = (template, "brine")
+
+    patterns = allowed_patterns(user.role, runtime.settings.commands)
+    return [
+        CommandTemplate(
+            name=name,
+            description=spec.description,
+            target=spec.target,
+            target_type=spec.target_type,
+            command=spec.command,
+            categories=list(dict.fromkeys([*filter(None, [spec.category]), *spec.categories])),
+            source=source,
+            # One with no command only fills in the target: usable by anyone who runs things.
+            allowed=_may_run(spec.command, patterns) if spec.command.strip() else bool(patterns),
+        )
+        for name, (spec, source) in sorted(found.items())
+    ]
+
+
 @router.post("/preview", response_model=CommandPreview)
 async def preview(
     body: CommandRequest, runtime: RuntimeDep, session: SessionDep, user: CurrentUser
@@ -121,27 +180,81 @@ async def run(
     command = _command(body, user, runtime)
     if command.client == "local":
         return await _run_on_minions(command, body, runtime, session, user)
+    lowstate: dict[str, Any] = {"client": command.client, "fun": command.fun, "arg": command.args}
+    if command.client == "runner":
+        lowstate["full_return"] = True  # the runner's own jid, to record it as a job
     try:
         answer = await runtime.client.run(
-            {"client": command.client, "fun": command.fun, "arg": command.args},
-            wait_seconds=COMMAND_WAIT_SECONDS,
+            lowstate, wait_seconds=COMMAND_WAIT_SECONDS, repeatable=False
         )
     except SaltApiError as exc:
         raise _salt_error(exc) from exc
 
-    # Wheel answers {"tag", "data": {"return", "success"}}; runners with their return value.
-    value, success = answer, None
-    data = answer.get("data") if isinstance(answer, dict) else None
-    if command.client == "wheel" and isinstance(data, dict):
-        value, success = data.get("return"), data.get("success")
+    value, success, jid = _master_answer(answer)
+    orchestration = command.client == "runner" and command.fun in ORCHESTRATE_FUNCTIONS
+    steps = (parse_state_return(unwrap_orchestration(value)) or []) if orchestration else []
+    if any(step.result is False for step in steps):
+        success = False
+    if command.client != "runner":
+        jid = None  # wheel calls aren't jobs brine keeps
+    if jid:
+        changes = await runtime.ingest.master_command(
+            jid=jid,
+            fun=command.fun,
+            args=command.args,
+            actor=user.email,
+            at=datetime.now(UTC),
+            data=value,
+            success=success,
+        )
+        changes.merge(await _import_steps(runtime, [s.jid for s in steps if s.jid], user.email))
+        runtime.bus.publish_changes(changes)
     await record(
         runtime.sessions,
         actor=user.email,
         action="command.run",
         target="master",
-        detail={"command": command.qualified, "args": command.args, "success": success},
+        detail={"command": command.qualified, "args": command.args, "success": success, "jid": jid},
     )
-    return CommandResult(client=command.client, result=value, success=success)
+    return CommandResult(client=command.client, jid=jid, result=value, success=success)
+
+
+def _master_answer(answer: Any) -> tuple[Any, bool | None, str | None]:
+    """(return value, success, jid). Wheel calls, and runners asked for `full_return`, answer
+    {"tag": "salt/run/<jid>/ret", "data": {"return", "success", "jid"}}; a Salt that ignores
+    full_return answers with the return value alone."""
+    if not isinstance(answer, dict):
+        return answer, None, None
+    tag, data = answer.get("tag"), answer.get("data")
+    if not (isinstance(tag, str) and tag.startswith(("salt/run/", "salt/wheel/"))):
+        return answer, None, None
+    if not isinstance(data, dict):
+        return answer, None, None
+    success = data.get("success")
+    jid = data.get("jid")
+    return (
+        data.get("return"),
+        success if isinstance(success, bool) else None,
+        str(jid or "") or None,
+    )
+
+
+async def _import_steps(runtime: Runtime, jids: list[str], actor: str) -> Changes:
+    """An orchestration's steps run as Salt's own "salt" user: fetch each step's job from the
+    job cache and record it under the person who ran the orchestration."""
+    changes = Changes()
+    for jid in jids:
+        try:
+            changes.merge(
+                await import_job(
+                    runtime.client, runtime.ingest, jid, user=actor, now=datetime.now(UTC)
+                )
+            )
+        except SaltApiError as exc:
+            log.warning("couldn't import orchestration step %s: %s", jid, exc)
+    if jids:
+        changes.merge(await runtime.ingest.job_owner(jids, actor))
+    return changes
 
 
 async def _run_on_minions(
