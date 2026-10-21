@@ -31,16 +31,26 @@ def _app_version() -> str:
 
 
 class SPAStaticFiles(StaticFiles):
-    """Static files that fall back to index.html, so client-side routes survive a reload."""
+    """Static files that fall back to index.html, so client-side routes survive a reload.
+
+    Files under /assets/ have a content hash in their name, so browsers may keep them forever;
+    everything else (index.html above all) is checked on every load, so an upgraded brine shows
+    up without anyone clearing their cache.
+    """
 
     async def get_response(self, path: str, scope: Scope) -> Response:
         try:
-            return await super().get_response(path, scope)
+            response = await super().get_response(path, scope)
         except HTTPException as exc:
             # `path` is OS-normalised (backslashes on Windows), so check the raw request path.
             if exc.status_code != 404 or scope["path"].startswith("/api/"):
                 raise
-            return await super().get_response("index.html", scope)
+            response = await super().get_response("index.html", scope)
+        if scope["path"].startswith("/assets/"):
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        else:
+            response.headers["Cache-Control"] = "no-cache"
+        return response
 
 
 def create_app(

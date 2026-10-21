@@ -23,6 +23,8 @@ def dist(tmp_path: Path) -> Path:
     dist.mkdir()
     (dist / "index.html").write_text("<html>brine</html>", encoding="utf-8")
     (dist / "app.js").write_text("console.log('hi')", encoding="utf-8")
+    (dist / "assets").mkdir()
+    (dist / "assets" / "index-abc123.js").write_text("// built", encoding="utf-8")
     return dist
 
 
@@ -56,6 +58,15 @@ def test_client_routes_fall_back_to_index(settings: Settings, dist: Path) -> Non
         resp = c.get("/jobs/20261019123456789")
     assert resp.status_code == 200
     assert "brine" in resp.text
+
+
+def test_upgrades_reach_browsers(settings: Settings, dist: Path) -> None:
+    # The page itself is always revalidated; hashed build files can be cached for good.
+    with client(settings, dist) as c:
+        assert c.get("/").headers["cache-control"] == "no-cache"
+        assert c.get("/jobs/123").headers["cache-control"] == "no-cache"
+        immutable = c.get("/assets/index-abc123.js").headers["cache-control"]
+    assert immutable == "public, max-age=31536000, immutable"
 
 
 def test_unknown_api_paths_stay_404(settings: Settings, dist: Path) -> None:
