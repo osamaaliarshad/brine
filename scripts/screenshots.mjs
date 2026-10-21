@@ -33,7 +33,7 @@ export const PAGES = [
   ['nodegroups', '/?tab=nodegroups'],
   ['minion', '/minions/rover-01'],
   // Compared with rover-03: rover-agent and the rover-cli check differ.
-  ['packages', '/minions/rover-01?tab=packages&compare=rover-03'],
+  ['packages', '/minions/rover-01?tab=packages&compare=dock-01'],
   ['jobs', '/jobs'],
   ['state-runs', '/jobs?tab=states'],
   // dock-01's latest state.apply, where its calibration state fails on purpose. (Not the latest

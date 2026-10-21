@@ -147,7 +147,7 @@ can't tell.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/grains-dark.png">
-  <img alt="Grains & packages: the rover-agent package at 2.4.1 on two minions, 2.3.0 on one, and not installed on dock-01" src="docs/assets/screenshots/grains-light.png">
+  <img alt="Grains & packages: the rover-agent package at 2.4.1 on three minions and not installed on dock-01; rover-03's upgrade from 2.3.0, found after a job run by local" src="docs/assets/screenshots/grains-light.png">
 </picture>
 
 **Nodegroups** lists the master's nodegroups with their members and how many are online:
@@ -175,7 +175,7 @@ how the whole fleet differs from it:
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/packages-dark.png">
-  <img alt="rover-01's Packages tab compared with rover-03: rover-agent 2.4.1 against 2.3.0, and the rover-cli check, rover-cli 1.2.0 against rover-cli 1.1.0" src="docs/assets/screenshots/packages-light.png">
+  <img alt="rover-01's Packages tab compared with dock-01: rover-agent 2.4.1 against not installed, and the rover-cli check, rover-cli 1.2.0 against not reported" src="docs/assets/screenshots/packages-light.png">
 </picture>
 
 ### Jobs
@@ -300,7 +300,7 @@ on the Fleet page and in the sidebar.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/issues-dark.png">
-  <img alt="The Issues page: a failed state on dock-01, rover-03 offline, and recent state runs that failed on rover-03" src="docs/assets/screenshots/issues-light.png">
+  <img alt="The Issues page: a failed state on dock-01, rover-03 offline, rover-04 waiting for key approval" src="docs/assets/screenshots/issues-light.png">
 </picture>
 
 ### Audit log
