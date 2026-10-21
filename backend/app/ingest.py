@@ -18,9 +18,13 @@ from typing import Any
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.inventory import AFTER_JOB
 from app.models import (
     AuditEntry,
     GrainsSnapshot,
+    InventoryChange,
+    InventoryItem,
+    InventoryRead,
     Job,
     JobReturn,
     Minion,
@@ -77,6 +81,12 @@ def grains_hash(grains: dict[str, Any]) -> str:
 
 def _later(current: datetime | None, candidate: datetime) -> datetime:
     return candidate if current is None or candidate > current else current
+
+
+def _meet_want(read: InventoryRead) -> None:
+    """An answer meets a want (a start, a job) only if brine asked at or after it."""
+    if read.wanted_at is not None and read.asked_at is not None and read.asked_at >= read.wanted_at:
+        read.wanted_at = None
 
 
 class Ingest:
@@ -243,6 +253,123 @@ class Ingest:
             minion.grains, minion.grains_at, minion.grains_source = grains, at, source
             minion.last_seen_at = _later(minion.last_seen_at, at)
         return Changes(fleet=True, minions={mid})
+
+    # --- packages and checks (app/inventory.py) -------------------------------------------
+
+    async def _read_row(self, s: AsyncSession, mid: str, source: str) -> InventoryRead:
+        await self._get_or_create(s, mid, "accepted")
+        read = await s.get(InventoryRead, (mid, source))
+        if read is None:
+            read = InventoryRead(minion_id=mid, source=source)
+            s.add(read)
+        return read
+
+    async def inventory_asked(self, mids: Iterable[str], source: str, *, at: datetime) -> None:
+        async with self._lock, self._sessions() as s, s.begin():
+            for mid in mids:
+                (await self._read_row(s, mid, source)).asked_at = at
+
+    async def inventory_wanted(self, mid: str, *, at: datetime) -> None:
+        """The minion started: read each source again from `at` on. A minion never read has no
+        rows, and is due anyway."""
+        async with self._lock, self._sessions() as s, s.begin():
+            for read in await s.scalars(select(InventoryRead).filter_by(minion_id=mid)):
+                read.wanted_at = _later(read.wanted_at, at)
+
+    async def inventory_job_done(
+        self, mid: str, *, jid: str, user: str | None, at: datetime
+    ) -> None:
+        """A person's job that may change software finished on `mid` at `at`: read it again
+        shortly, and credit what that read finds to the job. The latest job wins."""
+        async with self._lock, self._sessions() as s, s.begin():
+            for read in await s.scalars(select(InventoryRead).filter_by(minion_id=mid)):
+                read.wanted_at = _later(read.wanted_at, at + AFTER_JOB)
+                if read.after_at is None or at >= read.after_at:
+                    read.after_jid, read.after_user, read.after_at = jid, user, at
+
+    async def inventory_read(
+        self,
+        mid: str,
+        source: str,
+        entries: dict[str, str],
+        *,
+        at: datetime,
+        truncated: bool = False,
+    ) -> Changes:
+        """A good answer: these are all the entries `mid` has for `source`, as of `at`. Each
+        difference from the last read is a change; the first read records what's there without
+        any ("already there when brine first looked")."""
+        async with self._lock, self._sessions() as s, s.begin():
+            read = await self._read_row(s, mid, source)
+            if read.read_at is not None and at <= read.read_at:
+                return Changes()  # an older answer arriving late, or a duplicate
+            first, since = read.first_read_at is None, read.read_at
+            # Changes go to the job only if brine asked after it: an answer to an older ask may
+            # show a change made before the job. Otherwise the credit waits for the next answer.
+            credited = (
+                read.after_at is not None
+                and read.asked_at is not None
+                and read.asked_at >= read.after_at
+                and at >= read.after_at
+            )
+            jid, user = (read.after_jid, read.after_user) if credited else (None, None)
+            current = {
+                item.name: item
+                for item in await s.scalars(
+                    select(InventoryItem).filter_by(minion_id=mid, source=source)
+                )
+            }
+            moved: list[tuple[str, str | None, str | None]] = []
+            for name, value in entries.items():
+                item = current.pop(name, None)
+                if item is None:
+                    s.add(
+                        InventoryItem(
+                            minion_id=mid, source=source, name=name, value=value, since=at
+                        )
+                    )
+                    moved.append((name, None, value))
+                elif item.value != value:
+                    moved.append((name, item.value, value))
+                    item.value, item.since = value, at
+            for name, item in current.items():
+                moved.append((name, item.value, None))
+                await s.delete(item)
+            if not first:
+                s.add_all(
+                    InventoryChange(
+                        minion_id=mid,
+                        source=source,
+                        name=name,
+                        old=old,
+                        new=new,
+                        at=at,
+                        since=since,
+                        jid=jid,
+                        user=user,
+                    )
+                    for name, old, new in moved
+                )
+            if credited:
+                read.after_jid = read.after_user = read.after_at = None
+            read.read_at, read.truncated = at, truncated
+            read.first_read_at = read.first_read_at or at
+            # A failed answer from after this one (it arrived first) stays the latest answer.
+            if read.answered_at is None or at >= read.answered_at:
+                read.answered_at, read.error = at, None
+            _meet_want(read)
+        return Changes(fleet=bool(moved), minions={mid})
+
+    async def inventory_failed(self, mid: str, source: str, error: str, *, at: datetime) -> Changes:
+        """The minion answered but couldn't say (a locked package database, a failing check).
+        The last good entries stay, as of when they were read."""
+        async with self._lock, self._sessions() as s, s.begin():
+            read = await self._read_row(s, mid, source)
+            if read.answered_at is not None and at <= read.answered_at:
+                return Changes()  # an older answer arriving late, or a duplicate
+            read.answered_at, read.error = at, error
+            _meet_want(read)
+        return Changes(minions={mid})
 
     # --- jobs -----------------------------------------------------------------------------
 
@@ -463,6 +590,12 @@ class Ingest:
                     s,
                     "grains_snapshots",
                     delete(GrainsSnapshot).where(GrainsSnapshot.collected_at < history_before),
+                )
+                # Only the history: current packages and check entries are never pruned.
+                await drop(
+                    s,
+                    "inventory_changes",
+                    delete(InventoryChange).where(InventoryChange.at < history_before),
                 )
             if audit_before is not None:
                 await drop(s, "audit", delete(AuditEntry).where(AuditEntry.at < audit_before))

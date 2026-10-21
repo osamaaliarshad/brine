@@ -4,7 +4,17 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.ingest import PRESENCE_STATE, Ingest
-from app.models import GrainsSnapshot, Job, JobReturn, Minion, PresenceChange
+from app.inventory import AFTER_JOB
+from app.models import (
+    GrainsSnapshot,
+    InventoryChange,
+    InventoryItem,
+    InventoryRead,
+    Job,
+    JobReturn,
+    Minion,
+    PresenceChange,
+)
 from tests.conftest import T0
 
 Sessions = async_sessionmaker[AsyncSession]
@@ -271,3 +281,269 @@ async def test_job_cache_times_never_move_a_recorded_job(
     async with sessions() as s:
         job = await s.get(Job, "j3")
         assert job is not None and job.started_at == T0
+
+
+# --- packages and checks --------------------------------------------------------------------
+
+
+async def items(sessions: Sessions, mid: str, source: str = "packages") -> dict[str, str]:
+    async with sessions() as s:
+        rows = await s.scalars(select(InventoryItem).filter_by(minion_id=mid, source=source))
+        return {r.name: r.value for r in rows}
+
+
+async def changes_of(sessions: Sessions, mid: str) -> list[InventoryChange]:
+    async with sessions() as s:
+        q = select(InventoryChange).filter_by(minion_id=mid).order_by(InventoryChange.id)
+        return list((await s.scalars(q)).all())
+
+
+async def read_row(sessions: Sessions, mid: str, source: str = "packages") -> InventoryRead:
+    async with sessions() as s:
+        read = await s.get(InventoryRead, (mid, source))
+        assert read is not None
+        return read
+
+
+async def test_first_read_records_without_changes(ingest: Ingest, sessions: Sessions) -> None:
+    changes = await ingest.inventory_read("a", "packages", {"bash": "5.2", "agent": "2.3.0"}, at=T0)
+    assert changes.minions == {"a"} and changes.fleet
+    assert await items(sessions, "a") == {"bash": "5.2", "agent": "2.3.0"}
+    assert await changes_of(sessions, "a") == []  # "already there when brine first looked"
+    read = await read_row(sessions, "a")
+    assert read.read_at == read.answered_at == read.first_read_at == T0
+    assert (await minion(sessions, "a")).key_state == "accepted"
+
+
+async def test_later_reads_record_each_change(ingest: Ingest, sessions: Sessions) -> None:
+    await ingest.inventory_read("a", "packages", {"bash": "5.2", "agent": "2.3.0"}, at=T0)
+    later = T0 + timedelta(hours=6)
+    await ingest.inventory_read("a", "packages", {"agent": "2.4.1", "curl": "8"}, at=later)
+    got = {(c.name, c.old, c.new) for c in await changes_of(sessions, "a")}
+    assert got == {("agent", "2.3.0", "2.4.1"), ("curl", None, "8"), ("bash", "5.2", None)}
+    assert all(c.since == T0 and c.at == later for c in await changes_of(sessions, "a"))
+    assert all(c.jid is None and c.user is None for c in await changes_of(sessions, "a"))
+    async with sessions() as s:
+        agent = await s.get(InventoryItem, ("a", "packages", "agent"))
+        assert agent is not None and agent.since == later
+    read = await read_row(sessions, "a")
+    assert read.read_at == later and read.first_read_at == T0
+
+
+async def test_the_return_says_what_moved(ingest: Ingest) -> None:
+    hour = timedelta(hours=1)
+    await ingest.inventory_read("a", "packages", {"agent": "2.3.0"}, at=T0)
+    same = await ingest.inventory_read("a", "packages", {"agent": "2.3.0"}, at=T0 + hour)
+    assert same.minions == {"a"} and not same.fleet  # the page refreshes ("as of" moved)
+    moved = await ingest.inventory_read("a", "packages", {"agent": "2.4.1"}, at=T0 + 2 * hour)
+    assert moved.minions == {"a"} and moved.fleet
+    failed = await ingest.inventory_failed("a", "packages", "locked", at=T0 + 3 * hour)
+    assert failed.minions == {"a"} and not failed.fleet
+
+
+async def test_changes_after_a_job_are_credited_to_it(ingest: Ingest, sessions: Sessions) -> None:
+    await ingest.inventory_read("a", "packages", {"agent": "2.3.0"}, at=T0)
+    job_at = T0 + timedelta(hours=1)
+    await ingest.inventory_job_done("a", jid="J1", user="alice@example.com", at=job_at)
+    await ingest.inventory_asked(["a"], "packages", at=job_at + timedelta(seconds=61))
+    await ingest.inventory_read(
+        "a", "packages", {"agent": "2.4.1"}, at=job_at + timedelta(minutes=2)
+    )
+    (change,) = await changes_of(sessions, "a")
+    assert (change.jid, change.user) == ("J1", "alice@example.com")
+    read = await read_row(sessions, "a")
+    assert read.after_jid is None and read.after_user is None and read.after_at is None
+    # The credit is used up: the next change isn't the job's.
+    await ingest.inventory_read("a", "packages", {"agent": "2.5.0"}, at=T0 + timedelta(hours=8))
+    assert (await changes_of(sessions, "a"))[-1].jid is None
+
+
+async def test_an_answer_to_an_ask_before_the_job_is_not_credited(
+    ingest: Ingest, sessions: Sessions
+) -> None:
+    minute = timedelta(minutes=1)
+    await ingest.inventory_read("a", "packages", {"agent": "2.3.0"}, at=T0)
+    await ingest.inventory_asked(["a"], "packages", at=T0 + timedelta(hours=1))
+    job_at = T0 + timedelta(hours=1) + minute
+    await ingest.inventory_job_done("a", jid="J1", user="alice", at=job_at)
+    # The answer to the earlier ask: what changed may predate the job.
+    await ingest.inventory_read("a", "packages", {"agent": "2.4.0"}, at=job_at + minute)
+    assert (await changes_of(sessions, "a"))[-1].jid is None
+    read = await read_row(sessions, "a")
+    assert (read.after_jid, read.after_user, read.after_at) == ("J1", "alice", job_at)
+    # The credit waits for the answer to an ask made after the job.
+    await ingest.inventory_asked(["a"], "packages", at=job_at + 5 * minute)
+    await ingest.inventory_read("a", "packages", {"agent": "2.4.1"}, at=job_at + 6 * minute)
+    last = (await changes_of(sessions, "a"))[-1]
+    assert (last.old, last.new, last.jid, last.user) == ("2.4.0", "2.4.1", "J1", "alice")
+
+
+async def test_the_latest_job_wins_the_credit(ingest: Ingest, sessions: Sessions) -> None:
+    await ingest.inventory_read("a", "packages", {"agent": "2.3.0"}, at=T0)
+    await ingest.inventory_job_done("a", jid="J1", user="alice", at=T0 + timedelta(hours=1))
+    await ingest.inventory_job_done("a", jid="J2", user="bob", at=T0 + timedelta(hours=2))
+    # A late report of an earlier job doesn't take the credit back.
+    await ingest.inventory_job_done("a", jid="J0", user="carol", at=T0 + timedelta(minutes=30))
+    read = await read_row(sessions, "a")
+    assert (read.after_jid, read.after_user) == ("J2", "bob")
+    assert read.wanted_at == T0 + timedelta(hours=2) + AFTER_JOB
+
+
+async def test_a_job_wants_a_read_shortly_after_it(ingest: Ingest, sessions: Sessions) -> None:
+    await ingest.inventory_asked(["a"], "packages", at=T0)
+    await ingest.inventory_read("a", "packages", {"agent": "2.3.0"}, at=T0 + timedelta(seconds=5))
+    job_at = T0 + timedelta(hours=1)
+    await ingest.inventory_job_done("a", jid="J1", user="alice", at=job_at)
+    assert (await read_row(sessions, "a")).wanted_at == job_at + AFTER_JOB
+
+    # An answer to an ask made before the want doesn't meet it ...
+    await ingest.inventory_asked(["a"], "packages", at=job_at)
+    await ingest.inventory_read("a", "packages", {"agent": "2.3.0"}, at=job_at + AFTER_JOB * 2)
+    assert (await read_row(sessions, "a")).wanted_at == job_at + AFTER_JOB
+    # ... the answer to one made at or after it does.
+    await ingest.inventory_asked(["a"], "packages", at=job_at + AFTER_JOB * 3)
+    await ingest.inventory_read("a", "packages", {"agent": "2.4.1"}, at=job_at + AFTER_JOB * 4)
+    assert (await read_row(sessions, "a")).wanted_at is None
+
+
+async def test_a_job_on_a_minion_never_read_does_nothing(
+    ingest: Ingest, sessions: Sessions
+) -> None:
+    await ingest.inventory_job_done("a", jid="J1", user="alice", at=T0)
+    await ingest.inventory_wanted("a", at=T0)
+    assert await count(sessions, InventoryRead) == 0  # never read: it's due anyway
+
+
+async def test_a_start_wants_every_source_read_again(ingest: Ingest, sessions: Sessions) -> None:
+    await ingest.inventory_read("a", "packages", {"agent": "2.3.0"}, at=T0)
+    await ingest.inventory_read("a", "rover", {"": "1.0"}, at=T0)
+    await ingest.inventory_read("b", "packages", {"agent": "2.3.0"}, at=T0)
+    started = T0 + timedelta(hours=1)
+    await ingest.inventory_wanted("a", at=started)
+    assert (await read_row(sessions, "a")).wanted_at == started
+    assert (await read_row(sessions, "a", "rover")).wanted_at == started
+    assert (await read_row(sessions, "b")).wanted_at is None
+    assert await count(sessions, InventoryRead) == 3
+
+
+async def test_asks_are_recorded_for_each_minion(ingest: Ingest, sessions: Sessions) -> None:
+    await ingest.inventory_asked(["a", "b"], "packages", at=T0)
+    for mid in ("a", "b"):
+        read = await read_row(sessions, mid)
+        assert read.asked_at == T0 and read.answered_at is None and read.read_at is None
+        assert (await minion(sessions, mid)).key_state == "accepted"
+    await ingest.inventory_asked(["a"], "packages", at=T0 + timedelta(hours=6))
+    assert (await read_row(sessions, "a")).asked_at == T0 + timedelta(hours=6)
+
+
+async def test_late_answers_are_ignored(ingest: Ingest, sessions: Sessions) -> None:
+    await ingest.inventory_read("a", "packages", {"agent": "2.4.1"}, at=T0 + timedelta(hours=1))
+    assert not await ingest.inventory_read("a", "packages", {"agent": "2.3.0"}, at=T0)
+    # The same answer delivered twice changes nothing either.
+    assert not await ingest.inventory_read(
+        "a", "packages", {"agent": "2.3.0"}, at=T0 + timedelta(hours=1)
+    )
+    assert await items(sessions, "a") == {"agent": "2.4.1"}
+    assert await changes_of(sessions, "a") == []
+
+    assert not await ingest.inventory_failed("a", "packages", "locked", at=T0)
+    read = await read_row(sessions, "a")
+    assert read.error is None and read.answered_at == T0 + timedelta(hours=1)
+
+
+async def test_a_failed_read_keeps_the_last_good_one(ingest: Ingest, sessions: Sessions) -> None:
+    await ingest.inventory_read("a", "packages", {"agent": "2.3.0"}, at=T0)
+    failed_at = T0 + timedelta(hours=6)
+    await ingest.inventory_failed("a", "packages", "dpkg database locked", at=failed_at)
+    assert await items(sessions, "a") == {"agent": "2.3.0"}
+    read = await read_row(sessions, "a")
+    assert read.error == "dpkg database locked" and read.read_at == T0
+    assert read.answered_at == failed_at
+
+    later = T0 + timedelta(hours=12)
+    await ingest.inventory_read("a", "packages", {"agent": "2.4.1"}, at=later)
+    read = await read_row(sessions, "a")
+    assert read.error is None and read.read_at == read.answered_at == later
+    (change,) = await changes_of(sessions, "a")
+    assert change.since == T0  # between the last two good reads
+
+
+async def test_a_late_good_answer_after_a_failure(ingest: Ingest, sessions: Sessions) -> None:
+    await ingest.inventory_read("a", "packages", {"agent": "2.3.0"}, at=T0)
+    await ingest.inventory_failed("a", "packages", "locked", at=T0 + timedelta(hours=2))
+    # Newer than the last good read, so its entries are kept; the failure is still the latest.
+    await ingest.inventory_read("a", "packages", {"agent": "2.4.1"}, at=T0 + timedelta(hours=1))
+    assert await items(sessions, "a") == {"agent": "2.4.1"}
+    read = await read_row(sessions, "a")
+    assert read.read_at == T0 + timedelta(hours=1)
+    assert read.answered_at == T0 + timedelta(hours=2) and read.error == "locked"
+
+
+async def test_a_failure_meets_a_want_like_a_good_answer(
+    ingest: Ingest, sessions: Sessions
+) -> None:
+    await ingest.inventory_read("a", "packages", {"agent": "2.3.0"}, at=T0)
+    await ingest.inventory_wanted("a", at=T0 + timedelta(hours=1))
+    await ingest.inventory_asked(["a"], "packages", at=T0 + timedelta(hours=1))
+    await ingest.inventory_failed("a", "packages", "locked", at=T0 + timedelta(hours=1, seconds=5))
+    assert (await read_row(sessions, "a")).wanted_at is None
+
+
+async def test_failing_before_any_good_read(ingest: Ingest, sessions: Sessions) -> None:
+    changes = await ingest.inventory_failed("a", "packages", "locked", at=T0)
+    assert changes.minions == {"a"}
+    read = await read_row(sessions, "a")
+    assert read.error == "locked" and read.read_at is None and read.first_read_at is None
+    # The first good read after it is still the first: no changes.
+    await ingest.inventory_read("a", "packages", {"agent": "2.3.0"}, at=T0 + timedelta(hours=1))
+    assert await changes_of(sessions, "a") == []
+
+
+async def test_sources_are_independent(ingest: Ingest, sessions: Sessions) -> None:
+    await ingest.inventory_read("a", "packages", {"agent": "2.3.0"}, at=T0)
+    await ingest.inventory_read("a", "services", {"agent": "running"}, at=T0)
+    await ingest.inventory_read("a", "packages", {"curl": "8"}, at=T0 + timedelta(hours=1))
+    assert await items(sessions, "a", "services") == {"agent": "running"}
+    assert await items(sessions, "a") == {"curl": "8"}
+    assert {c.source for c in await changes_of(sessions, "a")} == {"packages"}
+    await ingest.inventory_failed("a", "services", "exit 1", at=T0 + timedelta(hours=2))
+    assert (await read_row(sessions, "a")).error is None
+    assert (await read_row(sessions, "a", "services")).error == "exit 1"
+
+
+async def test_a_single_value_check(ingest: Ingest, sessions: Sessions) -> None:
+    await ingest.inventory_read("a", "rover", {"": "rover 1.0"}, at=T0)
+    assert await items(sessions, "a", "rover") == {"": "rover 1.0"}
+    await ingest.inventory_read("a", "rover", {"": "rover 1.1"}, at=T0 + timedelta(hours=1))
+    (change,) = await changes_of(sessions, "a")
+    assert (change.source, change.name, change.old, change.new) == (
+        "rover",
+        "",
+        "rover 1.0",
+        "rover 1.1",
+    )
+    # No output: the thing isn't there any more.
+    await ingest.inventory_read("a", "rover", {}, at=T0 + timedelta(hours=2))
+    assert await items(sessions, "a", "rover") == {}
+    assert (await changes_of(sessions, "a"))[-1].new is None
+
+
+async def test_truncated_is_stored(ingest: Ingest, sessions: Sessions) -> None:
+    await ingest.inventory_read("a", "packages", {"agent": "2.3.0"}, at=T0, truncated=True)
+    assert (await read_row(sessions, "a")).truncated
+    await ingest.inventory_read("a", "packages", {"agent": "2.3.0"}, at=T0 + timedelta(hours=1))
+    assert not (await read_row(sessions, "a")).truncated
+
+
+async def test_old_changes_are_pruned(ingest: Ingest, sessions: Sessions) -> None:
+    await ingest.inventory_read("a", "packages", {"agent": "2.3.0"}, at=T0)
+    await ingest.inventory_read("a", "packages", {"agent": "2.4.1"}, at=T0 + timedelta(days=1))
+    await ingest.inventory_read("a", "packages", {"agent": "2.5.0"}, at=T0 + timedelta(days=3))
+    deleted = await ingest.prune(
+        jobs_before=None, history_before=T0 + timedelta(days=2), audit_before=None
+    )
+    assert deleted["inventory_changes"] == 1
+    assert [c.new for c in await changes_of(sessions, "a")] == ["2.5.0"]
+    # Current entries are never pruned, however old.
+    await ingest.prune(jobs_before=None, history_before=T0 + timedelta(days=30), audit_before=None)
+    assert await items(sessions, "a") == {"agent": "2.5.0"}
