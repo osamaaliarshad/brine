@@ -20,7 +20,7 @@ from app.commands import (
 from app.config import CommandsConfig, parse_config
 from app.main import create_app
 from app.models import AuditEntry
-from app.salt.client import SaltApiForbidden
+from app.salt.client import SaltApiForbidden, SaltApiUnavailable
 from tests.test_api import Api
 
 CSRF = {"X-Requested-With": "brine"}
@@ -36,6 +36,7 @@ class FakeSalt:
         self.job_cache: dict[str, Any] = {}
         self.master_config: dict[str, Any] = {}
         self.next_jid = int(JID)
+        self.start_error: Exception | None = None
 
     async def permissions(self) -> list[Any]:
         return []
@@ -58,6 +59,8 @@ class FakeSalt:
         self.calls.append(("start_job", fun, {"tgt": tgt, **kwargs}))
         if fun in self.forbidden:
             raise SaltApiForbidden(f"brine's Salt account isn't allowed to run {fun}", 403)
+        if self.start_error:
+            raise self.start_error
         jid, self.next_jid = str(self.next_jid), self.next_jid + 1
         if kwargs.get("tgt_type") == "list":
             return jid, tgt.split(",")
@@ -221,11 +224,12 @@ def test_running_records_the_job_under_the_person(operator: tuple[Api, FakeSalt]
         "success": None,
         "waiting": [],
     }
+    # Exactly the previewed minions; the job still shows the target as typed.
     assert salt.started() == [
         {
-            "tgt": "rover-0*",
+            "tgt": "rover-01,rover-02,rover-03",
             "arg": [],
-            "tgt_type": "glob",
+            "tgt_type": "list",
             "metadata": {"brine": {"actor": "local"}},
         }
     ]
@@ -492,7 +496,9 @@ def test_salt_refusing_says_what_to_add(admin: tuple[Api, FakeSalt]) -> None:
     resp = post(api, "run", command="cmd.run uptime", target="rover-01", expect=["rover-01"])
     assert resp.status_code == 403
     assert "cmd.run" in resp.json()["detail"] and "external_auth" in resp.json()["detail"]
-    assert audit_rows(api) == []
+    (failed,) = audit_rows(api)  # even a refused run leaves a trace
+    assert failed.action == "command.failed" and failed.detail is not None
+    assert "isn't allowed" in failed.detail["error"]
 
 
 def test_unreadable_commands_are_422(operator: tuple[Api, FakeSalt]) -> None:
@@ -500,3 +506,12 @@ def test_unreadable_commands_are_422(operator: tuple[Api, FakeSalt]) -> None:
     resp = post(api, "preview", command="test.ping 'oops", target="*")
     assert resp.status_code == 422 and "No closing quotation" in resp.json()["detail"]
     assert post(api, "preview", command="test.ping", target=" ").status_code == 422
+
+
+def test_a_run_that_may_have_gone_through_says_so(admin: tuple[Api, FakeSalt]) -> None:
+    api, salt = admin
+    salt.start_error = SaltApiUnavailable("salt-api didn't answer (ReadTimeout)", sent=True)
+    resp = post(api, "run", command="test.ping", target="rover-01", expect=["rover-01"])
+    assert resp.status_code == 502 and "check Jobs before running it again" in resp.json()["detail"]
+    (failed,) = audit_rows(api)
+    assert failed.action == "command.failed"

@@ -127,7 +127,9 @@ install never shows buttons that would fail.
 The Run page never runs anything on Enter: it previews the exact minions a target matches (from
 brine's key list for glob, list and regex targets; from the master's cache for grain, compound
 and nodegroup ones) and running is a separate click. If the target matches other minions by
-then, the run is refused and the preview shown again.
+then, the run is refused and the preview shown again. The job goes to exactly the previewed
+minions, as a list: Salt doesn't get to work a grain or compound target out again from a cache
+that may have moved on. Runs that fail, or time out and may still be going, are audited too.
 
 Two layers decide what runs. Salt's external_auth limits brine's account; `commands:` in brine's
 config lists what each role may run (fnmatch, `runners.`/`wheel.` prefixes for master-side

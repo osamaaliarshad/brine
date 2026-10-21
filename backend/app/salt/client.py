@@ -41,7 +41,13 @@ class SaltApiError(Exception):
 
 
 class SaltApiUnavailable(SaltApiError):
-    """salt-api (or the master behind it) can't be reached right now."""
+    """salt-api (or the master behind it) can't be reached right now. `sent` says whether the
+    request may have got through anyway (a timeout while waiting for the answer): then
+    whatever it asked for may have happened."""
+
+    def __init__(self, message: str, status: int | None = None, *, sent: bool = False) -> None:
+        super().__init__(message, status)
+        self.sent = sent
 
 
 class SaltApiAuthError(SaltApiError):
@@ -128,8 +134,13 @@ class SaltApiClient:
     async def _send(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
         try:
             return await self._http.request(method, path, **kwargs)
-        except httpx.TransportError as exc:
+        except (httpx.ConnectError, httpx.ConnectTimeout) as exc:
             raise SaltApiUnavailable(f"can't reach salt-api at {self._config.url}: {exc}") from exc
+        except httpx.TransportError as exc:
+            raise SaltApiUnavailable(
+                f"salt-api didn't answer ({type(exc).__name__}); it may still have done it",
+                sent=True,
+            ) from exc
 
     async def _authed(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
         token = await self._get_token()
@@ -285,7 +296,10 @@ def _raise_for_status(resp: httpx.Response) -> None:
     except httpx.ResponseNotRead:  # streaming response; the body isn't worth reading here
         detail = ""
     if resp.status_code in (502, 503, 504):
-        raise SaltApiUnavailable(f"salt-api returned {resp.status_code}", resp.status_code)
+        # 504: a proxy gave up waiting, so salt-api may have done it.
+        raise SaltApiUnavailable(
+            f"salt-api returned {resp.status_code}", resp.status_code, sent=resp.status_code == 504
+        )
     if resp.status_code == 401:
         raise SaltApiAuthError("salt-api rejected the token", 401)
     raise SaltApiError(f"salt-api returned {resp.status_code}: {detail}", resp.status_code)

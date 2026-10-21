@@ -7,6 +7,8 @@ import { formatAbsolute, formatDuration, formatRelative } from '@/lib/time'
 
 const STATE_LABEL: Record<CatchUpRun['state'], string> = {
   waiting: 'Waiting',
+  sending: 'Sending',
+  failed: 'Failed',
   sent: 'Caught up',
   expired: 'Expired',
   cancelled: 'Cancelled',
@@ -16,6 +18,8 @@ const STATE_LABEL: Record<CatchUpRun['state'], string> = {
 
 const STATE_STYLE: Record<CatchUpRun['state'], string> = {
   waiting: 'bg-warn/15 text-warn',
+  sending: 'bg-warn/15 text-warn',
+  failed: 'bg-danger/15 text-danger',
   sent: 'bg-online/15 text-online',
   expired: 'bg-surface-2 text-muted',
   cancelled: 'bg-surface-2 text-muted',
@@ -73,6 +77,7 @@ export function CatchUpPanel({ runs, now }: { runs: CatchUpRun[]; now: number })
             {run.state === 'waiting' && (me?.email === run.actor || me?.role === 'admin') && (
               <button
                 type="button"
+                aria-label={`Cancel the catch-up for ${run.minion_id}`}
                 onClick={() => cancel.mutate(run.id)}
                 disabled={cancel.isPending}
                 className="h-8 rounded-lg border px-3 text-xs hover:bg-surface-2 disabled:opacity-50"

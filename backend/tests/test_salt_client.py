@@ -286,3 +286,17 @@ async def test_a_silent_event_stream_ends_cleanly(client: SaltApiClient) -> None
     respx.post(f"{API}/login").mock(return_value=login_ok("t"))
     respx.get(f"{API}/events").mock(side_effect=httpx.ReadTimeout("silent"))
     assert [event async for event in client.events()] == []
+
+
+@respx.mock
+async def test_knows_whether_a_request_may_have_gone_through(client: SaltApiClient) -> None:
+    respx.post(f"{API}/login").mock(return_value=login_ok("t"))
+    respx.post(f"{API}/").mock(side_effect=httpx.ConnectError("refused"))
+    with pytest.raises(SaltApiUnavailable) as never_sent:
+        await client.start_job("m1", "test.ping")
+    assert never_sent.value.sent is False
+
+    respx.post(f"{API}/").mock(side_effect=httpx.ReadTimeout("slow"))
+    with pytest.raises(SaltApiUnavailable) as maybe_sent:
+        await client.start_job("m1", "test.ping")
+    assert maybe_sent.value.sent is True

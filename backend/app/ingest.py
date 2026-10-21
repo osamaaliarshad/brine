@@ -370,13 +370,33 @@ class Ingest:
                 changes.minions.add(mid)
         return changes
 
+    async def catch_up_claim(self, run_id: int) -> bool:
+        """Take a waiting run for sending (waiting -> sending). False if it isn't waiting any
+        more (cancelled or replaced meanwhile), so it's never sent."""
+        async with self._lock, self._sessions() as s, s.begin():
+            run = await s.get(PendingRun, run_id)
+            if run is None or run.state != "waiting":
+                return False
+            run.state = "sending"
+            return True
+
     async def catch_up_sent(self, run_id: int, *, jid: str, at: datetime) -> Changes:
         async with self._lock, self._sessions() as s, s.begin():
             run = await s.get(PendingRun, run_id)
-            if run is None:
+            if run is None or run.state != "sending":
                 return Changes()
             run.state, run.sent_jid, run.sent_at = "sent", jid, at
             return Changes(jobs={run.source_jid, jid}, minions={run.minion_id})
+
+    async def catch_up_unsent(self, run_id: int, *, state: str, reason: str | None) -> Changes:
+        """Sending didn't work out: back to waiting (it certainly didn't go out), failed (it
+        may have), or refused (Salt doesn't know the minion any more)."""
+        async with self._lock, self._sessions() as s, s.begin():
+            run = await s.get(PendingRun, run_id)
+            if run is None or run.state != "sending":
+                return Changes()
+            run.state, run.reason = state, reason
+            return Changes(jobs={run.source_jid}, minions={run.minion_id})
 
     async def catch_up_close(self, run_id: int, *, state: str, reason: str) -> Changes:
         """End a waiting run without sending it: cancelled or refused."""

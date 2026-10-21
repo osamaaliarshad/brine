@@ -123,7 +123,8 @@ class PendingRun(Base):
     actor: Mapped[str] = mapped_column(String(255))
     created_at: Mapped[datetime]
     expires_at: Mapped[datetime]
-    # waiting -> sent; or expired, cancelled, replaced (a newer identical one), refused.
+    # waiting -> sending -> sent; or expired, cancelled, replaced (a newer identical one),
+    # refused (not allowed any more), failed (salt-api failed after it may have gone out).
     state: Mapped[str] = mapped_column(String(16), default="waiting")
     reason: Mapped[str | None] = mapped_column(Text)
     sent_jid: Mapped[str | None] = mapped_column(String(32))

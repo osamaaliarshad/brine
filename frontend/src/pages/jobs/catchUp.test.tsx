@@ -75,8 +75,8 @@ describe('catch-up runs', () => {
     expect(rows[0]).toHaveTextContent("rover-03WaitingRuns when it's back · gives up in 6d")
     expect(within(rows[1]!).getByRole('link', { name: 'its job' })).toHaveAttribute('href', '/jobs/20261020121000000009')
     expect(rows[2]).toHaveTextContent('Not sento@example.com may no longer run test.echo')
-    expect(within(panel).getAllByRole('button', { name: 'Cancel' })).toHaveLength(1)
-    await user.click(within(rows[0]!).getByRole('button', { name: 'Cancel' }))
+    expect(within(panel).getAllByRole('button', { name: /^Cancel/ })).toHaveLength(1)
+    await user.click(within(rows[0]!).getByRole('button', { name: 'Cancel the catch-up for rover-03' }))
     expect(cancelled).toEqual(['/api/commands/catch-up/1/cancel'])
   })
 

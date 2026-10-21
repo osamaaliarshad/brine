@@ -95,7 +95,7 @@ export type CatchUpRun = {
   actor: string
   created_at: string
   expires_at: string
-  state: 'waiting' | 'sent' | 'expired' | 'cancelled' | 'replaced' | 'refused'
+  state: 'waiting' | 'sending' | 'sent' | 'expired' | 'cancelled' | 'replaced' | 'refused' | 'failed'
   reason: string | null
   sent_jid: string | null
   sent_at: string | null

@@ -15,6 +15,7 @@ const ACTIONS: Record<string, string> = {
   'key.reject': 'Rejected key',
   'key.delete': 'Deleted key',
   'command.run': 'Ran command',
+  'command.failed': 'Command failed',
   'command.catch_up': 'Caught up a minion',
   'command.catch_up_cancelled': 'Cancelled a catch-up',
 }
@@ -127,7 +128,10 @@ export function AuditPage() {
                     <td className="px-4 py-3">
                       <span
                         className={cn(
-                          (e.action.endsWith('_denied') || e.action === 'key.reject' || e.action === 'key.delete') &&
+                          (e.action.endsWith('_denied') ||
+                            e.action === 'key.reject' ||
+                            e.action === 'key.delete' ||
+                            e.action === 'command.failed') &&
                             'text-danger',
                         )}
                       >

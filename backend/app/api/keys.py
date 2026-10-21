@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 
 from app.api.deps import RuntimeDep, SessionDep
+from app.api.errors import salt_http_error
 from app.api.fleet import presence_blind, presence_info
 from app.api.schemas import (
     Capabilities,
@@ -29,7 +30,7 @@ from app.ingest import KEY_LIST_FIELDS
 from app.models import Minion
 from app.runtime import Runtime
 from app.salt.acl import missing
-from app.salt.client import SaltApiError, SaltApiForbidden
+from app.salt.client import SaltApiError
 from app.status import minion_status
 
 router = APIRouter()
@@ -165,14 +166,8 @@ async def key_action(
         found = await _key_on_master(runtime, minion_id)
         after = _states(found)
         key_lists = await runtime.client.wheel("key.list_all")
-    except SaltApiForbidden as exc:
-        raise HTTPException(
-            403,
-            f"{exc}. Add it to external_auth for that account "
-            "(see docs/permissions-and-salt-acl.md).",
-        ) from exc
     except SaltApiError as exc:
-        raise HTTPException(502, f"salt-api: {exc}") from exc
+        raise salt_http_error(exc) from exc
 
     done = body.state not in after if result_state == "deleted" else result_state in after
     if not done:

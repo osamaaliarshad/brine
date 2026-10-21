@@ -10,7 +10,8 @@ from sqlalchemy import select
 
 from app import catchup
 from app.config import CommandsConfig
-from app.models import AuditEntry
+from app.models import AuditEntry, PendingRun
+from app.salt.client import SaltApiUnavailable
 from tests.test_api import Api
 from tests.test_commands import CSRF, JID, FakeSalt, audit_rows, make_api
 
@@ -44,7 +45,8 @@ def comes_back(api: Api, minion: str = "rover-03") -> None:
 
 
 def sent(salt: FakeSalt) -> list[dict[str, Any]]:
-    return [kw for kw in salt.started() if kw.get("tgt_type") == "list"]
+    """Catch-up deliveries (they name the job they catch up on)."""
+    return [kw for kw in salt.started() if "catch_up_of" in kw["metadata"]["brine"]]
 
 
 def test_offline_minions_wait_when_asked(setup: tuple[Api, FakeSalt]) -> None:
@@ -182,3 +184,37 @@ def test_cancelling(setup: tuple[Api, FakeSalt]) -> None:
             return list(rows)
 
     assert api.seed(cancelled)[-1] == "command.catch_up_cancelled"
+
+
+def test_a_run_cancelled_while_the_sweep_runs_is_never_sent(setup: tuple[Api, FakeSalt]) -> None:
+    api, salt = setup
+    run(api, catch_up=True)
+    comes_back(api)
+
+    async def stale_copy() -> Any:
+        async with runtime(api).sessions() as s:
+            return await s.scalar(select(PendingRun))
+
+    snapshot = api.seed(stale_copy)  # what the sweep saw: waiting
+    (waiting,) = api.get(f"/api/jobs/{JID}")["catch_up"]
+    api.client.post(f"/api/commands/catch-up/{waiting['id']}/cancel", headers=CSRF)
+    api.seed(catchup.deliver, runtime(api), snapshot, datetime.now(UTC))
+    assert sent(salt) == []
+    assert api.get(f"/api/jobs/{JID}")["catch_up"][0]["state"] == "cancelled"
+
+
+def test_retries_only_what_certainly_did_not_go_out(setup: tuple[Api, FakeSalt]) -> None:
+    api, salt = setup
+    run(api, catch_up=True)
+    comes_back(api)
+    salt.start_error = SaltApiUnavailable("can't reach salt-api")  # never got there
+    sweep(api)
+    assert api.get(f"/api/jobs/{JID}")["catch_up"][0]["state"] == "waiting"
+
+    salt.start_error = SaltApiUnavailable("salt-api didn't answer", sent=True)  # it may have
+    sweep(api)
+    (failed,) = api.get(f"/api/jobs/{JID}")["catch_up"]
+    assert failed["state"] == "failed" and "check Jobs" in failed["reason"]
+    salt.start_error = None
+    sweep(api)
+    assert len(sent(salt)) == 2  # the two attempts above; a failed one is never retried

@@ -26,7 +26,7 @@ from app.commands import Command, allowed_patterns, is_allowed
 from app.ingest import Changes
 from app.models import JobReturn, Minion, PendingRun
 from app.runtime import Runtime
-from app.salt.client import SaltApiError
+from app.salt.client import SaltApiError, SaltApiUnavailable
 
 log = logging.getLogger(__name__)
 
@@ -86,6 +86,9 @@ async def deliver(runtime: Runtime, run: PendingRun, now: datetime) -> Changes:
         return await runtime.ingest.catch_up_close(
             run.id, state="refused", reason=f"{run.actor} may no longer run {command.qualified}"
         )
+    # Cancelled since the sweep looked? Then it's not ours to send.
+    if not await runtime.ingest.catch_up_claim(run.id):
+        return Changes()
     try:
         jid, sent_to = await runtime.client.start_job(
             run.minion_id,
@@ -95,10 +98,18 @@ async def deliver(runtime: Runtime, run: PendingRun, now: datetime) -> Changes:
             metadata={"brine": {"actor": run.actor, "catch_up_of": run.source_jid}},
         )
     except SaltApiError as exc:
-        log.warning("catch-up run %s for %s: %s; trying again later", run.id, run.minion_id, exc)
-        return Changes()
+        # Try again only if the request certainly didn't reach salt-api: a job must never run
+        # twice because an answer got lost.
+        log.warning("catch-up run %s for %s: %s", run.id, run.minion_id, exc)
+        if isinstance(exc, SaltApiUnavailable) and exc.sent:
+            return await runtime.ingest.catch_up_unsent(
+                run.id,
+                state="failed",
+                reason=f"salt-api failed after it may have been sent ({exc}); check Jobs",
+            )
+        return await runtime.ingest.catch_up_unsent(run.id, state="waiting", reason=None)
     if jid is None:
-        return await runtime.ingest.catch_up_close(
+        return await runtime.ingest.catch_up_unsent(
             run.id, state="refused", reason="Salt no longer knows that minion"
         )
     changes = await runtime.ingest.command_started(

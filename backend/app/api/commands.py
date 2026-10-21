@@ -20,6 +20,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import RuntimeDep, SessionDep
+from app.api.errors import salt_http_error
 from app.api.fleet import reachable
 from app.api.schemas import (
     CatchUpRun,
@@ -43,7 +44,7 @@ from app.ingest import Changes
 from app.masking import HIDDEN, reveals_pillar
 from app.models import Minion, PendingRun
 from app.runtime import Runtime
-from app.salt.client import SaltApiError, SaltApiForbidden
+from app.salt.client import SaltApiError, SaltApiUnavailable
 from app.salt.collector import import_job
 from app.states import ORCHESTRATE_FUNCTIONS, parse_state_return, unwrap_orchestration
 
@@ -205,11 +206,12 @@ async def cancel_catch_up(run_id: int, runtime: RuntimeDep, user: CurrentUser) -
         raise HTTPException(403, "Only the person who queued it, or an admin, can cancel it.")
     if run.state != "waiting":
         raise HTTPException(409, f"It's {run.state}, not waiting.")
-    runtime.bus.publish_changes(
-        await runtime.ingest.catch_up_close(
-            run_id, state="cancelled", reason=f"cancelled by {user.email}"
-        )
+    changes = await runtime.ingest.catch_up_close(
+        run_id, state="cancelled", reason=f"cancelled by {user.email}"
     )
+    if not changes:
+        raise HTTPException(409, "It stopped waiting just now (it's being sent).")
+    runtime.bus.publish_changes(changes)
     await record(
         runtime.sessions,
         actor=user.email,
@@ -236,7 +238,7 @@ async def run(
             lowstate, wait_seconds=COMMAND_WAIT_SECONDS, repeatable=False
         )
     except SaltApiError as exc:
-        raise _salt_error(exc) from exc
+        raise await _failed(runtime, user, command, "", exc) from exc
 
     value, success, jid = _master_answer(answer)
     orchestration = command.client == "runner" and command.fun in ORCHESTRATE_FUNCTIONS
@@ -322,15 +324,18 @@ async def _run_on_minions(
             "Preview it again.",
         )
     try:
+        # Exactly the minions the preview showed: Salt doesn't get to work the target out
+        # again (from a grains cache that may have moved on). The job still shows the
+        # target as typed.
         jid, sent_to = await runtime.client.start_job(
-            target,
+            ",".join(minions),
             command.fun,
             arg=command.args,
-            tgt_type=body.target_type,
+            tgt_type="list",
             metadata=command_metadata(user.email),
         )
     except SaltApiError as exc:
-        raise _salt_error(exc) from exc
+        raise await _failed(runtime, user, command, target, exc) from exc
     if jid is None:
         raise HTTPException(409, "Salt found no minions for that target.")
     sent_to = sent_to or minions
@@ -379,11 +384,20 @@ async def _run_on_minions(
     return CommandResult(client="local", jid=jid, minions=sent_to, waiting=waiting)
 
 
-def _salt_error(exc: SaltApiError) -> HTTPException:
-    if isinstance(exc, SaltApiForbidden):
-        return HTTPException(
-            403,
-            f"{exc}. Add it to external_auth for that account "
-            "(see docs/permissions-and-salt-acl.md).",
+async def _failed(
+    runtime: Runtime, user: User, command: Command, target: str, exc: SaltApiError
+) -> HTTPException:
+    """Audit a run that failed (or may have: a timeout), and the error to show for it."""
+    await record(
+        runtime.sessions,
+        actor=user.email,
+        action="command.failed",
+        target=target or "master",
+        detail={"command": command.qualified, "args": command.args, "error": str(exc)},
+    )
+    error = salt_http_error(exc)
+    if isinstance(exc, SaltApiUnavailable) and exc.sent:
+        error.detail = (
+            f"{error.detail}. Salt may still be running it: check Jobs before running it again."
         )
-    return HTTPException(502, f"salt-api: {exc}")
+    return error

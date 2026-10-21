@@ -21,6 +21,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Query
 
 from app.api.deps import RuntimeDep
+from app.api.errors import salt_http_error
 from app.api.schemas import (
     Orchestration,
     OrchestrationInput,
@@ -31,7 +32,7 @@ from app.api.statefiles import walk_files
 from app.auth.users import CurrentUser
 from app.commands import CommandError, allowed_patterns, is_allowed, parse_command
 from app.runtime import Runtime
-from app.salt.client import SaltApiError, SaltApiForbidden
+from app.salt.client import SaltApiError
 
 router = APIRouter()
 
@@ -177,14 +178,8 @@ async def orchestrations(
         else:
             found, truncated = await _discover(runtime, saltenv)
             runtime.memo[key] = (time.monotonic(), (found, truncated))
-    except SaltApiForbidden as exc:
-        raise HTTPException(
-            403,
-            f"{exc}. Add it to external_auth for that account "
-            "(see docs/permissions-and-salt-acl.md).",
-        ) from exc
     except SaltApiError as exc:
-        raise HTTPException(502, f"salt-api: {exc}") from exc
+        raise salt_http_error(exc) from exc
 
     patterns = allowed_patterns(user.role, runtime.settings.commands)
     try:
