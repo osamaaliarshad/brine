@@ -155,3 +155,22 @@ Salt records a runner by the account that called salt-api (brine's), and the job
 orchestration's steps start as "salt". brine asks for the runner's jid (`full_return`), records
 the run under the person, and imports each step's job from the job cache under them too. The
 orchestration's job page lists its steps like a state run, each linked to the job it started.
+
+## 19. Catch-up runs live in brine, and only run what someone asked for
+
+Salt can make a minion do something when it starts (`startup_states`, a reactor on
+`salt/minion/*/start`), but only as a blanket rule for every start, configured on the master.
+brine's catch-up runs are per command: someone ticks the box on the Run page, brine stores the
+command for each offline minion, and a sweep every 15 seconds sends each minion that's back (by a
+fresh presence check) the oldest command it missed, waiting for its answer before the next.
+
+Choices that keep it predictable:
+
+- Nothing on the master or minions changes, and commands from the salt CLI are never repeated:
+  people working on the master directly aren't affected. The jobs carry Salt metadata naming the
+  person and the job they catch up on.
+- Identical commands for the same minion collapse into the newest; different ones all run, in
+  order. Runs expire (7 days by default).
+- The person's allowlist is checked again at delivery, so a role change takes effect.
+- Only minions a fresh presence check calls offline are queued. Without fresh presence, nothing
+  is queued and nothing is sent, rather than guessing.

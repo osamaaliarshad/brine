@@ -18,6 +18,7 @@ brine plugs into an existing **salt-master + salt-api** and gives your team a cl
 - **Per-minion pages** with grains (current and history), recent jobs, and a presence timeline.
 - **Job history that outlives Salt's job cache.**
 - **Run commands safely.** See exactly which minions a command reaches before it runs; a per-role allowlist decides who may run what.
+- **Catch-up runs.** Tick a box and minions that are offline get the command when they come back, without highstate, `startup_states` or reactors. Something Salt itself can't do per command.
 - **An audit log** of who did what, on which minions, and when.
 - **Configurable columns.** Show any grain (`app_version`, `firmware_version`, ...) in the fleet table, no code changes.
 - **Parity with [SaltGUI](https://github.com/erwindon/SaltGUI)** as the baseline; see [docs/saltgui-parity.md](docs/saltgui-parity.md).
@@ -108,6 +109,13 @@ running is a separate click, and the results land on the job page as they arrive
 what is a per-role allowlist in brine's config, every run is in the audit log, and links like
 `/run?target=rover-*&command=test.ping` open already previewed. Templates (brine's own, or
 SaltGUI's `saltgui_templates` from the master config, unchanged) fill it in with one click.
+
+When some targeted minions are offline, you can have them **catch up**: tick "Also run it on the
+offline minions when they're back" and brine remembers the command and runs it on each one as it
+reconnects, one command at a time, newest wins for repeats, giving up after 7 days. The job page
+shows who's still waiting (and lets you cancel); each catch-up is its own job, under your name.
+It all lives in brine: nothing is installed on the master, and commands run from the salt CLI are
+never repeated.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/run-dark.png">

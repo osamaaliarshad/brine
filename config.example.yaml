@@ -32,6 +32,7 @@ commands:                          # what each role may run from the Run page (f
   operator: ["test.*", "state.apply", "service.restart", "runners.manage.*"]
   admin: ["*"]                     # the default: anything brine's Salt account may run
                                    # viewers never run commands
+  catch_up_days: 7                 # how long a catch-up run waits for an offline minion
 
 templates:                         # one-click commands on the Run page (SaltGUI's
   restart-web:                     # saltgui_templates in the master config work too)

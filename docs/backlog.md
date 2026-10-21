@@ -88,6 +88,12 @@ Follow-ups found along the way:
 - [ ] Templates with parameters (fill-in fields), and SaltGUI's single-key template shortcuts
 - [ ] Orchestrations: cache the listing for big file roots; other saltenvs
 
+## Beyond Salt
+
+- [x] Catch-up runs: opt in on the Run page and offline minions get the command when they're back (one at a time per minion, newest wins for identical commands, 7-day expiry, allowlist re-checked at delivery, cancellable, audited); lives entirely in brine
+- [ ] Canary rollouts: run on a few minions first, continue only if they succeed
+- [ ] Catch-up: also offer it for minions that were online but didn't answer; show waiting runs on Issues
+
 ## Later
 
 - Pillar / desired-config views and desired-vs-reported diffs
