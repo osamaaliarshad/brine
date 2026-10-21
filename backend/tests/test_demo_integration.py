@@ -9,6 +9,7 @@ It stops/starts a minion and restarts the salt-master container, so don't point 
 but the demo stack.
 """
 
+import json
 import os
 import shutil
 import subprocess
@@ -20,12 +21,15 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from app.config import Settings, parse_config
+from app.config import Settings, load_config, parse_config
+from app.inventory import CLOCK_MARGIN
 from app.main import create_app
 
 SALT_API = os.environ.get("BRINE_DEMO_SALT_API")
 REPO = Path(__file__).resolve().parents[2]
 ACCEPTED = {"rover-01", "rover-02", "rover-03", "dock-01"}
+# The demo's checks (the rover-cli one), which brine's demo Salt account allows.
+CHECKS = load_config(REPO / "demo" / "brine.yaml", {}).inventory.checks
 
 pytestmark = pytest.mark.skipif(not SALT_API, reason="set BRINE_DEMO_SALT_API to run")
 
@@ -66,7 +70,8 @@ def settings(tmp_path: Path) -> Settings:
         "auth: {provider: none, anonymous_role: admin}\n"
         f"database: 'sqlite:///{(tmp_path / 'brine.db').as_posix()}'\n"
         "fleet: {columns: [{grain: site}, {grain: app_version}]}\n"
-        "presence: {method: auto, poll_seconds: 10}\n",
+        "presence: {method: auto, poll_seconds: 10}\n"
+        f"inventory: {json.dumps({'checks': CHECKS})}\n",
         {},
     )
 
@@ -286,3 +291,110 @@ def test_demo_catch_up_runs(settings: Settings) -> None:
         job = get(c, f"/api/jobs/{caught_up}")
         assert job["catch_up_of"] == jid and job["user"] == "local"
         assert job["results"][0]["data"] == "caught-up"
+
+
+def test_demo_packages_and_checks(settings: Settings) -> None:
+    """brine reads every minion's packages and the rover-cli check. rover-03's rover-agent,
+    upgraded from the command box, is found by brine's next read and credited to that run and
+    the person who ran it; put back, brine finds that by itself. Leaves rover-03 on 2.3.0, as
+    the demo expects."""
+    csrf = {"X-Requested-With": "brine"}
+    agent, cli = "@packages:rover-agent", "@rover-cli"
+
+    def values(c: TestClient, key: str) -> dict[str, list[str]]:
+        found = get(c, "/api/inventory/values", key=key)["values"]
+        return {v["text"]: v["minions"] for v in found}
+
+    def answered(c: TestClient) -> bool:
+        """Every accepted minion has answered for both the package and the check."""
+        found = [get(c, "/api/inventory/values", key=key) for key in (agent, cli)]
+        return all(d["total"] == len(ACCEPTED) and not d["unknown"] for d in found)
+
+    def install(c: TestClient, version: str) -> str:
+        """Put rover-agent `version` on rover-03 from the command box; returns the run's jid."""
+        pillar = json.dumps({"agent_version": version})
+        body = {
+            "command": f"state.apply agent pillar='{pillar}'",
+            "target": "rover-03",
+            "target_type": "list",
+            "expect": ["rover-03"],
+        }
+        run = c.post("/api/commands/run", json=body, headers=csrf)
+        assert run.status_code == 200, run.text
+        jid = str(run.json()["jid"])
+        wait_until("rover-03 to run it", lambda: get(c, f"/api/jobs/{jid}")["returned"] == 1, 60)
+        assert get(c, f"/api/jobs/{jid}")["results"][0]["success"] is True
+        return jid
+
+    upgraded = False
+    try:
+        with TestClient(create_app(settings, frontend_dist=Path("/nonexistent"))) as c:
+            wait_until("every minion's packages and rover-cli check", lambda: answered(c), 120)
+            # A package some have (one at an older version), and software no package manager
+            # knows about; dock-01 has neither.
+            assert values(c, agent) == {"2.4.1": ["rover-01", "rover-02"], "2.3.0": ["rover-03"]}
+            assert get(c, "/api/inventory/values", key=agent)["missing"] == ["dock-01"]
+            assert values(c, cli) == {
+                "rover-cli 1.2.0": ["rover-01", "rover-02"],
+                "rover-cli 1.1.0": ["rover-03"],
+            }
+            assert get(c, "/api/inventory/values", key=cli)["missing"] == ["dock-01"]
+
+            # The fleet against rover-01: the minions share one image, so only those differ.
+            compared = get(c, "/api/inventory/compare", reference="rover-01")
+            assert compared["reference_sources"] == ["packages", "rover-cli"]
+            counts = {
+                m["minion_id"]: (m["different"], m["only_reference"], m["only_minion"])
+                for m in compared["minions"]
+            }
+            assert counts == {"rover-02": (0, 0, 0), "rover-03": (2, 0, 0), "dock-01": (0, 2, 0)}
+
+            upgraded = True
+            jid = install(c, "2.4.1")
+
+            def credited() -> dict[str, Any] | None:
+                return next(
+                    (
+                        change
+                        for change in get(c, "/api/inventory/changes", key=agent)
+                        if change["minion_id"] == "rover-03" and change["jid"] == jid
+                    ),
+                    None,
+                )
+
+            # brine reads rover-03 again by itself a minute after the run. So does any other
+            # brine reading the demo fleet (one on :8080, a dev backend), and an answer to
+            # another's read is stored but never credited. So Read now, as soon as a read counts
+            # as after the run (CLOCK_MARGIN), to be first.
+            time.sleep(CLOCK_MARGIN.total_seconds() + 10)
+            asked = c.post("/api/inventory/ask", json={"minion": "rover-03"}, headers=csrf)
+            assert asked.status_code == 200, asked.text
+            assert asked.json()["asked"] == ["rover-03"]
+            wait_until("the upgrade, credited to the run", lambda: credited() is not None, 60)
+            change = credited()
+            assert change is not None
+            assert (change["old"], change["new"], change["user"]) == ("2.3.0", "2.4.1", "local")
+            assert values(c, agent) == {"2.4.1": ["rover-01", "rover-02", "rover-03"]}
+
+            # Back to the demo as documented, found without asking: brine's read a minute
+            # after the run (or another brine's).
+            install(c, "2.3.0")
+            wait_until(
+                "rover-03 read again at 2.3.0",
+                lambda: values(c, agent).get("2.3.0") == ["rover-03"],
+                180,
+            )
+            upgraded = False
+    finally:
+        if upgraded:  # whatever happened, put rover-03 back for the rest of the demo
+            pillar = json.dumps({"agent_version": "2.3.0"})
+            compose(
+                "exec",
+                "-T",
+                "salt-master",
+                "salt",
+                "rover-03",
+                "state.apply",
+                "agent",
+                f"pillar={pillar}",
+            )
