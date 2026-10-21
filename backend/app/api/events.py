@@ -12,6 +12,8 @@ from fastapi.responses import StreamingResponse
 
 from app.api.deps import RuntimeDep
 from app.api.schemas import Reactor
+from app.auth.users import CurrentUser
+from app.masking import mask_event
 from app.salt.client import SaltApiError
 
 router = APIRouter()
@@ -24,22 +26,26 @@ def _sse(entry: dict[str, Any]) -> str:
 
 
 @router.get("/events/stream")
-async def event_stream(request: Request, runtime: RuntimeDep) -> StreamingResponse:
+async def event_stream(
+    request: Request, runtime: RuntimeDep, user: CurrentUser
+) -> StreamingResponse:
     """Server-sent events: the recent backlog, then each Salt event as brine receives it.
-    Every message carries a `seq`, so clients can drop duplicates after reconnecting."""
+    Every message carries a `seq`, so clients can drop duplicates after reconnecting. Pillar
+    data in job returns is hidden from everyone but admins."""
     log = runtime.collector.event_log
+    shown = (lambda entry: entry) if user.role == "admin" else mask_event
 
     async def events() -> AsyncIterator[str]:
         async with log.subscribe() as queue:
             for entry in log.recent():
-                yield _sse(entry)
+                yield _sse(shown(entry))
             while not await request.is_disconnected():
                 try:
                     entry = await asyncio.wait_for(queue.get(), KEEPALIVE_SECONDS)
                 except TimeoutError:
                     yield ": keep-alive\n\n"
                     continue
-                yield _sse(entry)
+                yield _sse(shown(entry))
 
     return StreamingResponse(
         events(),

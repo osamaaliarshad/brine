@@ -17,6 +17,8 @@ from app.api.schemas import (
     StateRun,
     StateRuns,
 )
+from app.auth.users import CurrentUser
+from app.masking import HIDDEN, reveals_pillar
 from app.models import Job, JobReturn, Minion, PendingRun
 from app.states import (
     ORCHESTRATE_FUNCTIONS,
@@ -157,7 +159,7 @@ async def latest_state_runs(session: AsyncSession) -> StateRuns:
 
 
 @router.get("/jobs/{jid}", response_model=JobDetail)
-async def job_detail(jid: str, session: SessionDep) -> JobDetail:
+async def job_detail(jid: str, session: SessionDep, user: CurrentUser) -> JobDetail:
     row = (await session.execute(_with_counts().where(Job.jid == jid))).first()
     if row is None:
         raise HTTPException(404, f"no job {jid!r}")
@@ -174,6 +176,9 @@ async def job_detail(jid: str, session: SessionDep) -> JobDetail:
         if not is_state:
             return None
         return parse_state_return(unwrap_orchestration(data) if is_orchestration else data)
+
+    # Pillar values (pillar.items and friends) are for admins only.
+    hidden = user.role != "admin" and reveals_pillar(job.fun)
 
     catch_up = await session.scalars(
         select(PendingRun).where(PendingRun.source_jid == jid).order_by(PendingRun.minion_id)
@@ -194,7 +199,7 @@ async def job_detail(jid: str, session: SessionDep) -> JobDetail:
                 returned_at=r.returned_at,
                 success=r.success,
                 retcode=r.retcode,
-                data=r.data,
+                data=HIDDEN if hidden else r.data,
                 states=states(r.data),
             )
             for r in returns

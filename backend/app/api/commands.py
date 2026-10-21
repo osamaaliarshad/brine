@@ -39,6 +39,7 @@ from app.commands import (
 )
 from app.config import TemplateConfig
 from app.ingest import Changes
+from app.masking import HIDDEN, reveals_pillar
 from app.models import Minion, PendingRun
 from app.runtime import Runtime
 from app.salt.client import SaltApiError, SaltApiForbidden
@@ -250,7 +251,10 @@ async def run(
         target="master",
         detail={"command": command.qualified, "args": command.args, "success": success, "jid": jid},
     )
-    return CommandResult(client=command.client, jid=jid, result=value, success=success)
+    hidden = user.role != "admin" and reveals_pillar(command.fun)
+    return CommandResult(
+        client=command.client, jid=jid, result=HIDDEN if hidden else value, success=success
+    )
 
 
 def _master_answer(answer: Any) -> tuple[Any, bool | None, str | None]:
