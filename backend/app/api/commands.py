@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import RuntimeDep, SessionDep
 from app.api.errors import salt_http_error
 from app.api.fleet import reachable
+from app.api.master import master_settings
 from app.api.schemas import (
     CatchUpRun,
     CommandPreview,
@@ -136,7 +137,7 @@ async def templates(runtime: RuntimeDep, user: CurrentUser) -> list[CommandTempl
     master config (so a team moving from SaltGUI keeps theirs). brine's win on a name clash."""
     found: dict[str, tuple[TemplateConfig, Literal["brine", "master"]]] = {}
     try:
-        values = await runtime.client.wheel("config.values")
+        values = await master_settings(runtime)
     except SaltApiError as exc:
         log.info("no master templates: %s", exc)
         values = {}

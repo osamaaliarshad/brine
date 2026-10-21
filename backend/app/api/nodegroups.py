@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException
 from sqlalchemy import select
 
 from app.api.deps import RuntimeDep, SessionDep
+from app.api.master import master_settings
 from app.api.schemas import Nodegroup, Nodegroups
 from app.models import Minion
 from app.salt.client import SaltApiError
@@ -25,7 +26,7 @@ async def nodegroups(runtime: RuntimeDep, session: SessionDep) -> Nodegroups:
     offline members count too and nothing runs on minions. Only the `nodegroups` setting is
     read out of the master config."""
     try:
-        values = await runtime.client.wheel("config.values")
+        values = await master_settings(runtime)
         defined = (values or {}).get("nodegroups") or {}
         groups = []
         for name, expression in sorted(defined.items()):

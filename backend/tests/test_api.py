@@ -316,7 +316,9 @@ class FakeLiveClient:
 
 
 def use_live_client(api: Api, fake: FakeLiveClient) -> None:
-    api.client.app.state.runtime.client = fake  # type: ignore[attr-defined]
+    runtime = api.client.app.state.runtime  # type: ignore[attr-defined]
+    runtime.client = fake
+    runtime.memo.clear()  # a different master: nothing cached from the last one
 
 
 def test_live_view_returns_what_the_minion_answered(api: Api) -> None:

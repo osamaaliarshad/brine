@@ -105,8 +105,8 @@ async def issues(runtime: RuntimeDep, session: SessionDep) -> list[Issue]:
                     f"key:{m.id}",
                     "warning",
                     f"{m.id} is waiting for key approval",
-                    "Check its fingerprint on the Keys page, then accept or reject it "
-                    "on the master.",
+                    "Check its fingerprint on the Keys page, then accept or reject it there "
+                    "(admins) or on the master.",
                     since=m.first_seen_at,
                     minion_id=m.id,
                 )

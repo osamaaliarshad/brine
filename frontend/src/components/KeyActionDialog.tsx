@@ -63,6 +63,22 @@ export function KeyActionDialog({
   const [typed, setTyped] = useState('')
   const titleId = useId()
   const cancelRef = useRef<HTMLButtonElement>(null)
+  const dialogRef = useRef<HTMLDivElement>(null)
+
+  // Tab stays inside the dialog: the page behind it keeps updating and mustn't take focus.
+  const keepFocusInside = (event: React.KeyboardEvent) => {
+    if (event.key !== 'Tab' || !dialogRef.current) return
+    const focusable = [...dialogRef.current.querySelectorAll<HTMLElement>('input, button:not(:disabled)')]
+    const first = focusable[0]
+    const last = focusable.at(-1)
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault()
+      last?.focus()
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault()
+      first?.focus()
+    }
+  }
   const typing = needsTypedConfirmation(action, state)
   const ready = (!typing || typed === id) && (action !== 'accept' || !!fingerprint) && !mutation.isPending
   const danger = action !== 'accept'
@@ -103,7 +119,7 @@ export function KeyActionDialog({
       }}
     >
       <Card className="w-full max-w-md p-6 shadow-2xl">
-        <div role="dialog" aria-modal="true" aria-labelledby={titleId}>
+        <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby={titleId} onKeyDown={keepFocusInside}>
           <h2 id={titleId} className="text-lg font-semibold">
             {VERB[action]} {id}'s key?
           </h2>

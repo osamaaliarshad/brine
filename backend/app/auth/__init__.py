@@ -1,1 +1,1 @@
-"""OIDC login, sessions, and role mapping (Phase 2)."""
+"""OIDC sign-in, sessions, and role mapping."""

@@ -146,7 +146,7 @@ export function useKeys() {
   return useQuery({ queryKey: queryKeys.keys, queryFn: () => fetchJson<Key[]>('/api/keys') })
 }
 
-/** What Salt lets brine's service account do; asked only for admins. */
+/** What the signed-in person may run, and what Salt lets brine's account do. */
 export function useCapabilities(enabled: boolean) {
   return useQuery({
     queryKey: ['capabilities'],

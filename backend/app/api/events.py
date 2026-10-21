@@ -11,6 +11,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from app.api.deps import RuntimeDep
+from app.api.master import master_settings
 from app.api.schemas import Reactor
 from app.auth.users import CurrentUser
 from app.masking import mask_event
@@ -59,7 +60,7 @@ async def reactors(runtime: RuntimeDep) -> list[Reactor]:
     """The master's `reactor` setting. Only that key leaves the server: the rest of the master
     config can hold secrets."""
     try:
-        values = await runtime.client.wheel("config.values")
+        values = await master_settings(runtime)
     except SaltApiError as exc:
         raise HTTPException(502, f"salt-api: {exc}") from exc
     result = []

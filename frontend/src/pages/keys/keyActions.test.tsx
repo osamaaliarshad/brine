@@ -86,6 +86,22 @@ describe('key management', () => {
     expect(sent.map((s) => s.body)).toEqual([{ state: 'accepted', confirm: 'rover-01' }])
   })
 
+  it('keeps keyboard focus inside the dialog', async () => {
+    const user = userEvent.setup()
+    api(ADMIN)
+    renderApp('/keys')
+    await user.click(await screen.findByRole('button', { name: 'More actions for rover-01' }))
+    await user.click(screen.getByRole('menuitem', { name: 'Delete…' }))
+    const input = screen.getByRole('textbox', { name: 'Type rover-01 to confirm' })
+    expect(input).toHaveFocus()
+    await user.tab()
+    expect(screen.getByRole('button', { name: 'Cancel' })).toHaveFocus()
+    await user.tab() // Delete key is disabled until the name is typed: back to the input
+    expect(input).toHaveFocus()
+    await user.tab({ shift: true })
+    expect(screen.getByRole('button', { name: 'Cancel' })).toHaveFocus()
+  })
+
   it('shows why the server refused, and keeps the dialog open', async () => {
     const user = userEvent.setup()
     api(ADMIN, {}, () =>

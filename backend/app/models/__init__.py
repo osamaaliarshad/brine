@@ -6,7 +6,7 @@ What brine remembers about the fleet, independently of the master's own (short-l
 * ``PresenceChange``: online/offline transitions, for the status timeline.
 * ``GrainsSnapshot``: every distinct set of grains a minion reported, for history and diffs.
 * ``Job`` / ``JobReturn``: jobs and per-minion results, kept after the master forgets them.
-* ``AuditEntry``: who did what (written from Phase 2 on).
+* ``AuditEntry``: who did what.
 * ``SystemState``: small key/value facts, such as when presence was last observed.
 """
 

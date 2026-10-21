@@ -75,9 +75,11 @@ The demo fleet uses this list plus key management (below):
 
 ### What brine never asks for
 
-- `pillar.items`: pillar is only read through `pillar.obfuscate`, so secret values never reach
-  brine, let alone a browser. (Revealing values, for admins and audited, is planned.)
-- Any execution or state function (`cmd.*`, `state.apply`, ...): there's no command box yet.
+- `pillar.items`: brine's own Pillar tab reads pillar through `pillar.obfuscate`, so it never
+  fetches secret values itself. If someone runs a pillar function (from the salt CLI or the Run
+  page), its output reaches brine's job history; only admins see it there.
+- Any execution or state function for its own use: commands only ever run when a person runs
+  them from the Run page (section 5).
 - `key.accept`, `key.reject`, `key.delete`: they take a glob, so a minion ID with `*` or `?` in
   it could match others. brine uses the `_dict` versions, which match exact IDs.
 
