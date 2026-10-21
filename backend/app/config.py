@@ -193,8 +193,12 @@ class InventoryConfig(_Strict):
             if "\n" in command or "\r" in command:
                 raise ValueError(f"check {name!r}: put the command on one line")
             # Tabs are fine; other control characters would break the ACL brine suggests.
-            if not command.replace("\t", " ").isprintable():
-                raise ValueError(f"check {name!r}: the command has characters that can't be used")
+            bad = next((c for c in command if c != "\t" and not c.isprintable()), None)
+            if bad is not None:
+                raise ValueError(
+                    f"check {name!r}: the command has characters that can't be used "
+                    f"(the first is U+{ord(bad):04X})"
+                )
             if _LEADING_KWARG.match(command):
                 raise ValueError(
                     f"check {name!r}: Salt reads a leading NAME=value as an option; start the "

@@ -77,8 +77,11 @@ def test_control_characters_are_dropped() -> None:
     # A name of only control characters is an empty name, so the line is skipped.
     assert inv.parse_check(ok("\x00=x\nweb=y\x07\n")) == ({"web": "y"}, None, False)
     assert inv.parse_check(ok("\x00\n\x1b\n")) == ({}, None, False)
+    assert inv.parse_packages({"\x00": "1", "bash": "5.2"}) == ({"bash": "5.2"}, None, False)
     _, error, _ = inv.parse_check({"retcode": 1, "stdout": "", "stderr": "bad\x00 thing"})
     assert error == "exit 1: bad thing"
+    _, error, _ = inv.parse_check({"retcode": "2\x00", "stdout": "", "stderr": ""})
+    assert error == "exit 2"
     _, error, _ = inv.parse_packages("nul\x00")
     assert error == "unexpected answer: nul"
 
@@ -319,3 +322,12 @@ def test_a_want_is_met_only_by_an_ask_made_after_it() -> None:
     # Waiting for an answer comes first, even when wanted.
     waiting = inv.ReadState(asked_at=T0, answered_at=None, wanted_at=t1)
     assert not inv.is_due(waiting, now=t2, every=every, back_at=None)
+
+
+def test_a_want_is_asked_again_when_its_answer_is_lost() -> None:
+    every = timedelta(hours=6)
+    t1, t3 = T0 + timedelta(minutes=1), T0 + timedelta(minutes=3)
+    # Wanted at T1 and asked at T3, but no answer came (a dropped return, a reconnect).
+    lost = inv.ReadState(asked_at=t3, answered_at=T0, wanted_at=t1)
+    assert not inv.is_due(lost, now=t3 + timedelta(minutes=1), every=every, back_at=None)
+    assert inv.is_due(lost, now=t3 + inv.ANSWER_WAIT, every=every, back_at=None)

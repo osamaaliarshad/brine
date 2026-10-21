@@ -148,6 +148,13 @@ def test_inventory_check_command_is_printable(command: str) -> None:
         parse_config(MINIMAL + f'inventory: {{checks: {{c: "{command}"}}}}\n', {"PW": "x"})
 
 
+def test_inventory_check_command_error_names_the_first_bad_character() -> None:
+    # The tab is fine; the escape character comes before the NUL.
+    text = 'inventory: {checks: {c: "a\\tb\\x1bc\\0"}}\n'
+    with pytest.raises(ConfigError, match=r"U\+001B"):
+        parse_config(MINIMAL + text, {"PW": "x"})
+
+
 def test_inventory_check_command_may_have_tabs_and_unicode() -> None:
     text = "inventory: {checks: {c: \"printf '%s\\t%s' café x\"}}\n"
     settings = parse_config(MINIMAL + text, {"PW": "x"})

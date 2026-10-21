@@ -79,7 +79,7 @@ def _clean(text: str) -> str:
 
 def _lines(text: str) -> Iterator[str]:
     """The lines of some output that have something in them, stripped and cleaned."""
-    # Only "\n" ends a line (strip() takes the "\r" of a "\r\n"). str.splitlines() would also
+    # Only "\n" ends a line; the cleaning removes the "\r" of a "\r\n". str.splitlines() would also
     # split on characters such as \x0b, \x1c and \u2028 inside a line.
     for raw in text.split("\n"):
         if line := _clean(raw).strip():
@@ -113,6 +113,9 @@ def parse_packages(data: object) -> tuple[dict[str, str], str | None, bool]:
     entries: dict[str, str] = {}
     truncated = False
     for name, version in data.items():
+        # As in checks, a name with nothing in it is skipped.
+        if not _clean(str(name)).strip():
+            continue
         # Several versions are joined the way Salt writes them (pkg_resource.stringify).
         value = ",".join(map(str, version)) if isinstance(version, list) else str(version)
         truncated |= _put(entries, str(name), value)
@@ -131,8 +134,9 @@ def parse_check(data: object) -> tuple[dict[str, str], str | None, bool]:
     retcode = data.get("retcode")
     stdout = str(data.get("stdout") or "")
     if retcode not in (0, None):
+        code = _clean(str(retcode))
         message = next(_lines(str(data.get("stderr") or "")), "") or next(_lines(stdout), "")
-        return {}, f"exit {retcode}: {message[:200]}" if message else f"exit {retcode}", False
+        return {}, f"exit {code}: {message[:200]}" if message else f"exit {code}", False
 
     truncated = len(stdout) > MAX_TEXT
     text = stdout
@@ -213,9 +217,14 @@ def is_due(
         return False
     if answered is None or now - answered >= every:
         return True
-    # A want (Ask now, a job) is met only by an ask made at or after it, not by a late answer
-    # to an older ask.
+    # A want (Ask now, a job) is met only by an ask made at or after it, and answered: not by a
+    # late answer to an older ask, nor by an ask whose answer was lost (the wait above has
+    # passed by now).
     wanted = read.wanted_at
-    if wanted is not None and wanted <= now and (asked is None or asked < wanted):
+    if (
+        wanted is not None
+        and wanted <= now
+        and (asked is None or asked < wanted or answered < asked)
+    ):
         return True
     return back_at is not None and answered < back_at
