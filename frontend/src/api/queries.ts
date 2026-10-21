@@ -342,7 +342,7 @@ export function useComparison(reference: string, minion: string | null) {
   })
 }
 
-/** Ask now: every online minion (null), or one, for its packages and checks. */
+/** Read now: every online minion (null), or one, for its packages and checks. */
 export function useAskInventory() {
   const client = useQueryClient()
   return useMutation({

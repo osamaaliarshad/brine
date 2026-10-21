@@ -24,7 +24,11 @@ auth:
 def test_example_config_is_valid() -> None:
     settings = load_config(EXAMPLE, EXAMPLE_ENV)
     assert settings.salt_api.password.get_secret_value() == "s3cret"
-    assert [c.grain for c in settings.fleet.columns] == ["app_version", "firmware_version"]
+    assert [c.grain for c in settings.fleet.columns] == [
+        "app_version",
+        "firmware_version",
+        "@packages:nginx",
+    ]
     assert settings.roles.viewer == ["*@example.com"]
 
 

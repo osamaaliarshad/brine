@@ -1,4 +1,4 @@
-"""Packages and checks: the explorer, changes, one minion's entries, and Ask now.
+"""Packages and checks: the explorer, changes, one minion's entries, and Read now.
 
 Keys are `@packages:<name>` for a package, `@<check>:<name>` for a check's entry, and
 `@<check>` for a check that prints a single value (see app/inventory.py).

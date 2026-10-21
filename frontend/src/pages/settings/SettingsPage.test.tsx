@@ -22,7 +22,7 @@ const SETTINGS: Settings = {
     session_hours: 12,
     role_patterns: { viewer: 3, operator: 0, admin: 1 },
   },
-  inventory: { refresh_hours: 6, checks: [], acl: "- '*':\n  - pkg.list_pkgs\n", refused: {} },
+  inventory: { refresh_hours: 6, checks: [], acl: "- '*':\n  - pkg.list_pkgs$\n", refused: {} },
 }
 
 const INVENTORY: Settings['inventory'] = {
@@ -33,8 +33,8 @@ const INVENTORY: Settings['inventory'] = {
   ],
   acl: [
     "- '*':",
-    '  - pkg.list_pkgs',
-    '  - cmd.run_all:',
+    '  - pkg.list_pkgs$',
+    '  - cmd.run_all$:',
     '      args:',
     "        - '^/opt/rover/bin/rover\\-cli\\ \\-\\-version$'",
     '',
@@ -50,7 +50,7 @@ describe('SettingsPage', () => {
     expect(screen.getByText('· currently events')).toBeInTheDocument()
     expect(screen.getByText('Connected')).toBeInTheDocument()
     expect(screen.getByText('sqlite:///data/brine.db')).toBeInTheDocument()
-    expect(screen.getByText('jobs 90 days · presence and grains 90 days · audit log forever')).toBeInTheDocument()
+    expect(screen.getByText('jobs 90 days · presence, grains and packages 90 days · audit log forever')).toBeInTheDocument()
   })
 
   it('explains sign-in without listing who holds which role', async () => {

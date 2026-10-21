@@ -1,7 +1,7 @@
-"""Packages and checks, asked for: the sweep and Ask now (the rules are in app/inventory.py).
+"""Packages and checks, asked for: the sweep and Read now (the rules are in app/inventory.py).
 
 Every few seconds the sweep asks the connected minions for each source they're due a read of,
-in one job per source, BATCH minions at a time. Ask now for the whole fleet makes every online
+in one job per source, BATCH minions at a time. Read now for the whole fleet makes every online
 minion due, so the sweep asks them over the next sweeps; for one minion it asks straight away.
 The answers come back on the event bus like any job's, and the collector stores them.
 
@@ -38,20 +38,20 @@ log = logging.getLogger(__name__)
 SWEEP_SECONDS = 15
 # One sweep asks at most this many minions per source; the rest follow on the next sweeps.
 BATCH = 200
-ASK_ALL_EVERY = 60.0  # Ask now for the whole fleet: at most once a minute
+ASK_ALL_EVERY = 60.0  # Read now for the whole fleet: at most once a minute
 ASK_ONE_EVERY = 10.0  # and for one minion, at most every ten seconds
-# Ask now for one minion: at most this many a minute, whichever minions, so a script asking
+# Read now for one minion: at most this many a minute, whichever minions, so a script asking
 # each in turn can't get round the fleet's once a minute. One sweep's worth.
 ONE_BY_ONE_PER_MINUTE = BATCH
 _MINUTE = 60.0
 # In the sweep's turns, a minion never asked counts as asked before anyone.
 _NEVER = datetime.min.replace(tzinfo=UTC)
 
-# Why Ask now asked nobody, as the UI shows it after "Nobody was asked: ".
+# Why Read now asked nobody, as the UI shows it after "Nobody was asked: ".
 STALE = "brine hasn't checked who's online recently; try again in a minute"
 NOBODY = "no minions are online"
 
-# runtime.memo keys: the last fleet-wide Ask now; each minion's (with its ID after the colon);
+# runtime.memo keys: the last fleet-wide Read now; each minion's (with its ID after the colon);
 # and the times of recent one-minion asks, for the cap.
 _FLEET_KEY = "inventory-ask"
 _ONE_KEY = "inventory-ask:"
@@ -59,7 +59,7 @@ _ONE_BY_ONE_KEY = "inventory-ask-one-by-one"
 
 
 class Throttled(Exception):
-    """Ask now came too soon. The message says so; `retry_after` is in whole seconds."""
+    """Read now came too soon. The message says so; `retry_after` is in whole seconds."""
 
     def __init__(self, message: str, retry_after: float) -> None:
         super().__init__(message)
@@ -68,7 +68,7 @@ class Throttled(Exception):
 
 @dataclass
 class Asked:
-    """What Ask now did."""
+    """What Read now did."""
 
     asked: list[str]  # the minions asked, or for the whole fleet, made due for the sweep
     queued: bool  # the whole fleet was made due: the sweep asks them, BATCH at a time
@@ -174,7 +174,7 @@ async def _online(
 
 
 def _take_throttle(runtime: Runtime, minion: str | None) -> str:
-    """Hold Ask now's throttle for the fleet or `minion`; Throttled if it's held, or if too
+    """Hold Read now's throttle for the fleet or `minion`; Throttled if it's held, or if too
     many minions were asked one by one in the last minute. Returns its memo key."""
     clock = time.monotonic()
     if minion is None:
@@ -199,7 +199,7 @@ def _take_throttle(runtime: Runtime, minion: str | None) -> str:
 
 
 async def ask_now(runtime: Runtime, minion: str | None, now: datetime) -> Asked:
-    """Ask now: every source, from the online minions (or `minion`, if it's online), due or
+    """Read now: every source, from the online minions (or `minion`, if it's online), due or
     not. The whole fleet is made due, for the sweep to ask; one minion is asked straight away.
 
     Throttled when asked too soon. Raises salt-api's error when no source could be asked.

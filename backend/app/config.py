@@ -157,7 +157,8 @@ class RetentionConfig(_Strict):
     """How long brine keeps history, in days. 0 keeps it forever."""
 
     jobs_days: int = Field(default=90, ge=0)  # jobs, their returns, finished catch-up runs
-    history_days: int = Field(default=90, ge=0)  # presence changes and grains history
+    # presence changes, grains history, and package and check changes
+    history_days: int = Field(default=90, ge=0)
     audit_days: int = Field(default=365, ge=0)
 
 
@@ -170,7 +171,7 @@ _LEADING_KWARG = re.compile(r"[^\d\W][\w.-]*=")
 class InventoryConfig(_Strict):
     """Packages and checks: what brine reads from each minion and keeps over time."""
 
-    # How often each connected minion is read again (also after people's jobs and on Ask now).
+    # How often each connected minion is read again (also after people's jobs and on Read now).
     # From every 15 minutes to once a month.
     refresh_hours: float = Field(default=6, ge=0.25, le=24 * 30)
     # name -> a read-only shell command, on one line, run with cmd.run_all. `name=value` lines

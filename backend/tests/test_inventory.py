@@ -295,7 +295,7 @@ def test_jobs_that_may_change_software(fun: str, changes: bool) -> None:
 
 
 def test_acl_without_checks_is_just_the_package_list() -> None:
-    assert inv.acl_lines(settings_with({})) == "- '*':\n  - pkg.list_pkgs\n"
+    assert inv.acl_lines(settings_with({})) == "- '*':\n  - pkg.list_pkgs$\n"
 
 
 def test_acl_allows_exactly_each_check_command() -> None:
@@ -303,11 +303,11 @@ def test_acl_allows_exactly_each_check_command() -> None:
     text = inv.acl_lines(settings)
     assert text == (
         "- '*':\n"
-        "  - pkg.list_pkgs\n"
-        "  - cmd.run_all:\n"
+        "  - pkg.list_pkgs$\n"
+        "  - cmd.run_all$:\n"
         "      args:\n"
         "        - '^/opt/rover/bin/rover\\-cli\\ \\-\\-version\\ \\|\\|\\ true$'\n"
-        "  - cmd.run_all:\n"
+        "  - cmd.run_all$:\n"
         "      args:\n"
         "        - '^podman\\ ps\\ \\-\\-format\\ ''\\{\\{\\.Names\\}\\}=\\{\\{\\.Image\\}\\}''$'\n"
     )
@@ -316,8 +316,10 @@ def test_acl_allows_exactly_each_check_command() -> None:
     # command is pinned: Salt doesn't constrain other arguments or kwargs (shell, env, runas).
     [rules] = yaml.safe_load(text)
     funs = rules["*"]
-    assert funs[0] == "pkg.list_pkgs"
-    patterns = [fun["cmd.run_all"]["args"] for fun in funs[1:]]
+    # Function names are regexes Salt matches from the start: $ allows just that function.
+    assert funs[0] == "pkg.list_pkgs$" and re.match(funs[0], "pkg.list_pkgs")
+    assert all(not re.match(name, f"{name[:-1]}_more") for f in funs[1:] for name in f)
+    patterns = [fun["cmd.run_all$"]["args"] for fun in funs[1:]]
     assert len(patterns) == 2
     for [pattern], command in zip(patterns, [ROVER_CLI, CONTAINERS], strict=True):
         assert re.match(pattern, command)
@@ -1053,7 +1055,7 @@ def test_settings_without_checks(admin: tuple[Api, FakeSalt]) -> None:
     assert api.get("/api/settings")["inventory"] == {
         "refresh_hours": 6,
         "checks": [],
-        "acl": "- '*':\n  - pkg.list_pkgs\n",
+        "acl": "- '*':\n  - pkg.list_pkgs$\n",
         "refused": {},
     }
 

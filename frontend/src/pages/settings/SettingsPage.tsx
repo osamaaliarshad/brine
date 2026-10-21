@@ -319,7 +319,7 @@ export function SettingsPage() {
                 <Row label="History kept" hint="retention: in the config. Older history is pruned hourly.">
                   {[
                     `jobs ${keptFor(s.retention.jobs_days)}`,
-                    `presence and grains ${keptFor(s.retention.history_days)}`,
+                    `presence, grains and packages ${keptFor(s.retention.history_days)}`,
                     `audit log ${keptFor(s.retention.audit_days)}`,
                   ].join(' · ')}
                 </Row>

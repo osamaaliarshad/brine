@@ -3,7 +3,7 @@
 brine asks connected minions for ``pkg.list_pkgs`` (their package manager's own list) and for
 each check in ``inventory.checks`` (a read-only command, run with ``cmd.run_all``). It asks every
 ``inventory.refresh_hours``, again after a person's job that could change software, when a minion
-starts or comes back, and when someone clicks Ask now. The answers arrive on the event bus like
+starts or comes back, and when someone clicks Read now. The answers arrive on the event bus like
 any job return; ``Ingest`` keeps the current entries and every change.
 
 Nothing is installed on the master or the minions, and the minion stays the source of truth:
@@ -238,19 +238,20 @@ def check_named(settings: Settings, args: object) -> str | None:
 def acl_lines(settings: Settings) -> str:
     """The ``external_auth`` entries brine's Salt account needs, as YAML.
 
-    Salt matches each listed argument with ``re.match``, in order, so ``^...$`` around the
-    escaped command pins each check's command. Each check gets its own ``cmd.run_all`` rule:
-    two patterns in one ``args`` list would be the first and second argument of one call.
+    Salt matches function names and each listed argument with ``re.match`` (from the start
+    only), so each name ends in ``$``, and ``^...$`` around the escaped command pins each
+    check's command. Each check gets its own ``cmd.run_all`` rule: two patterns in one ``args``
+    list would be the first and second argument of one call.
 
     Salt can't forbid other arguments or keyword arguments, though (``shell``, ``env``,
     ``runas``, ``cwd``), so an account that's allowed checks can in practice run commands.
     """
-    lines = ["- '*':", f"  - {PACKAGES_FUN}"]
+    lines = ["- '*':", f"  - {PACKAGES_FUN}$"]
     for command in settings.inventory.checks.values():
         pattern = f"^{re.escape(command)}$"
         # In single quotes YAML keeps backslashes as they are; a quote is written twice.
         quoted = "'" + pattern.replace("'", "''") + "'"
-        lines += [f"  - {CHECK_FUN}:", "      args:", f"        - {quoted}"]
+        lines += [f"  - {CHECK_FUN}$:", "      args:", f"        - {quoted}"]
     return "\n".join(lines) + "\n"
 
 

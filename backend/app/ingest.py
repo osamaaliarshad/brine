@@ -263,7 +263,7 @@ class Ingest:
     #   updates the entries, but settles nothing.
     # * A start, or a person's job that may change software, wants the source read again (for
     #   a job, AFTER_JOB after it), and forgets brine's ask still out: that answer may predate
-    #   it. So does Ask now for the fleet (at once, by brine's clock), which the sweep then
+    #   it. So does Read now for the fleet (at once, by brine's clock), which the sweep then
     #   asks BATCH at a time. The want stays until brine's answer, good or failed, clears it,
     #   so a lost answer is asked again.
     # * Credit: the job waits in `after_*` for brine's answer. A good one credits what changed
@@ -369,7 +369,7 @@ class Ingest:
                 read.asked_jid = None
 
     async def inventory_want_now(self, mids: Iterable[str], *, at: datetime) -> None:
-        """Ask now for these minions, at `at` (brine's clock): read each source again, and
+        """Read now for these minions, at `at` (brine's clock): read each source again, and
         forget brine's asks still out. Sources never read have no rows, and are due anyway. Not
         an event, so nothing is a repeat; a later want (a job's) is kept."""
         wanted = set(mids)
