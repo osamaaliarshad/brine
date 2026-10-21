@@ -714,6 +714,29 @@ async def test_a_repeated_job_report_cant_credit_it_twice(
     assert (await last_change(sessions)).jid is None
 
 
+async def test_a_repeat_after_brines_failed_answer_brings_nothing_back(
+    ingest: Ingest, sessions: Sessions
+) -> None:
+    await ingest.inventory_read("a", "packages", {"agent": "2.3.0"}, at=T0, jid=None)
+    await ingest.inventory_read("a", "rover", {"": "1.0"}, at=T0, jid=None)
+    job_at = T0 + HOUR
+    await ingest.inventory_job_done("a", jid="J1", user="alice", at=job_at)
+    await ingest.inventory_wanted("a", at=job_at)  # say the job restarted the minion
+    for source, jid in (("packages", "A1"), ("rover", "R1")):
+        await ingest.inventory_asked(["a"], source, at=job_at + MINUTE, jid=jid)
+        await ingest.inventory_failed("a", source, "locked", at=job_at + 2 * MINUTE, jid=jid)
+    # Both reported again: an answer newer than them is in (failed, so no read since), so
+    # they're skipped. The credit stays used up, and no read is wanted.
+    await ingest.inventory_job_done("a", jid="J1", user="alice", at=job_at)
+    await ingest.inventory_wanted("a", at=job_at)
+    for source in ("packages", "rover"):
+        read = await read_row(sessions, "a", source)
+        assert read.after_at is None and read.wanted_at is None
+    # So a later change, even within the window, isn't credited to the job.
+    await brine_reads(ingest, {"agent": "2.4.1"}, at=job_at + 3 * MINUTE, jid="A2")
+    assert (await last_change(sessions)).jid is None
+
+
 async def test_a_job_counts_only_for_sources_read_before_it(
     ingest: Ingest, sessions: Sessions
 ) -> None:

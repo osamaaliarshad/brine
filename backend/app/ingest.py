@@ -268,7 +268,9 @@ class Ingest:
     # * Late answers (no newer than the last good read, or for a failure the last answer)
     #   change no entries or times; brine's still settles its ask.
     # * Repeats change nothing: brine's answer, once in, isn't brine's any more, and a start or
-    #   job is skipped for a source read since it, or already waiting on it.
+    #   job is skipped for a source answered since it (good or failed), or already waiting on
+    #   it. So a person's failed call can swallow a job reported late: a credit lost, never
+    #   a wrong one.
     # * A source's first read records what's there without changes. A truncated read adds and
     #   updates entries but removes none: what's missing may only have been cut off.
     # * Clocks: answers, jobs and starts are timed by the master, asks by brine. Only coarse
@@ -326,8 +328,9 @@ class Ingest:
         and is due anyway."""
         async with self._lock, self._sessions() as s, s.begin():
             for read in await s.scalars(select(InventoryRead).filter_by(minion_id=mid)):
-                if (read.read_at is not None and read.read_at > at) or read.wanted_at == at:
-                    continue  # a repeat: read since, or already wanted
+                answered_since = read.answered_at is not None and read.answered_at > at
+                if answered_since or read.wanted_at == at:
+                    continue  # a repeat: answered since, or already wanted
                 read.wanted_at = _later(read.wanted_at, at)
                 read.asked_jid = None
 
@@ -338,8 +341,9 @@ class Ingest:
         again shortly, and credit what that read finds to the job."""
         async with self._lock, self._sessions() as s, s.begin():
             for read in await s.scalars(select(InventoryRead).filter_by(minion_id=mid)):
-                if (read.read_at is not None and read.read_at > at) or read.after_jid == jid:
-                    continue  # a repeat: read since, or already waiting
+                answered_since = read.answered_at is not None and read.answered_at > at
+                if answered_since or read.after_jid == jid:
+                    continue  # a repeat: answered since, or already waiting
                 read.wanted_at = _later(read.wanted_at, at + AFTER_JOB)
                 read.asked_jid = None
                 if read.after_at is None:
