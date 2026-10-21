@@ -679,10 +679,12 @@ self.ingest.job_return(...)`:
         """A package list or a configured check's output, from brine or anyone else."""
         data, args = d.get("return"), d.get("fun_args") or []
         if fun == inventory.PACKAGES_FUN and not args and d.get("success") is not False:
-            parsed = inventory.parse_packages(data)
-            if parsed is None:
-                return await self.ingest.inventory_failed(mid, inventory.PACKAGES, str(data)[:200], at=at)
-            return await self.ingest.inventory_read(mid, inventory.PACKAGES, parsed[0], at=at)
+            entries, error, truncated = inventory.parse_packages(data)
+            if error:
+                return await self.ingest.inventory_failed(mid, inventory.PACKAGES, error, at=at)
+            return await self.ingest.inventory_read(
+                mid, inventory.PACKAGES, entries, at=at, truncated=truncated
+            )
         if fun == inventory.CHECK_FUN and (name := inventory.check_named(self.settings, args)):
             entries, error, truncated = inventory.parse_check(data)
             if error:
@@ -1663,8 +1665,9 @@ uv run --project backend python demo/smoke_test.py --presence
 
 Then with a salt-api token (see the session's earlier curl): `pkg.list_pkgs` on rover-03 includes
 `rover-agent: 2.3.0`; `cmd.run_all ['/opt/rover/bin/rover-cli --version 2>/dev/null || true']`
-as brine returns `rover-cli 1.1.0`; the same command with another argument is refused (proves
-the ACL limit).
+as brine returns `rover-cli 1.1.0`; a *different* command (`cmd.run_all ['id']`) is refused.
+Salt can pin a check's command but not its other arguments or options (`shell`, `env`,
+`runas`), so an account with checks can in practice run commands: the docs say so plainly.
 
 **Step 5: Commit** `git commit -m "Demo: a versioned rover-agent package and a rover-cli check"`
 
@@ -1717,8 +1720,10 @@ The `AFTER_JOB` re-read takes ~60–75 s; the 180 s budget covers it. Check the 
 
 **Files:**
 - Modify: `docs/permissions-and-salt-acl.md` (read-only ACL gains `pkg.list_pkgs`; new section
-  "Checks" with the args-limited `cmd.run_all`; "What brine never asks for" now says brine runs
-  exactly the check commands you configure and nothing else for itself)
+  "Checks" with one args-limited `cmd.run_all` rule per check, and a plain warning: Salt pins
+  the command but not its other options, so an account with checks can in practice run
+  commands; leave checks out to keep brine's account read-only. "What brine never asks for"
+  now says brine asks only for the check commands you configure, nothing else, for itself)
 - Modify: `config.example.yaml` (an `inventory:` section with a commented podman example)
 - Modify: `README.md` (Fleet › Grains & packages paragraph; Minion paragraph mentions Packages
   and History; feature bullet "What's installed where"), `CHANGELOG.md` (0.1.0 bullet),
