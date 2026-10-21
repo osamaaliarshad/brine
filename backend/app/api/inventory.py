@@ -67,12 +67,8 @@ def _kind(source: str) -> Literal["package", "check"]:
 def _split(key: str, runtime: Runtime) -> tuple[str, str]:
     """`(source, name)` of a package's or a configured check's key; 422 for anything else,
     such as a grain."""
-    parsed = inventory.parse_key(key)
-    if (
-        parsed is None
-        or parsed[0] not in inventory.sources(runtime.settings)
-        or parsed == (inventory.PACKAGES, "")
-    ):
+    parsed = inventory.configured_key(runtime.settings, key)
+    if parsed is None:
         raise HTTPException(422, f"{key!r} isn't a package or a configured check")
     return parsed
 

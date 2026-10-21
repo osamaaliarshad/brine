@@ -12,7 +12,7 @@ from app.status import Status
 
 
 class Column(BaseModel):
-    grain: str
+    grain: str  # a grain path, or a package's or check's `@` key (`@packages:bash`)
     label: str
 
 
@@ -27,7 +27,9 @@ class MinionSummary(BaseModel):
     ip: str | None
     grains_at: datetime | None
     grains_source: str | None
-    # Values of the configured fleet columns, keyed by grain name.
+    # Values of the fleet's columns, keyed by grain path or `@` key. `@` columns: None means
+    # the minion answered without it; a missing key means unknown (no good read of that
+    # source yet, or the last one was cut short and doesn't list it).
     columns: dict[str, Any]
 
 

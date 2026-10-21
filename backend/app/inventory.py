@@ -83,6 +83,15 @@ def parse_key(key: str) -> tuple[str, str] | None:
     return (source, name) if source else None
 
 
+def configured_key(settings: Settings, key: str) -> tuple[str, str] | None:
+    """``(source, name)`` of a package's or a configured check's key; None for anything else:
+    a grain path, a check no longer configured, or ``@packages`` with no package named."""
+    parsed = parse_key(key)
+    if parsed is None or parsed[0] not in sources(settings) or parsed == (PACKAGES, ""):
+        return None
+    return parsed
+
+
 def may_change_software(fun: str) -> bool:
     """Whether a job running ``fun`` could change what's installed, so worth reading again."""
     # pkg.list_pkgs is brine's own read. cmd.run_all counts: a person can install things with it,

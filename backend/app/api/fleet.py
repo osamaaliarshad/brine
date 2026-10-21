@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import ipaddress
 import json
+from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Query
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import inventory
 from app.api.deps import RuntimeDep, SessionDep
 from app.api.schemas import (
     CatchUpRun,
@@ -25,9 +27,12 @@ from app.api.schemas import (
     PresenceInfo,
     PresencePoint,
 )
+from app.config import Settings
 from app.ingest import PRESENCE_BLIND_STATE
 from app.models import (
     GrainsSnapshot,
+    InventoryItem,
+    InventoryRead,
     Job,
     JobReturn,
     Minion,
@@ -104,18 +109,81 @@ async def presence_blind(session: SessionDep) -> set[str]:
     return set(row.value or []) if row is not None else set()
 
 
+def column_label(grain: str) -> str:
+    """A column's label when none is configured: the grain path, or for an `@` key the
+    package's or entry's name (a single-value check's own name)."""
+    parsed = inventory.parse_key(grain)
+    if parsed is None:
+        return grain
+    source, name = parsed
+    return name or source
+
+
 def configured_columns(runtime: Runtime) -> list[Column]:
-    return [Column(grain=c.grain, label=c.label or c.grain) for c in runtime.settings.fleet.columns]
+    return [
+        Column(grain=c.grain, label=c.label or column_label(c.grain))
+        for c in runtime.settings.fleet.columns
+    ]
 
 
 def requested_columns(runtime: Runtime, grains: list[str] | None) -> list[Column]:
-    """The columns a request asked for (`?column=a&column=b:c`), or the configured defaults.
-    Configured labels are reused for configured grains."""
+    """The columns a request asked for (`?column=a&column=b:c&column=@packages:bash`), or the
+    configured defaults. Configured labels are reused for configured columns."""
     if grains is None:
         return configured_columns(runtime)
     labels = {c.grain: c.label for c in configured_columns(runtime)}
     picked = list(dict.fromkeys(g.strip() for g in grains if g.strip()))[:MAX_COLUMNS]
-    return [Column(grain=g, label=labels.get(g, g)) for g in picked]
+    return [Column(grain=g, label=labels.get(g) or column_label(g)) for g in picked]
+
+
+async def inventory_cells(
+    session: AsyncSession, settings: Settings, columns: list[Column], only: str | None = None
+) -> dict[str, dict[str, str | None]]:
+    """The `@` columns' cells, per minion (or just `only`): the value it has, or None when its
+    last good read of that source is whole and doesn't list it. An unknown cell is left out:
+    no good read, or one cut short that doesn't list it. A key that isn't a package or a
+    configured check is unknown everywhere (a browser may keep a removed check's column)."""
+    by_entry: dict[tuple[str, str], list[str]] = {}  # (source, name) -> its column keys
+    by_source: dict[str, list[str]] = {}
+    for c in columns:
+        if (parsed := inventory.configured_key(settings, c.grain)) is not None:
+            by_entry.setdefault(parsed, []).append(c.grain)
+            by_source.setdefault(parsed[0], []).append(c.grain)
+    if not by_entry:
+        return {}
+    whole = select(InventoryRead.minion_id, InventoryRead.source).where(
+        InventoryRead.source.in_(list(by_source)),
+        InventoryRead.read_at.is_not(None),
+        InventoryRead.truncated.is_(False),
+    )
+    held = select(
+        InventoryItem.minion_id, InventoryItem.source, InventoryItem.name, InventoryItem.value
+    ).where(or_(*(and_(InventoryItem.source == s, InventoryItem.name == n) for s, n in by_entry)))
+    if only is not None:
+        whole = whole.where(InventoryRead.minion_id == only)
+        held = held.where(InventoryItem.minion_id == only)
+    cells: dict[str, dict[str, str | None]] = {}
+    for mid, source in await session.execute(whole):
+        for key in by_source[source]:
+            cells.setdefault(mid, {})[key] = None
+    for mid, source, name, value in await session.execute(held):
+        for key in by_entry[(source, name)]:
+            cells.setdefault(mid, {})[key] = value
+    return cells
+
+
+def column_values(
+    minion: Minion, columns: list[Column], cells: Mapping[str, str | None]
+) -> dict[str, Any]:
+    """Each column's value: a grain column always has one (None when it isn't reported), an
+    `@` column only when it's known (from `inventory_cells`)."""
+    values: dict[str, Any] = {}
+    for c in columns:
+        if not c.grain.startswith("@"):
+            values[c.grain] = grain_value(minion.grains, c.grain)
+        elif c.grain in cells:
+            values[c.grain] = cells[c.grain]
+    return values
 
 
 def summarize(
@@ -125,7 +193,9 @@ def summarize(
     now: datetime,
     columns: list[Column] | None = None,
     blind: set[str] | frozenset[str] = frozenset(),
+    cells: Mapping[str, Mapping[str, str | None]] | None = None,
 ) -> MinionSummary:
+    """`cells`: the `@` columns' cells per minion, from `inventory_cells`."""
     stale_after = timedelta(minutes=runtime.settings.fleet.stale_after_minutes)
     return MinionSummary(
         id=minion.id,
@@ -145,10 +215,11 @@ def summarize(
         ip=primary_ip(minion.grains),
         grains_at=minion.grains_at,
         grains_source=minion.grains_source,
-        columns={
-            c.grain: grain_value(minion.grains, c.grain)
-            for c in (configured_columns(runtime) if columns is None else columns)
-        },
+        columns=column_values(
+            minion,
+            configured_columns(runtime) if columns is None else columns,
+            (cells or {}).get(minion.id, {}),
+        ),
     )
 
 
@@ -160,8 +231,9 @@ async def fleet(
         list[str] | None,
         Query(
             max_length=MAX_COLUMNS,
-            description="grain columns to include (repeatable; `a:b` for nested); "
-            "defaults to fleet.columns from the config",
+            description="columns to include (repeatable): a grain (`a:b` for nested), or a "
+            "package's or check's key (`@packages:bash`); defaults to fleet.columns from the "
+            "config",
         ),
     ] = None,
 ) -> Fleet:
@@ -169,9 +241,10 @@ async def fleet(
     presence = await presence_info(session)
     columns = requested_columns(runtime, column)
     blind = await presence_blind(session)
+    cells = await inventory_cells(session, runtime.settings, columns)
     rows = (await session.scalars(select(Minion).order_by(Minion.id))).all()
     accepted = [
-        summarize(m, runtime, presence, now, columns, blind)
+        summarize(m, runtime, presence, now, columns, blind, cells)
         for m in rows
         if m.key_state == "accepted"
     ]
@@ -257,8 +330,15 @@ async def minion_detail(
     if minion is None:
         raise HTTPException(404, f"no minion {minion_id!r}")
     presence = await presence_info(session)
+    columns = configured_columns(runtime)
     summary = summarize(
-        minion, runtime, presence, datetime.now(UTC), blind=await presence_blind(session)
+        minion,
+        runtime,
+        presence,
+        datetime.now(UTC),
+        columns,
+        blind=await presence_blind(session),
+        cells=await inventory_cells(session, runtime.settings, columns, only=minion_id),
     )
 
     changes = await session.scalars(

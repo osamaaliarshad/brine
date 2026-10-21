@@ -908,6 +908,90 @@ def test_keys_that_arent_a_package_or_a_check_are_422(
         assert "isn't a package or a configured check" in resp.json()["detail"]
 
 
+def fleet_with(api: Api, *columns: str) -> tuple[list[Any], dict[str, Any]]:
+    """The fleet with these columns: the columns, and each minion's cells."""
+    resp = api.client.get("/api/fleet", params=[("column", c) for c in columns])
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    return body["columns"], {m["id"]: m["columns"] for m in body["minions"]}
+
+
+def test_fleet_columns_show_values_missing_and_unknown(with_checks: tuple[Api, FakeSalt]) -> None:
+    api, _ = with_checks
+    now = datetime.now(UTC)
+    read(api, "rover-01", {"rover-agent": "2.4.1"}, now)
+    read(api, "dock-01", {"bash": "5.2"}, now)  # answered without it
+    api.seed(api.ingest.inventory_failed, "rover-02", "packages", "locked", at=now, jid=None)
+    # Cut short: an entry it doesn't list may be past the cut, so only a listed one is known.
+    for mid, images in (("rover-01", {"db": "postgres:16"}), ("rover-02", {"web": "web:1.4"})):
+        api.seed(
+            api.ingest.inventory_read, mid, "containers", images, at=now, jid=None, truncated=True
+        )
+    read(api, "dock-01", {"db": "postgres:16"}, now, source="containers")
+    read(api, "rover-01", {"": "rover-cli 1.2.0"}, now, source="rover-cli")
+    read(api, "dock-01", {}, now, source="rover-cli")  # printed nothing: not there
+    columns, cells = fleet_with(
+        api, "app_version", "@packages:rover-agent", "@containers:web", "@rover-cli"
+    )
+    assert columns == [
+        {"grain": "app_version", "label": "app_version"},
+        {"grain": "@packages:rover-agent", "label": "rover-agent"},
+        {"grain": "@containers:web", "label": "web"},
+        {"grain": "@rover-cli", "label": "rover-cli"},  # a single value: the check's name
+    ]
+    # A value, None (answered without it), or no cell at all (unknown). Grain columns are
+    # always there.
+    assert cells == {
+        "dock-01": {
+            "app_version": None,
+            "@packages:rover-agent": None,
+            "@containers:web": None,
+            "@rover-cli": None,
+        },
+        "rover-01": {
+            "app_version": None,
+            "@packages:rover-agent": "2.4.1",
+            "@rover-cli": "rover-cli 1.2.0",
+        },
+        "rover-02": {"app_version": None, "@containers:web": "web:1.4"},
+        "rover-03": {"app_version": None},
+    }
+
+
+def test_fleet_columns_that_arent_a_package_or_a_check_are_unknown(
+    admin: tuple[Api, FakeSalt],
+) -> None:
+    api, _ = admin
+    now = datetime.now(UTC)
+    read(api, "rover-01", {"bash": "5.2"}, now)
+    # A check since removed from the config: a browser may still have its column saved.
+    read(api, "rover-01", {"": "rover-cli 1.2.0"}, now, source="rover-cli")
+    columns, cells = fleet_with(api, "@rover-cli", "@containers:web", "@packages", "@", "@:x")
+    assert [c["label"] for c in columns] == ["rover-cli", "web", "packages", "@", "@:x"]
+    assert cells == {mid: {} for mid in ("dock-01", "rover-01", "rover-02", "rover-03")}
+
+
+def test_default_columns_can_be_packages(tmp_path: Path) -> None:
+    columns = (
+        "fleet: {columns: [{grain: '@packages:rover-agent'},"
+        " {grain: '@packages:bash', label: Shell}]}\n"
+    )
+    for api, _ in make_api(tmp_path, "admin", columns):
+        read(api, "rover-01", {"rover-agent": "2.4.1"}, datetime.now(UTC))
+        fleet = api.get("/api/fleet")
+        assert fleet["columns"] == [
+            {"grain": "@packages:rover-agent", "label": "rover-agent"},
+            {"grain": "@packages:bash", "label": "Shell"},
+        ]
+        rover = next(m for m in fleet["minions"] if m["id"] == "rover-01")
+        assert rover["columns"] == {"@packages:rover-agent": "2.4.1", "@packages:bash": None}
+        assert api.get("/api/minions/rover-01")["columns"] == rover["columns"]
+        assert api.get("/api/minions/rover-02")["columns"] == {}
+        # A configured label wins when the column is asked for.
+        asked, _ = fleet_with(api, "@packages:bash")
+        assert asked == [{"grain": "@packages:bash", "label": "Shell"}]
+
+
 def ask(api: Api, **body: Any) -> Any:
     return api.client.post("/api/inventory/ask", json=body, headers=CSRF)
 
