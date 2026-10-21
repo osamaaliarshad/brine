@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from fnmatch import fnmatchcase
 
-from app.config import AuthConfig, Role, RolesConfig
+from app.config import AuthConfig, Role, RolesConfig, Settings
 
 ROLE_ORDER: tuple[Role, ...] = ("viewer", "operator", "admin")
 
@@ -25,6 +25,14 @@ def role_for(email: str, roles: RolesConfig, auth: AuthConfig) -> Role | None:
         if any(fnmatchcase(email, pattern.lower()) for pattern in getattr(roles, role)):
             return role
     return None
+
+
+def current_role(email: str, settings: Settings) -> Role | None:
+    """The role `email` has under the running config (everyone's the anonymous role when
+    sign-in is off). For acting later on someone's behalf, e.g. a catch-up run."""
+    if settings.auth.provider == "none":
+        return settings.auth.anonymous_role
+    return role_for(email, settings.roles, settings.auth)
 
 
 def at_least(role: Role, needed: Role) -> bool:

@@ -247,3 +247,42 @@ def test_demo_orchestrations_and_templates(settings: Settings) -> None:
         for step in steps:
             step_job = get(c, f"/api/jobs/{step['jid']}")
             assert step_job["user"] == "local" and step_job["returned"] >= 1
+
+
+def test_demo_catch_up_runs(settings: Settings) -> None:
+    """rover-03 is off when a command goes out with catch-up on; when it's back, brine sends it
+    the command and records the answer under the person who ran it."""
+    csrf = {"X-Requested-With": "brine"}
+    with TestClient(create_app(settings, frontend_dist=Path("/nonexistent"))) as c:
+        wait_until("rover-03 online", lambda: statuses(c).get("rover-03") == "online", 90)
+        compose("stop", "rover-03")
+        try:
+            wait_until("rover-03 offline", lambda: statuses(c)["rover-03"] == "offline", 60)
+            body = {"command": "test.echo caught-up", "target": "rover-0*"}
+            preview = c.post("/api/commands/preview", json=body, headers=csrf).json()
+            assert preview["offline"] == ["rover-03"]
+            run = c.post(
+                "/api/commands/run",
+                json={**body, "expect": preview["minions"], "catch_up": True},
+                headers=csrf,
+            )
+            assert run.status_code == 200, run.text
+            assert run.json()["waiting"] == ["rover-03"]
+            jid = run.json()["jid"]
+        finally:
+            compose("start", "rover-03")
+
+        def delivered() -> str | None:
+            (entry,) = get(c, f"/api/jobs/{jid}")["catch_up"]
+            return entry["sent_jid"] if entry["state"] == "sent" else None
+
+        wait_until("the catch-up run to be sent", lambda: delivered() is not None, 120)
+        caught_up = delivered()
+        wait_until(
+            "rover-03 to answer it",
+            lambda: get(c, f"/api/jobs/{caught_up}")["returned"] == 1,
+            60,
+        )
+        job = get(c, f"/api/jobs/{caught_up}")
+        assert job["catch_up_of"] == jid and job["user"] == "local"
+        assert job["results"][0]["data"] == "caught-up"

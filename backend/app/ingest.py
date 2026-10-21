@@ -18,7 +18,15 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.models import GrainsSnapshot, Job, JobReturn, Minion, PresenceChange, SystemState
+from app.models import (
+    GrainsSnapshot,
+    Job,
+    JobReturn,
+    Minion,
+    PendingRun,
+    PresenceChange,
+    SystemState,
+)
 
 # `wheel key.list_all` field -> brine key state
 KEY_LIST_FIELDS = {
@@ -316,6 +324,81 @@ class Ingest:
                 s.add(ret)
             ret.returned_at, ret.data, ret.success, ret.retcode = at, data, success, None
         return Changes(jobs={jid})
+
+    # --- catch-up runs (app/catchup.py) ------------------------------------------------------
+
+    async def catch_up_queue(
+        self,
+        *,
+        source_jid: str,
+        fun: str,
+        args: list[Any],
+        actor: str,
+        minions: Iterable[str],
+        at: datetime,
+        expires_at: datetime,
+    ) -> Changes:
+        """Keep a command for minions that missed it. A minion already waiting on the same
+        command gets only this one: the older is marked replaced."""
+        changes = Changes(jobs={source_jid})
+        async with self._lock, self._sessions() as s, s.begin():
+            for mid in minions:
+                older = await s.scalars(
+                    select(PendingRun).where(
+                        PendingRun.state == "waiting",
+                        PendingRun.minion_id == mid,
+                        PendingRun.fun == fun,
+                    )
+                )
+                for run in older:
+                    if run.args == args:
+                        run.state, run.reason = "replaced", f"replaced by job {source_jid}"
+                        changes.jobs.add(run.source_jid)
+                s.add(
+                    PendingRun(
+                        minion_id=mid,
+                        source_jid=source_jid,
+                        fun=fun,
+                        args=args,
+                        actor=actor,
+                        created_at=at,
+                        expires_at=expires_at,
+                        state="waiting",
+                    )
+                )
+                changes.minions.add(mid)
+        return changes
+
+    async def catch_up_sent(self, run_id: int, *, jid: str, at: datetime) -> Changes:
+        async with self._lock, self._sessions() as s, s.begin():
+            run = await s.get(PendingRun, run_id)
+            if run is None:
+                return Changes()
+            run.state, run.sent_jid, run.sent_at = "sent", jid, at
+            return Changes(jobs={run.source_jid, jid}, minions={run.minion_id})
+
+    async def catch_up_close(self, run_id: int, *, state: str, reason: str) -> Changes:
+        """End a waiting run without sending it: cancelled or refused."""
+        async with self._lock, self._sessions() as s, s.begin():
+            run = await s.get(PendingRun, run_id)
+            if run is None or run.state != "waiting":
+                return Changes()
+            run.state, run.reason = state, reason
+            return Changes(jobs={run.source_jid}, minions={run.minion_id})
+
+    async def catch_up_expire(self, now: datetime) -> Changes:
+        changes = Changes()
+        async with self._lock, self._sessions() as s, s.begin():
+            stale = await s.scalars(
+                select(PendingRun).where(
+                    PendingRun.state == "waiting", PendingRun.expires_at <= now
+                )
+            )
+            for run in stale:
+                run.state, run.reason = "expired", "the minion didn't come back in time"
+                changes.jobs.add(run.source_jid)
+                changes.minions.add(run.minion_id)
+        return changes
 
     async def job_owner(self, jids: Iterable[str], actor: str) -> Changes:
         """These jobs belong to `actor` (an orchestration's steps, started as "salt")."""

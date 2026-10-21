@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from fnmatch import fnmatchcase
 from typing import Any, Literal
 
@@ -20,7 +20,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import RuntimeDep, SessionDep
 from app.api.fleet import reachable
-from app.api.schemas import CommandPreview, CommandRequest, CommandResult, CommandTemplate
+from app.api.schemas import (
+    CatchUpRun,
+    CommandPreview,
+    CommandRequest,
+    CommandResult,
+    CommandTemplate,
+)
 from app.audit import record
 from app.auth.users import CurrentUser, User
 from app.commands import (
@@ -33,7 +39,7 @@ from app.commands import (
 )
 from app.config import TemplateConfig
 from app.ingest import Changes
-from app.models import Minion
+from app.models import Minion, PendingRun
 from app.runtime import Runtime
 from app.salt.client import SaltApiError, SaltApiForbidden
 from app.salt.collector import import_job
@@ -170,7 +176,35 @@ async def preview(
         offline=offline,
         unknown=unknown,
         from_cache=from_cache,
+        catch_up_days=runtime.settings.commands.catch_up_days,
     )
+
+
+@router.post("/catch-up/{run_id}/cancel", response_model=CatchUpRun)
+async def cancel_catch_up(run_id: int, runtime: RuntimeDep, user: CurrentUser) -> CatchUpRun:
+    """Drop a waiting catch-up run: the person who queued it, or an admin."""
+    async with runtime.sessions() as s:
+        run = await s.get(PendingRun, run_id)
+    if run is None:
+        raise HTTPException(404, f"no catch-up run {run_id}")
+    if user.email != run.actor and user.role != "admin":
+        raise HTTPException(403, "Only the person who queued it, or an admin, can cancel it.")
+    if run.state != "waiting":
+        raise HTTPException(409, f"It's {run.state}, not waiting.")
+    runtime.bus.publish_changes(
+        await runtime.ingest.catch_up_close(
+            run_id, state="cancelled", reason=f"cancelled by {user.email}"
+        )
+    )
+    await record(
+        runtime.sessions,
+        actor=user.email,
+        action="command.catch_up_cancelled",
+        target=run.minion_id,
+        detail={"command": " ".join([run.fun, *map(str, run.args)]), "of": run.source_jid},
+    )
+    async with runtime.sessions() as s:
+        return CatchUpRun.model_validate(await s.get(PendingRun, run_id))
 
 
 @router.post("/run", response_model=CommandResult)
@@ -283,18 +317,34 @@ async def _run_on_minions(
     if jid is None:
         raise HTTPException(409, "Salt found no minions for that target.")
     sent_to = sent_to or minions
-    runtime.bus.publish_changes(
-        await runtime.ingest.command_started(
-            jid=jid,
-            fun=command.fun,
-            args=command.args,
-            target=target,
-            target_type=body.target_type,
-            actor=user.email,
-            minions=sent_to,
-            at=datetime.now(UTC),
-        )
+    now = datetime.now(UTC)
+    changes = await runtime.ingest.command_started(
+        jid=jid,
+        fun=command.fun,
+        args=command.args,
+        target=target,
+        target_type=body.target_type,
+        actor=user.email,
+        minions=sent_to,
+        at=now,
     )
+    waiting: list[str] = []
+    if body.catch_up:
+        # Only minions a fresh presence check says are offline: the rest got it now.
+        _, skipped = await reachable(runtime, session)
+        waiting = [m for m in minions if m in set(skipped)]
+        changes.merge(
+            await runtime.ingest.catch_up_queue(
+                source_jid=jid,
+                fun=command.fun,
+                args=command.args,
+                actor=user.email,
+                minions=waiting,
+                at=now,
+                expires_at=now + timedelta(days=runtime.settings.commands.catch_up_days),
+            )
+        )
+    runtime.bus.publish_changes(changes)
     await record(
         runtime.sessions,
         actor=user.email,
@@ -306,9 +356,10 @@ async def _run_on_minions(
             "target_type": body.target_type,
             "minions": len(sent_to),
             "jid": jid,
+            "catch_up": waiting or None,
         },
     )
-    return CommandResult(client="local", jid=jid, minions=sent_to)
+    return CommandResult(client="local", jid=jid, minions=sent_to, waiting=waiting)
 
 
 def _salt_error(exc: SaltApiError) -> HTTPException:

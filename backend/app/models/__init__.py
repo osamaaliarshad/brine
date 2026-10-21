@@ -104,6 +104,32 @@ class JobReturn(Base):
     data: Mapped[Any] = mapped_column(JSON)
 
 
+class PendingRun(Base):
+    """A command someone ran from brine that a minion missed because it was offline, to run on
+    that minion when it's back (catch-up runs). Only ever created on request, in brine."""
+
+    __tablename__ = "pending_runs"
+    __table_args__ = (
+        Index("ix_pending_runs_state_minion", "state", "minion_id"),
+        Index("ix_pending_runs_source_jid", "source_jid"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    minion_id: Mapped[str] = mapped_column(String(255))
+    # The job it catches up on, and the command as the Run page sent it.
+    source_jid: Mapped[str] = mapped_column(String(32))
+    fun: Mapped[str] = mapped_column(String(255))
+    args: Mapped[list[Any]] = mapped_column(JSON, default=list)
+    actor: Mapped[str] = mapped_column(String(255))
+    created_at: Mapped[datetime]
+    expires_at: Mapped[datetime]
+    # waiting -> sent; or expired, cancelled, replaced (a newer identical one), refused.
+    state: Mapped[str] = mapped_column(String(16), default="waiting")
+    reason: Mapped[str | None] = mapped_column(Text)
+    sent_jid: Mapped[str | None] = mapped_column(String(32))
+    sent_at: Mapped[datetime | None]
+
+
 class AuditEntry(Base):
     __tablename__ = "audit_log"
     __table_args__ = (Index("ix_audit_log_at", "at"),)

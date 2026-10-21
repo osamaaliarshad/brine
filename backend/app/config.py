@@ -125,6 +125,8 @@ class CommandsConfig(_Strict):
 
     operator: list[str] = Field(default_factory=list)
     admin: list[str] = Field(default_factory=lambda: ["*"])
+    # Catch-up runs (opted into per run): how long a command waits for an offline minion.
+    catch_up_days: int = Field(default=7, ge=1, le=90)
 
 
 class TemplateConfig(_Strict):

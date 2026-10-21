@@ -35,6 +35,7 @@ class FakeSalt:
         self.answers: dict[str, Any] = {}
         self.job_cache: dict[str, Any] = {}
         self.master_config: dict[str, Any] = {}
+        self.next_jid = int(JID)
 
     async def permissions(self) -> list[Any]:
         return []
@@ -57,7 +58,10 @@ class FakeSalt:
         self.calls.append(("start_job", fun, {"tgt": tgt, **kwargs}))
         if fun in self.forbidden:
             raise SaltApiForbidden(f"brine's Salt account isn't allowed to run {fun}", 403)
-        return JID, ["rover-01", "rover-02", "rover-03"]
+        jid, self.next_jid = str(self.next_jid), self.next_jid + 1
+        if kwargs.get("tgt_type") == "list":
+            return jid, tgt.split(",")
+        return jid, ["rover-01", "rover-02", "rover-03"]
 
     async def run(self, lowstate: dict[str, Any], **kwargs: Any) -> Any:
         self.calls.append(("run", lowstate["fun"], {**lowstate, **kwargs}))
@@ -200,6 +204,7 @@ def test_preview_shows_exactly_what_runs_where(operator: tuple[Api, FakeSalt]) -
         "offline": ["rover-03"],
         "unknown": [],
         "from_cache": False,
+        "catch_up_days": 7,
     }
     assert salt.calls == []  # a preview never runs anything
 
@@ -214,6 +219,7 @@ def test_running_records_the_job_under_the_person(operator: tuple[Api, FakeSalt]
         "minions": expect,
         "result": None,
         "success": None,
+        "waiting": [],
     }
     assert salt.started() == [
         {
@@ -234,6 +240,7 @@ def test_running_records_the_job_under_the_person(operator: tuple[Api, FakeSalt]
         "target_type": "glob",
         "minions": 3,
         "jid": JID,
+        "catch_up": None,
     }
 
 

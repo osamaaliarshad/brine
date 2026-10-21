@@ -14,6 +14,7 @@ from starlette.exceptions import HTTPException
 from starlette.responses import Response
 from starlette.types import Scope
 
+from app import catchup
 from app.api import api_router
 from app.auth.session import LazySessionMiddleware
 from app.config import Settings, load_config
@@ -57,6 +58,8 @@ def create_app(
             # One line per salt-api request is noise; failures are logged by the collector.
             logging.getLogger("httpx").setLevel(logging.WARNING)
         runtime = await Runtime.start(settings or load_config(), run_collector=run_collector)
+        if run_collector:
+            runtime.background(catchup.run_forever(runtime), "catch-up")
         app.state.runtime = runtime
         try:
             yield

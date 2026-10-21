@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import SessionDep
 from app.api.schemas import (
+    CatchUpRun,
     JobDetail,
     JobPage,
     JobResult,
@@ -16,7 +17,7 @@ from app.api.schemas import (
     StateRun,
     StateRuns,
 )
-from app.models import Job, JobReturn, Minion
+from app.models import Job, JobReturn, Minion, PendingRun
 from app.states import (
     ORCHESTRATE_FUNCTIONS,
     STATE_FUNCTIONS,
@@ -174,8 +175,16 @@ async def job_detail(jid: str, session: SessionDep) -> JobDetail:
             return None
         return parse_state_return(unwrap_orchestration(data) if is_orchestration else data)
 
+    catch_up = await session.scalars(
+        select(PendingRun).where(PendingRun.source_jid == jid).order_by(PendingRun.minion_id)
+    )
+    caught_up_from = await session.scalar(
+        select(PendingRun.source_jid).where(PendingRun.sent_jid == jid).limit(1)
+    )
     return JobDetail(
         **_summary(*row).model_dump(),
+        catch_up=[CatchUpRun.model_validate(r) for r in catch_up],
+        catch_up_of=caught_up_from,
         args=job.args,
         minions=job.minions,
         missing=sorted(set(job.minions) - {r.minion_id for r in returns}),

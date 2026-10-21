@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import RuntimeDep, SessionDep
 from app.api.schemas import (
+    CatchUpRun,
     Column,
     Fleet,
     FleetSummary,
@@ -25,7 +26,15 @@ from app.api.schemas import (
     PresencePoint,
 )
 from app.ingest import PRESENCE_BLIND_STATE, PRESENCE_STATE
-from app.models import GrainsSnapshot, Job, JobReturn, Minion, PresenceChange, SystemState
+from app.models import (
+    GrainsSnapshot,
+    Job,
+    JobReturn,
+    Minion,
+    PendingRun,
+    PresenceChange,
+    SystemState,
+)
 from app.runtime import Runtime
 from app.status import Status, minion_status
 
@@ -279,12 +288,18 @@ async def minion_detail(
         .order_by(Job.started_at.desc())
         .limit(jobs)
     )
+    waiting = await session.scalars(
+        select(PendingRun)
+        .where(PendingRun.minion_id == minion_id, PendingRun.state == "waiting")
+        .order_by(PendingRun.created_at)
+    )
     return MinionDetail(
         **summary.model_dump(),
         first_seen_at=minion.first_seen_at,
         grains=minion.grains,
         presence_history=[PresencePoint(at=c.at, connected=c.connected) for c in changes],
         recent_jobs=[MinionJob.model_validate(r, from_attributes=True) for r in recent],
+        waiting_runs=[CatchUpRun.model_validate(r) for r in waiting],
     )
 
 

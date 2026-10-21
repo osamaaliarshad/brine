@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.states import StateResult
 from app.status import Status
@@ -208,6 +208,7 @@ class MinionDetail(MinionSummary):
     grains: dict[str, Any] | None
     presence_history: list[PresencePoint]
     recent_jobs: list[MinionJob]
+    waiting_runs: list[CatchUpRun]  # commands it missed while offline, to run when it's back
 
 
 class GrainsChange(BaseModel):
@@ -272,11 +273,32 @@ class StateRuns(BaseModel):
     never: list[str]  # accepted minions brine has no state run for
 
 
+class CatchUpRun(BaseModel):
+    """A command waiting for an offline minion, or what became of it."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    minion_id: str
+    source_jid: str  # the job it catches up on
+    fun: str
+    args: list[Any]
+    actor: str
+    created_at: datetime
+    expires_at: datetime
+    state: str  # waiting, sent, expired, cancelled, replaced, refused
+    reason: str | None
+    sent_jid: str | None  # the job that ran it on the minion
+    sent_at: datetime | None
+
+
 class JobDetail(JobSummary):
     args: list[Any]
     minions: list[str]
     missing: list[str]  # expected minions that haven't returned
     results: list[JobResult]
+    catch_up: list[CatchUpRun]  # minions that missed it and get it when they're back
+    catch_up_of: str | None  # this job caught a minion up on that one
 
 
 class Key(BaseModel):
@@ -321,6 +343,8 @@ class CommandRequest(BaseModel):
     target_type: TargetType = "glob"
     # Running: the minions the preview showed. Refused if the target matches others by then.
     expect: list[str] | None = None
+    # Running: also run it on the offline ones when they're back (catch-up runs).
+    catch_up: bool = False
 
 
 class CommandPreview(BaseModel):
@@ -332,6 +356,7 @@ class CommandPreview(BaseModel):
     offline: list[str]  # of those, the ones presence says are offline: they won't answer
     unknown: list[str]  # list targets that aren't accepted minions
     from_cache: bool  # matched from the master's cache (grain, compound, nodegroup)
+    catch_up_days: int  # how long a catch-up run would wait for the offline ones
 
 
 class OrchestrationStep(BaseModel):
@@ -375,6 +400,7 @@ class CommandResult(BaseModel):
     minions: list[str] = Field(default_factory=list)
     result: Any = None  # runner/wheel: what the master answered
     success: bool | None = None
+    waiting: list[str] = Field(default_factory=list)  # offline minions it'll catch up
 
 
 class SaltApiStatus(BaseModel):

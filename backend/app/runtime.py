@@ -6,8 +6,10 @@ import asyncio
 import contextlib
 import logging
 import secrets
+from collections.abc import Coroutine
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
@@ -50,7 +52,7 @@ class Runtime:
     collector: Collector
     session_secret: str = field(repr=False)
     oidc: OidcClient | None = field(default=None, repr=False)
-    _task: asyncio.Task[None] | None = field(default=None, repr=False)
+    _tasks: list[asyncio.Task[None]] = field(default_factory=list, repr=False)
 
     @classmethod
     async def start(cls, settings: Settings, *, run_collector: bool = True) -> Runtime:
@@ -79,13 +81,17 @@ class Runtime:
                 settings.auth.anonymous_role,
             )
         if run_collector:
-            runtime._task = asyncio.create_task(collector.run(), name="collector")
+            runtime.background(collector.run(), "collector")
         return runtime
 
+    def background(self, work: Coroutine[Any, Any, None], name: str) -> None:
+        """Run `work` for as long as brine runs; it's cancelled on shutdown."""
+        self._tasks.append(asyncio.create_task(work, name=name))
+
     async def stop(self) -> None:
-        if self._task is not None:
-            self._task.cancel()
+        for task in self._tasks:
+            task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
-                await self._task
+                await task
         await self.client.close()
         await self.engine.dispose()
