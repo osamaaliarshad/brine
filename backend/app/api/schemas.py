@@ -113,6 +113,7 @@ class SettingsView(BaseModel):
     presence: PresenceSettings
     fleet: FleetSettings
     jobs_backfill_limit: int
+    retention: dict[str, int]  # days each kind of history is kept; 0 = forever
     database: DatabaseSettings
     auth: AuthSettings
 

@@ -134,6 +134,8 @@ function SignIn({ auth }: { auth: Settings['auth'] }) {
   )
 }
 
+const keptFor = (days: number) => (days ? `${days} days` : 'forever')
+
 export function SettingsPage() {
   const now = useNow()
   const settings = useSettings()
@@ -220,6 +222,13 @@ export function SettingsPage() {
                 <Row label="Grains refresh">every {s.fleet.grains_refresh_minutes} minutes</Row>
                 <Row label="Job backfill" hint="Jobs imported from the master's job cache on each connect.">
                   up to {s.jobs_backfill_limit}
+                </Row>
+                <Row label="History kept" hint="retention: in the config. Older history is pruned hourly.">
+                  {[
+                    `jobs ${keptFor(s.retention.jobs_days)}`,
+                    `presence and grains ${keptFor(s.retention.history_days)}`,
+                    `audit log ${keptFor(s.retention.audit_days)}`,
+                  ].join(' · ')}
                 </Row>
               </Section>
 

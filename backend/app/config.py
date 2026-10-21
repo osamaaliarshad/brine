@@ -146,6 +146,14 @@ class TemplateConfig(_Strict):
     categories: list[str] = Field(default_factory=list)
 
 
+class RetentionConfig(_Strict):
+    """How long brine keeps history, in days. 0 keeps it forever."""
+
+    jobs_days: int = Field(default=90, ge=0)  # jobs, their returns, finished catch-up runs
+    history_days: int = Field(default=90, ge=0)  # presence changes and grains history
+    audit_days: int = Field(default=365, ge=0)
+
+
 class JobsConfig(_Strict):
     # On (re)connect, import up to this many jobs from the master's job cache.
     backfill_limit: int = Field(default=200, ge=0)
@@ -159,6 +167,7 @@ class Settings(_Strict):
     presence: PresenceConfig = Field(default_factory=PresenceConfig)
     commands: CommandsConfig = Field(default_factory=CommandsConfig)
     templates: dict[str, TemplateConfig] = Field(default_factory=dict)
+    retention: RetentionConfig = Field(default_factory=RetentionConfig)
     jobs: JobsConfig = Field(default_factory=JobsConfig)
     database: str = "sqlite:///data/brine.db"
     # How browsers reach brine, e.g. https://brine.example.com. Used for the sign-in redirect;

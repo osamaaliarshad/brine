@@ -92,6 +92,7 @@ async def settings_view(request: Request, runtime: RuntimeDep) -> SettingsView:
             columns=configured_columns(runtime),
         ),
         jobs_backfill_limit=s.jobs.backfill_limit,
+        retention=s.retention.model_dump(),
         database=DatabaseSettings(
             backend=db_url.get_backend_name(),
             url=db_url.set(drivername=db_url.get_backend_name()).render_as_string(

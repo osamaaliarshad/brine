@@ -10,6 +10,7 @@ const SETTINGS: Settings = {
   presence: { method: 'auto', active_method: 'events', poll_seconds: 60 },
   fleet: { stale_after_minutes: 15, grains_refresh_minutes: 30, columns: [{ grain: 'site', label: 'Site' }] },
   jobs_backfill_limit: 200,
+  retention: { jobs_days: 90, history_days: 90, audit_days: 0 },
   database: { backend: 'sqlite', url: 'sqlite:///data/brine.db' },
   auth: {
     provider: 'oidc',
@@ -31,6 +32,7 @@ describe('SettingsPage', () => {
     expect(screen.getByText('· currently events')).toBeInTheDocument()
     expect(screen.getByText('Connected')).toBeInTheDocument()
     expect(screen.getByText('sqlite:///data/brine.db')).toBeInTheDocument()
+    expect(screen.getByText('jobs 90 days · presence and grains 90 days · audit log forever')).toBeInTheDocument()
   })
 
   it('explains sign-in without listing who holds which role', async () => {

@@ -56,4 +56,9 @@ fleet:
       label: Firmware
   stale_after_minutes: 15
 
+retention:                         # days of history brine keeps (0 = forever)
+  jobs_days: 90
+  history_days: 90                 # presence changes and grains history
+  audit_days: 365
+
 database: sqlite:///data/brine.db  # or postgresql://user:pass@host/brine

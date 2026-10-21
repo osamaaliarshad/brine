@@ -14,7 +14,7 @@ from starlette.exceptions import HTTPException
 from starlette.responses import Response
 from starlette.types import Scope
 
-from app import catchup
+from app import catchup, retention
 from app.api import api_router
 from app.auth.session import LazySessionMiddleware
 from app.config import Settings, load_config
@@ -70,6 +70,7 @@ def create_app(
         runtime = await Runtime.start(settings or load_config(), run_collector=run_collector)
         if run_collector:
             runtime.background(catchup.run_forever(runtime), "catch-up")
+            runtime.background(retention.run_forever(runtime), "retention")
         app.state.runtime = runtime
         try:
             yield

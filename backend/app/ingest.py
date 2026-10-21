@@ -15,10 +15,11 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.models import (
+    AuditEntry,
     GrainsSnapshot,
     Job,
     JobReturn,
@@ -399,6 +400,46 @@ class Ingest:
                 changes.jobs.add(run.source_jid)
                 changes.minions.add(run.minion_id)
         return changes
+
+    async def prune(
+        self,
+        *,
+        jobs_before: datetime | None,
+        history_before: datetime | None,
+        audit_before: datetime | None,
+    ) -> dict[str, int]:
+        """Delete history older than each cutoff (None keeps it). Returns rows deleted per kind.
+        A job's returns go with it; catch-up runs still waiting are never deleted."""
+        deleted: dict[str, int] = {}
+
+        async def drop(s: AsyncSession, name: str, statement: Any) -> None:
+            result = await s.execute(statement)
+            deleted[name] = int(getattr(result, "rowcount", 0) or 0)
+
+        async with self._lock, self._sessions() as s, s.begin():
+            if jobs_before is not None:
+                await drop(s, "jobs", delete(Job).where(Job.started_at < jobs_before))
+                await drop(
+                    s,
+                    "catch_up_runs",
+                    delete(PendingRun).where(
+                        PendingRun.state != "waiting", PendingRun.created_at < jobs_before
+                    ),
+                )
+            if history_before is not None:
+                await drop(
+                    s,
+                    "presence_changes",
+                    delete(PresenceChange).where(PresenceChange.at < history_before),
+                )
+                await drop(
+                    s,
+                    "grains_snapshots",
+                    delete(GrainsSnapshot).where(GrainsSnapshot.collected_at < history_before),
+                )
+            if audit_before is not None:
+                await drop(s, "audit", delete(AuditEntry).where(AuditEntry.at < audit_before))
+        return deleted
 
     async def job_owner(self, jids: Iterable[str], actor: str) -> Changes:
         """These jobs belong to `actor` (an orchestration's steps, started as "salt")."""

@@ -322,6 +322,8 @@ export type Settings = {
   presence: { method: string; active_method: string | null; poll_seconds: number }
   fleet: { stale_after_minutes: number; grains_refresh_minutes: number; columns: Column[] }
   jobs_backfill_limit: number
+  /** Days each kind of history is kept; 0 = forever. */
+  retention: { jobs_days: number; history_days: number; audit_days: number }
   database: { backend: string; url: string }
   auth: {
     provider: 'oidc' | 'none'
