@@ -262,12 +262,14 @@ class Ingest:
     #   it. The want stays until brine's answer, good or failed, clears it, so a lost answer is
     #   asked again.
     # * Credit: the job waits in `after_*` for brine's answer. A good one credits what changed
-    #   to the job if brine asked at or after it, and within CREDIT_WINDOW of it; later, too
-    #   much else may have changed. "At or after" closes a race: the sweep times its ask before
-    #   sending it, so an ask sent just before the job finished, but recorded after the job was,
-    #   is still timed before it (its answer may predate the job). Asks made for a job's want
-    #   wait until AFTER_JOB after it, so they pass. brine's answer uses the credit up either
+    #   to the job if brine asked at or after it (see the next rule) and within CREDIT_WINDOW
+    #   of it; later, too much else may have changed. brine's answer uses the credit up either
     #   way, good or failed.
+    # * An ask sent before the job closes a race: the sweep times its ask before sending it, so
+    #   an ask sent just before the job finished, but recorded after the job was, is timed
+    #   before it, and its answer may predate the job. That answer (good, failed or late)
+    #   settles only the ask: the want and the credit wait for the next ask, which, made for
+    #   the want, comes AFTER_JOB after the job.
     # * Several jobs before brine's answer credit none of them: `after_jid` is None,
     #   `after_user` the person if it was the same one each time, `after_at` the latest job.
     # * Late answers (no newer than the last good read, or for a failure the last answer)
@@ -292,9 +294,18 @@ class Ingest:
 
     @staticmethod
     def _settle(read: InventoryRead) -> None:
-        """brine's answer, good or failed: no ask is out, the want is met, the credit used up."""
-        read.asked_jid = read.wanted_at = None
-        read.after_jid = read.after_user = read.after_at = None
+        """brine's answer, good or failed: no ask is out, the want is met, the credit used up.
+        An ask sent before the job waiting in `after_*` settles only itself: the next ask, made
+        for the want, gets the want and the credit."""
+        read.asked_jid = None
+        sent_before_job = (
+            read.after_at is not None
+            and read.asked_at is not None
+            and read.asked_at < read.after_at
+        )
+        if not sent_before_job:
+            read.wanted_at = None
+            read.after_jid = read.after_user = read.after_at = None
 
     async def inventory_asked(
         self, mids: Iterable[str], source: str, *, at: datetime, jid: str | None

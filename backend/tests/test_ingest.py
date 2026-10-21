@@ -568,7 +568,8 @@ async def test_an_ask_sent_just_before_the_job_isnt_credited(
     # The sweep sends A1, then the job's return is processed, then A1 is recorded: it looks
     # like an ask after the job, but it was timed (before sending) ahead of it.
     sent = T0 + 6 * HOUR
-    await ingest.inventory_job_done("a", jid="J1", user="alice", at=sent + SECOND)
+    job_at = sent + SECOND
+    await ingest.inventory_job_done("a", jid="J1", user="alice", at=job_at)
     await ingest.inventory_asked(["a"], "packages", at=sent, jid="A1")
     # A1 ran before the job's change; curl was changed by hand hours ago.
     await ingest.inventory_read(
@@ -576,6 +577,41 @@ async def test_an_ask_sent_just_before_the_job_isnt_credited(
     )
     last = await last_change(sessions)
     assert (last.name, last.jid, last.user) == ("curl", None, None)
+    # A1's answer settles only A1: the job still wants a read, and its credit waits for it.
+    read = await read_row(sessions, "a")
+    assert (read.asked_jid, read.after_jid, read.wanted_at) == (None, "J1", job_at + AFTER_JOB)
+    assert await due(sessions, now=job_at + AFTER_JOB)
+    await brine_reads(ingest, {"agent": "2.4.1", "curl": "8"}, at=job_at + AFTER_JOB, jid="A2")
+    last = await last_change(sessions)
+    assert (last.name, last.jid, last.user) == ("agent", "J1", "alice")
+    read = await read_row(sessions, "a")
+    assert read.after_at is None and read.wanted_at is None
+
+
+async def test_a_failed_or_late_answer_to_an_ask_sent_before_the_job(
+    ingest: Ingest, sessions: Sessions
+) -> None:
+    sent = T0 + 6 * HOUR
+    job_at = sent + SECOND
+    for mid in ("a", "b"):
+        await ingest.inventory_read(mid, "packages", {"agent": "2.3.0"}, at=T0, jid=None)
+        await ingest.inventory_job_done(mid, jid="J1", user="alice", at=job_at)
+        await ingest.inventory_asked([mid], "packages", at=sent, jid="A1")
+    # "a": A1 fails. "b": someone else's read gets in first, so A1's answer is late.
+    await ingest.inventory_failed("a", "packages", "locked", at=sent + 2 * SECOND, jid="A1")
+    await ingest.inventory_read("b", "packages", {"agent": "2.3.0"}, at=sent + 3 * SECOND, jid=None)
+    await ingest.inventory_read("b", "packages", {"agent": "2.3.0"}, at=sent + 2 * SECOND, jid="A1")
+    # Either way it settles only A1; the next ask gets the want and the credit.
+    for mid in ("a", "b"):
+        read = await read_row(sessions, mid)
+        assert (read.asked_jid, read.after_jid, read.wanted_at) == (
+            None,
+            "J1",
+            job_at + AFTER_JOB,
+        )
+        await brine_reads(ingest, {"agent": "2.4.1"}, at=job_at + AFTER_JOB, jid="A2", mid=mid)
+        last = await last_change(sessions, mid)
+        assert (last.jid, last.user) == ("J1", "alice")
 
 
 async def test_a_failed_answer_uses_the_credit_up(ingest: Ingest, sessions: Sessions) -> None:
