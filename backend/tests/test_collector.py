@@ -310,3 +310,40 @@ async def test_commands_run_through_brine_are_recorded_under_the_person(
         jobs = {j.jid: j for j in (await s.scalars(select(Job))).all()}
     assert set(jobs) == {"20261020110000000000", "c1"}
     assert {j.user for j in jobs.values()} == {"alice@example.com"}
+
+
+async def test_reconnects_dont_ask_the_whole_fleet_for_grains_again(make_collector: Any) -> None:
+    # A proxy closing the event stream every minute must not mean grains.items every minute.
+    api = FakeSaltApi([])
+    collector = make_collector(api)
+    await collector.sync()
+    await collector.sync()
+    assert api.count("grains.items") == 1
+
+
+async def test_a_stream_closing_after_a_while_reconnects_quietly(
+    make_collector: Any, clock: Any
+) -> None:
+    api = FakeSaltApi([[], []])
+    collector = make_collector(api)
+    sessions = 0
+    real_session = collector.run_session
+
+    async def long_session() -> None:
+        nonlocal sessions
+        sessions += 1
+        await real_session()
+        clock.advance(minutes=5)  # the stream was up a while, then closed cleanly
+        if sessions == 2:
+            raise asyncio.CancelledError
+
+    collector.run_session = long_session
+
+    async def no_backoff(delay: float) -> None:
+        raise AssertionError("a quiet reconnect doesn't back off")
+
+    collector.backoff_sleep = no_backoff
+    with pytest.raises(asyncio.CancelledError):
+        await collector.run()
+    assert sessions == 2
+    assert collector.status.connected and collector.status.error is None

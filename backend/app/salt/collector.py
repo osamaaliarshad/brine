@@ -67,6 +67,11 @@ class _StreamEnded(Exception):
     pass
 
 
+# A stream that closes cleanly after at least this long (a proxy's idle timeout, brine's own
+# silence limit) is picked straight back up: no "disconnected", no backoff.
+QUIET_RECONNECT_AFTER = timedelta(seconds=30)
+
+
 class Backoff:
     def __init__(self, base: float = 1.0, cap: float = 30.0) -> None:
         self.base, self.cap, self.attempt = base, cap, 0
@@ -102,6 +107,8 @@ class Collector:
         self.event_log = event_log or EventLog()
         self.status = CollectorStatus(since=clock())
         self._presence_event_at: datetime | None = None
+        # When brine last asked every minion for fresh grains (survives reconnects).
+        self._grains_asked_at: datetime | None = None
 
     # --- lifecycle ------------------------------------------------------------------------
 
@@ -109,9 +116,13 @@ class Collector:
         """Run sessions forever, reconnecting with backoff. Cancel the task to stop."""
         backoff = Backoff()
         while True:
+            started = self.clock()
             try:
                 await self.run_session()
                 backoff.reset()
+                if self.clock() - started >= QUIET_RECONNECT_AFTER:
+                    log.info("salt-api event stream closed; reconnecting")
+                    continue
                 reason = "event stream closed"
             except asyncio.CancelledError:
                 raise
@@ -191,9 +202,23 @@ class Collector:
         if isinstance(finger, dict):
             self._publish(await self.ingest.fingerprints(finger))
 
-    async def _sync_grains(self) -> None:
+    def _grains_due(self) -> timedelta:
+        """How long until the fleet's grains are due a refresh (zero or less: now)."""
+        if self._grains_asked_at is None:
+            return timedelta(0)
+        every = timedelta(minutes=self.settings.fleet.grains_refresh_minutes)
+        return self._grains_asked_at + every - self.clock()
+
+    async def _ask_for_grains(self) -> None:
         # Fresh grains from connected minions arrive as job returns on the event stream.
         await self.client.local_async("*", "grains.items")
+        self._grains_asked_at = self.clock()
+
+    async def _sync_grains(self) -> None:
+        # Asking every minion on every reconnect would hammer the fleet when a proxy closes
+        # the event stream often; the schedule carries over instead.
+        if self._grains_due() <= timedelta(0):
+            await self._ask_for_grains()
         # Minions brine has never seen get the master's cached grains (age unknown) for now.
         cached = await self.client.runner("cache.grains", tgt="*")
         changes = Changes()
@@ -267,9 +292,9 @@ class Collector:
 
     async def _grains_loop(self) -> None:
         while True:
-            await asyncio.sleep(self.settings.fleet.grains_refresh_minutes * 60)
+            await asyncio.sleep(max(self._grains_due().total_seconds(), 1.0))
             try:
-                await self.client.local_async("*", "grains.items")
+                await self._ask_for_grains()
                 cached = await self.client.runner("cache.grains", tgt="*")
                 if isinstance(cached, dict):
                     self._publish(await self.ingest.presence_blind(cached))

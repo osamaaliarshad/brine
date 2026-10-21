@@ -277,3 +277,12 @@ async def test_starting_a_job_is_never_retried(client: SaltApiClient) -> None:
     with pytest.raises(SaltApiError) as caught:
         await client.start_job("m1", "state.apply")
     assert caught.value.status == 500 and run.call_count == 1
+
+
+@respx.mock
+async def test_a_silent_event_stream_ends_cleanly(client: SaltApiClient) -> None:
+    # No line for EVENT_STREAM_SILENCE_SECONDS: maybe a dead connection. End the stream so the
+    # collector reconnects, rather than treating it as salt-api being down.
+    respx.post(f"{API}/login").mock(return_value=login_ok("t"))
+    respx.get(f"{API}/events").mock(side_effect=httpx.ReadTimeout("silent"))
+    assert [event async for event in client.events()] == []

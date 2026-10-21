@@ -26,6 +26,10 @@ REFRESH_MARGIN_SECONDS = 60
 # brine keeps a few in flight at most and retries the calls that are safe to repeat.
 MAX_IN_FLIGHT = 4
 RETRIES_AFTER_500 = 2
+# salt-api sends nothing on a quiet bus, so a connection that died without closing (a dropped
+# network path) looks the same as silence. After this long without a line, end the stream;
+# the collector reconnects, quietly when the stream had been up for a while.
+EVENT_STREAM_SILENCE_SECONDS = 300
 
 
 class SaltApiError(Exception):
@@ -254,7 +258,9 @@ class SaltApiClient:
                     "GET",
                     "/events",
                     headers={"X-Auth-Token": token, "Accept": "text/event-stream"},
-                    timeout=httpx.Timeout(self._config.timeout_seconds, read=None),
+                    timeout=httpx.Timeout(
+                        self._config.timeout_seconds, read=EVENT_STREAM_SILENCE_SECONDS
+                    ),
                 ) as resp:
                     if resp.status_code == 401 and attempt == 0:
                         continue
@@ -262,6 +268,9 @@ class SaltApiClient:
                     async for event in parse_sse(resp.aiter_lines()):
                         yield event
                     return
+            except httpx.ReadTimeout:
+                log.info("no events for %ss; reconnecting the stream", EVENT_STREAM_SILENCE_SECONDS)
+                return
             except httpx.TransportError as exc:
                 raise SaltApiUnavailable(
                     f"event stream from {self._config.url} failed: {exc}"
