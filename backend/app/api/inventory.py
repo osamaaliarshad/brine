@@ -11,9 +11,12 @@ from datetime import UTC, datetime
 from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Query
-from sqlalchemy import Select, and_, case, func, or_, select
+from sqlalchemy import Select, and_, case, func, inspect, or_, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import aliased
+from sqlalchemy.sql.compiler import SQLCompiler
+from sqlalchemy.sql.selectable import FromClause, Join
 
 from app import inventory
 from app.api.deps import RuntimeDep, SessionDep
@@ -285,6 +288,22 @@ async def _accepted(session: AsyncSession, minion_id: str) -> None:
         raise HTTPException(404, f"no accepted minion {minion_id!r}")
 
 
+class _CrossJoin(Join):
+    """``left CROSS JOIN right``: SQLite always loops over `left` first, whatever its statistics
+    say (PostgreSQL takes it as a plain join). What joins them goes in the WHERE clause."""
+
+    inherit_cache = True
+
+    def __init__(self, left: FromClause, right: FromClause) -> None:
+        super().__init__(left, right, true())
+
+
+@compiles(_CrossJoin)
+def _cross_join(join: _CrossJoin, compiler: SQLCompiler, **kw: Any) -> str:
+    kw["asfrom"] = True
+    return f"{compiler.process(join.left, **kw)} CROSS JOIN {compiler.process(join.right, **kw)}"
+
+
 def _whole_reads(settings: Settings) -> Select[str, str]:
     """`(minion_id, source)` of each good read not cut short, of a configured source. Only
     these are compared: a source missing from one side, or cut short, would count as gone."""
@@ -319,7 +338,9 @@ async def compare_fleet(
     )
     ref, theirs = aliased(InventoryItem), aliased(InventoryItem)
     # Each of the reference's entries, looked up on the minion: there (with the same value or
-    # another), or missing. Both lookups go by the primary key.
+    # another), or missing. Both lookups go by the primary key. A cross join, so it stays one
+    # minion at a time: with statistics (ANALYZE), SQLite would rather go through the
+    # reference's entries first and sort every row to group them, about ten times slower.
     from_reference = (
         select(
             shared.c.minion_id,
@@ -328,8 +349,8 @@ async def compare_fleet(
             func.sum(case((theirs.name.is_(None), 1), else_=0)).label("missing"),
             func.sum(case((theirs.value != ref.value, 1), else_=0)).label("different"),
         )
-        .select_from(shared)
-        .join(ref, and_(ref.minion_id == reference, ref.source == shared.c.source))
+        .select_from(_CrossJoin(shared, inspect(ref).selectable))
+        .where(ref.minion_id == reference, ref.source == shared.c.source)
         .outerjoin(
             theirs,
             and_(

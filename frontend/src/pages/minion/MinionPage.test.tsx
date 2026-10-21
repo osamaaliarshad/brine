@@ -390,8 +390,11 @@ describe('MinionPage', () => {
     FakeEventSource.instances[0]!.emit({ type: 'fleet' })
     await waitFor(() => expect(fleets()).toBeGreaterThan(before))
     expect(compares()).toBe(1)
-    await user.click(screen.getByRole('button', { name: 'Refresh' }))
+    await user.click(screen.getByRole('button', { name: 'Compare the fleet again' }))
     await waitFor(() => expect(compares()).toBe(2))
+    // Redone, too, when the reference itself changes (its new read lands).
+    FakeEventSource.instances[0]!.emit({ type: 'minion', id: 'rover-01' })
+    await waitFor(() => expect(compares()).toBe(3))
 
     await user.click(within(list).getByRole('link', { name: 'Compare with rover-03' }))
     expect(await screen.findByRole('table', { name: 'Where rover-01 and rover-03 differ' })).toBeInTheDocument()

@@ -25,7 +25,27 @@ describe('createLiveInvalidator', () => {
     expect(invalidate).not.toHaveBeenCalled()
 
     vi.advanceTimersByTime(100)
-    expect(keys()).toEqual([['fleet'], ['keys'], ['issues'], ['inventory'], ['minion', 'rover-01'], ['jobs']])
+    expect(keys()).toEqual([
+      ['fleet'],
+      ['keys'],
+      ['issues'],
+      ['inventory'],
+      ['minion', 'rover-01'],
+      ['inventory-compare', 'rover-01'],
+      ['jobs'],
+    ])
+  })
+
+  it("a minion's hint redoes the fleet's comparison with it, not the fleet's updates", () => {
+    const handle = createLiveInvalidator(client, 100)
+    handle({ type: 'fleet' })
+    vi.advanceTimersByTime(100)
+    expect(keys()).not.toContainEqual(expect.arrayContaining(['inventory-compare']))
+
+    invalidate.mockClear()
+    handle({ type: 'minion', id: 'rover-03' })
+    vi.advanceTimersByTime(100)
+    expect(keys()).toEqual([['minion', 'rover-03'], ['inventory-compare', 'rover-03']])
   })
 
   it('status changes refresh the fleet too (stale/online depends on them)', () => {
