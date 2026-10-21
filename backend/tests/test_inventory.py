@@ -1,6 +1,7 @@
 """Packages and checks: parsing, due rules, the sweep, ingest and the API."""
 
 import re
+import textwrap
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from functools import partial
@@ -12,7 +13,7 @@ import yaml
 
 from app import inventory as inv
 from app import inventory_sweep as sweeper
-from app.config import Settings, parse_config
+from app.config import Settings, load_config, parse_config
 from app.models import InventoryRead
 from app.salt.client import SaltApiUnavailable
 from tests.conftest import T0
@@ -322,6 +323,17 @@ def test_acl_allows_exactly_each_check_command() -> None:
         assert re.match(pattern, command)
         assert not re.match(pattern, command + "; reboot")
         assert not re.match(pattern, "x" + command)
+
+
+def test_the_demo_salt_account_has_the_lines_brine_asks_for() -> None:
+    """The demo master's ACL carries what brine writes out for demo/brine.yaml, word for word,
+    so a check changed on one side only fails here rather than on the demo."""
+    demo = Path(__file__).resolve().parents[2] / "demo"
+    settings = load_config(demo / "brine.yaml", {})
+    assert settings.inventory.checks
+    conf = (demo / "master.d" / "brine-demo.conf").read_text(encoding="utf-8")
+    # In brine's list under external_auth: pam: brine:, six spaces in.
+    assert textwrap.indent(inv.acl_lines(settings), " " * 6) in conf
 
 
 def _state(

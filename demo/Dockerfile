@@ -25,17 +25,17 @@ RUN set -eux; \
     salt-call --version
 
 # A tiny versioned package for the Packages demo: rover-agent 2.3.0 and 2.4.1. The master serves
-# them as salt://debs/ (demo/states/agent.sls installs one), and some minions have one installed
-# before Salt starts, like software that was there first.
+# them from their own saltenv, debs (demo/states/agent.sls installs one), and some minions have
+# one installed before Salt starts, like software that was there first.
 RUN set -eux; \
-    mkdir -p /srv/debs/debs; \
+    mkdir -p /srv/debs; \
     for v in 2.3.0 2.4.1; do \
       d="/tmp/rover-agent_$v"; \
       mkdir -p "$d/DEBIAN" "$d/opt/rover-agent"; \
       printf 'Package: rover-agent\nVersion: %s\nArchitecture: all\nMaintainer: brine demo <demo@example.com>\nDescription: brine demo agent\n' "$v" \
         > "$d/DEBIAN/control"; \
       echo "$v" > "$d/opt/rover-agent/VERSION"; \
-      dpkg-deb --build --root-owner-group "$d" "/srv/debs/debs/rover-agent_${v}_all.deb"; \
+      dpkg-deb --build --root-owner-group "$d" "/srv/debs/rover-agent_${v}_all.deb"; \
       rm -rf "$d"; \
     done
 

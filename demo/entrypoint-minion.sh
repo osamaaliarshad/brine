@@ -34,11 +34,13 @@ beacons:
     - interval: 60
 EOF
 
-# Software that was there before Salt: rover-agent installed at AGENT_VERSION (if set, and only
-# the first time, so a version Salt installed later stays), and a hand-copied CLI at
-# /opt/rover/bin (if CLI_VERSION is set), which no package manager knows about.
+# Software that was there before Salt: rover-agent at AGENT_VERSION (if set), installed when the
+# container starts if it's missing, so a version Salt installed since stays across restarts; and
+# a hand-copied CLI at /opt/rover/bin (if CLI_VERSION is set), which no package manager knows.
 if [ -n "${AGENT_VERSION:-}" ] && ! dpkg -s rover-agent >/dev/null 2>&1; then
-  dpkg -i "/srv/debs/debs/rover-agent_${AGENT_VERSION}_all.deb"
+  deb="/srv/debs/rover-agent_${AGENT_VERSION}_all.deb"
+  [ -f "$deb" ] || { echo "no rover-agent $AGENT_VERSION in /srv/debs" >&2; exit 1; }
+  dpkg -i "$deb"
 fi
 if [ -n "${CLI_VERSION:-}" ]; then
   mkdir -p /opt/rover/bin

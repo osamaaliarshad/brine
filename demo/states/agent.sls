@@ -3,6 +3,7 @@
 rover-agent:
   pkg.installed:
     - sources:
-      - rover-agent: salt://debs/rover-agent_{{ pillar.get('agent_version', '2.4.1') }}_all.deb
-    # Without it, apt-get won't go back to an older version.
+      - rover-agent: salt://rover-agent_{{ pillar.get('agent_version', '2.4.1') }}_all.deb?saltenv=debs
+    # Going down a version, apt-get stops ("Packages were downgraded and -y was used without
+    # --allow-downgrades"), and only pkg.upgrade takes allow_downgrades. This passes --force-yes.
     - force_yes: True
