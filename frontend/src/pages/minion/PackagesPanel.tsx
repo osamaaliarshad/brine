@@ -19,14 +19,16 @@ function explorerLink(source: string, name: string): string {
   return explorerPath(keyOf({ source, name }))
 }
 
-function sinceText(entry: InventoryEntry, s: InventorySource, now: number) {
-  // Already there at brine's first read: how long before that, brine can't say.
-  if (s.first_read_at && Date.parse(entry.since) === Date.parse(s.first_read_at))
-    return (
-      <span title={`There when brine first looked, ${formatAbsolute(s.first_read_at)}. It may have been there longer.`}>
-        since brine first looked
-      </span>
-    )
+/** Already there at brine's first read: how long before that, brine can't say. */
+function sinceFirstRead(entry: InventoryEntry, s: InventorySource): boolean {
+  return !!s.first_read_at && Date.parse(entry.since) === Date.parse(s.first_read_at)
+}
+
+/** When it appeared or changed. Nothing to say for what was there at the first read (the
+ * heading has that date), so what did change stands out. */
+function Since({ entry, s, minion, now }: { entry: InventoryEntry; s: InventorySource; minion: string; now: number }) {
+  if (sinceFirstRead(entry, s))
+    return <span title={`Already there when brine first read ${minion} on ${formatDay(s.first_read_at!, now)}`}>—</span>
   return <span title={formatAbsolute(entry.since)}>{formatRelative(entry.since, now)}</span>
 }
 
@@ -51,7 +53,17 @@ function ReadWhen({ s, now }: { s: InventorySource; now: number }) {
   )
 }
 
-function Entries({ s, entries, now }: { s: InventorySource; entries: InventoryEntry[]; now: number }) {
+function Entries({
+  s,
+  entries,
+  minion,
+  now,
+}: {
+  s: InventorySource
+  entries: InventoryEntry[]
+  minion: string
+  now: number
+}) {
   // On a phone, since goes under the value: a third column would wrap it to a word a line.
   const wide = useMediaQuery('(min-width: 640px)')
   const single = entries.length === 1 && entries[0]!.name === ''
@@ -66,7 +78,11 @@ function Entries({ s, entries, now }: { s: InventorySource; entries: InventoryEn
         >
           <Value text={entry.value} />
         </Link>
-        <span className="text-muted">{sinceText(entry, s, now)}</span>
+        {!sinceFirstRead(entry, s) && (
+          <span className="text-muted">
+            <Since entry={entry} s={s} minion={minion} now={now} />
+          </span>
+        )}
       </div>
     )
   }
@@ -93,9 +109,17 @@ function Entries({ s, entries, now }: { s: InventorySource; entries: InventoryEn
             </td>
             <td className="px-4 py-2 font-mono text-[13px] break-all">
               <Value text={entry.value} />
-              {!wide && <div className="mt-0.5 font-sans text-xs break-normal text-muted">{sinceText(entry, s, now)}</div>}
+              {!wide && !sinceFirstRead(entry, s) && (
+                <div className="mt-0.5 font-sans text-xs break-normal text-muted">
+                  <Since entry={entry} s={s} minion={minion} now={now} />
+                </div>
+              )}
             </td>
-            {wide && <td className="px-4 py-2 text-muted sm:pr-6">{sinceText(entry, s, now)}</td>}
+            {wide && (
+              <td className="px-4 py-2 text-muted sm:pr-6">
+                <Since entry={entry} s={s} minion={minion} now={now} />
+              </td>
+            )}
           </tr>
         ))}
       </tbody>
@@ -108,12 +132,14 @@ function SourceSection({
   s,
   entries,
   filtered,
+  minion,
   now,
 }: {
   s: InventorySource
   /** What to show: all of them, or those the search matches. */
   entries: InventoryEntry[]
   filtered: boolean
+  minion: string
   now: number
 }) {
   const id = useId()
@@ -155,7 +181,7 @@ function SourceSection({
           {s.kind === 'check' ? 'Not reported' : 'No packages reported'}
         </p>
       ) : (
-        <Entries s={s} entries={entries} now={now} />
+        <Entries s={s} entries={entries} minion={minion} now={now} />
       )}
     </section>
   )
@@ -213,7 +239,7 @@ export function PackagesPanel({ minion, now }: { minion: MinionDetail; now: numb
         </label>
       </ReadNowBar>
       {shown.map(({ s, entries, whole }) => (
-        <SourceSection key={s.source} s={s} entries={entries} filtered={!whole} now={now} />
+        <SourceSection key={s.source} s={s} entries={entries} filtered={!whole} minion={minion.id} now={now} />
       ))}
       {shown.length === 0 && (
         <p className="border-t px-6 py-12 text-center text-muted">No packages or checks match “{q.trim()}”.</p>

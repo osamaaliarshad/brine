@@ -44,13 +44,19 @@ export function ReadNowBar({
   className?: string
   children: ReactNode
 }) {
-  const { ask, seen, setSeen } = read
+  const { ask, seen, setSeen, setAnswered } = read
   const known = watch.key in seen
+  // A newer answer than when it was first watched: brine's times against brine's.
+  const before = seen[watch.key]
+  const newer = known && !!watch.at && (!before || Date.parse(watch.at) > Date.parse(before))
   useEffect(() => {
+    if (!ask.data) return
+    // Once one answer is in, the read is answered for every source, whatever is shown next.
+    if (newer) setAnswered(true)
     // Shown after Read now was clicked elsewhere (another source): wait for its next answer.
-    if (ask.data && !known) setSeen((prev) => (watch.key in prev ? prev : { ...prev, [watch.key]: watch.at }))
-  }, [ask.data, known, setSeen, watch.key, watch.at])
-  const answered = known && seen[watch.key] !== watch.at
+    else if (!known) setSeen((prev) => (watch.key in prev ? prev : { ...prev, [watch.key]: watch.at }))
+  }, [ask.data, newer, known, setAnswered, setSeen, watch.key, watch.at])
+  const answered = read.answered || newer
   const tooSoon = ask.error instanceof ApiError && ask.error.status === 429
   return (
     <>
@@ -60,6 +66,7 @@ export function ReadNowBar({
           type="button"
           onClick={() => {
             setSeen({ [watch.key]: watch.at })
+            setAnswered(false)
             ask.mutate(minion)
           }}
           disabled={ask.isPending}

@@ -125,9 +125,11 @@ function GrainsEntry({ entry, first }: { entry: GrainsChange; first: boolean }) 
   )
 }
 
-/** "Packages: 1 changed · 1 added", "rover-cli check: changed". */
-function readTitle(source: string, changes: InventoryChange[]): string {
+/** "Packages: 1 changed · 1 added", "rover-cli check: changed", or with `partial` (the list
+ * stopped partway through this read) "Packages: 500 or more changed". */
+function readTitle(source: string, changes: InventoryChange[], partial: boolean): string {
   const what = source === 'packages' ? 'Packages' : `${source} check`
+  if (partial) return `${what}: ${changes.length} or more changed`
   const added = changes.filter((c) => c.old === null).length
   const removed = changes.filter((c) => c.new === null).length
   if (changes.length === 1 && changes[0]!.name === '')
@@ -137,7 +139,7 @@ function readTitle(source: string, changes: InventoryChange[]): string {
 
 type HistoryEntry =
   | { kind: 'grains'; at: string; entry: GrainsChange; first: boolean }
-  | { kind: 'read'; at: string; source: string; changes: InventoryChange[] }
+  | { kind: 'read'; at: string; source: string; changes: InventoryChange[]; partial: boolean }
 
 /** Grains entries and package and check reads, newest first, and whether older ones were left out. */
 function timeline(grains: GrainsChange[], changes: InventoryChange[]): { entries: HistoryEntry[]; more: boolean } {
@@ -158,9 +160,13 @@ function timeline(grains: GrainsChange[], changes: InventoryChange[]): { entries
     if (group) group.push(c)
     else reads.set(key, [c])
   }
+  // A cut list may stop partway through its oldest read.
+  const last = changes.at(-1)
+  const cutRead = changesFull || !last ? null : reads.get(`${last.at} ${last.source}`)
   for (const group of reads.values()) {
+    const partial = group === cutRead
     group.sort((a, b) => a.name.localeCompare(b.name))
-    entries.push({ kind: 'read', at: group[0]!.at, source: group[0]!.source, changes: group })
+    entries.push({ kind: 'read', at: group[0]!.at, source: group[0]!.source, changes: group, partial })
   }
   // Each list stops at its limit; past the end of either, the other would go on alone, as if
   // nothing else changed. So the timeline stops there.
@@ -191,7 +197,7 @@ export function HistoryPanel({ minionId, now }: { minionId: string; now: number 
       ) : (
         <ol aria-label="History">
           {entries.map((e) => {
-            const title = e.kind === 'read' ? readTitle(e.source, e.changes) : ''
+            const title = e.kind === 'read' ? readTitle(e.source, e.changes, e.partial) : ''
             return (
               <li
                 key={e.kind === 'grains' ? e.at : `${e.at} ${e.source}`}

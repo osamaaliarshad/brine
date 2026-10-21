@@ -61,7 +61,11 @@ function Differences({ reference, other, sources }: { reference: string; other: 
   return (
     <>
       <div className={NOTE}>
-        <p className="font-medium text-fg">{n === 0 ? 'Same packages and checks.' : `${n} difference${n === 1 ? '' : 's'}`}</p>
+        <p className="font-medium text-fg">
+          {n === 0
+            ? `${reference} and ${other} have the same packages and checks.`
+            : `${n} difference${n === 1 ? '' : 's'}`}
+        </p>
         {left.length > 0 && <p>Not compared: {sourcesPhrase(left)}, until both have been read in full.</p>}
       </div>
       {n > 0 && (

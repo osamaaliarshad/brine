@@ -121,12 +121,16 @@ describe('MinionPage', () => {
     expect(packages).toHaveTextContent(`Read 2h ago · first read ${day(ago(17 * DAY))}`)
     expect(within(packages).getByText('Read 2h ago')).toHaveAttribute('title', expect.stringContaining('UTC'))
     expect(within(packages).getByRole('columnheader', { name: 'Version' })).toBeInTheDocument()
+    // Only what appeared or changed since brine first looked has a date, so it stands out.
     expect(within(packages).getAllByRole('row').slice(1).map((r) => r.textContent)).toEqual([
-      'bash5.2since brine first looked',
+      'bash5.2—',
       'rover-agent2.4.15h ago',
       'vim9.03d ago',
     ])
-    expect(within(packages).getByText('since brine first looked')).toHaveAttribute('title', expect.stringContaining('UTC'))
+    expect(within(packages).getByText('—')).toHaveAttribute(
+      'title',
+      `Already there when brine first read rover-01 on ${day(ago(17 * DAY))}`,
+    )
     expect(within(packages).getByText('5h ago')).toHaveAttribute('title', expect.stringContaining('UTC'))
     // One click to who else has it.
     expect(within(packages).getByRole('link', { name: 'rover-agent' })).toHaveAttribute(
@@ -146,7 +150,9 @@ describe('MinionPage', () => {
     const containers = region('containers')
     expect(containers).toHaveTextContent('The last answer was cut short; some entries may be missing.')
     expect(within(containers).getByRole('columnheader', { name: 'Value' })).toBeInTheDocument()
-    expect(within(within(containers).getByRole('row', { name: /^db/ })).getByText('(empty)')).toBeInTheDocument()
+    const db = within(containers).getByRole('row', { name: /^db/ })
+    expect(db).toHaveTextContent('db(empty)—')
+    expect(within(db).getByText('(empty)')).toBeInTheDocument()
 
     expect(region('ports')).toHaveTextContent('Not reported')
     expect(region('gpu')).toHaveTextContent('Not read yet. brine reads every online minion within a few minutes.')
@@ -289,7 +295,7 @@ describe('MinionPage', () => {
       tab: 'packages',
       compare: 'dock-01',
     })
-    expect(await screen.findByText('Same packages and checks.')).toBeInTheDocument()
+    expect(await screen.findByText('rover-01 and dock-01 have the same packages and checks.')).toBeInTheDocument()
   })
 
   it('shows how the fleet differs from this minion, most different first', async () => {
@@ -387,17 +393,17 @@ describe('MinionPage', () => {
     expect(first).toHaveTextContent('First collection · 2 grains')
   })
 
-  it('stops the history where either list was cut short', async () => {
-    const upgrade: InventoryChange[] = Array.from({ length: MINION_CHANGES_LIMIT }, (_, i) => ({
-      minion_id: 'rover-01',
+  it('stops the history where either list was cut short, and says the read at the cut may have more', async () => {
+    const base = { minion_id: 'rover-01', since: ago(7200), jid: null, user: null }
+    const cli: InventoryChange = { ...base, source: 'rover-cli', name: '', old: '1.1', new: '1.2', at: ago(600) }
+    // A big upgrade, newest first after the check: the list stops partway through it.
+    const upgrade: InventoryChange[] = Array.from({ length: MINION_CHANGES_LIMIT - 1 }, (_, i) => ({
+      ...base,
       source: 'packages',
       name: `lib-${i}`,
-      old: '1.0',
+      old: i % 2 ? null : '1.0',
       new: '1.1',
       at: ago(3600),
-      since: ago(7200),
-      jid: null,
-      user: null,
     }))
     api({
       '/api/minions/rover-01/grains/history': [
@@ -405,12 +411,17 @@ describe('MinionPage', () => {
         // Older than the oldest change listed: other package changes may be missing around it.
         { collected_at: ago(DAY), added: { os: 'Debian' }, removed: {}, changed: {} },
       ],
-      '/api/inventory/changes': upgrade,
+      '/api/inventory/changes': [cli, ...upgrade],
     })
     renderApp('/minions/rover-01?tab=history')
     const history = await screen.findByRole('list', { name: 'History' })
-    expect(Array.from(history.children).map((e) => e.firstElementChild?.textContent)).toEqual(['1m ago', '1h ago'])
-    expect(history.children[1]).toHaveTextContent(`Packages: ${MINION_CHANGES_LIMIT} changed`)
+    expect(Array.from(history.children).map((e) => e.firstElementChild?.textContent)).toEqual([
+      '1m ago',
+      '10m ago',
+      '1h ago',
+    ])
+    expect(history.children[1]).toHaveTextContent('rover-cli check: changed')
+    expect(history.children[2]).toHaveTextContent(`Packages: ${MINION_CHANGES_LIMIT - 1} or more changed`)
     expect(screen.getByText("Older history isn't shown.")).toBeInTheDocument()
   })
 

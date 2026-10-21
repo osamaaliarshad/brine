@@ -292,6 +292,34 @@ describe('Fleet › Grains & packages', () => {
     await waitFor(() => expect(screen.queryByRole('status')).toBeNull())
   })
 
+  it('once an answer is in, keeps the note away on entries opened after, already read anew', async () => {
+    const user = userEvent.setup()
+    let packagesRead = ago(20 * 60)
+    let containersRead = ago(2 * 3600)
+    api({
+      '/api/inventory/values': (url: URL) =>
+        url.searchParams.get('key') === '@containers:web'
+          ? { ...WEB, newest_read_at: containersRead }
+          : { ...AGENT, newest_read_at: packagesRead },
+      '/api/inventory/ask': { asked: ['dock-01', 'rover-01', 'rover-02'], queued: true, failed: {}, reason: null },
+    })
+    renderApp('/?tab=grains&grain=@packages:rover-agent')
+    await user.click(await screen.findByRole('button', { name: 'Read now' }))
+    expect(await screen.findByRole('status')).toHaveTextContent('Reading 3 minions')
+
+    // The answers arrive, for the check too, while the package is on screen: the note goes.
+    packagesRead = ago(10)
+    containersRead = ago(5)
+    FakeEventSource.instances[0]!.emit({ type: 'fleet' })
+    await waitFor(() => expect(screen.queryByRole('status')).toBeNull())
+
+    // The check's newest read is new already: that's no reason to bring the note back.
+    const picker = screen.getByRole('list', { name: 'Packages and checks' })
+    await user.click(within(picker).getByRole('button', { name: /web/ }))
+    expect(await screen.findByRole('list', { name: 'Values of web' })).toBeInTheDocument()
+    expect(screen.queryByRole('status')).toBeNull()
+  })
+
   it('says why nobody was asked, what failed, and when to try again', async () => {
     const user = userEvent.setup()
     const answers: unknown[] = [
