@@ -48,6 +48,10 @@ export const NO_ANSWER_DETAIL = 'No answer yet, or the last answer was cut short
 /** The same for one minion, on its `?` cell. */
 export const NO_ANSWER_CELL = 'No answer from this minion yet, or its last answer was cut short'
 
+/** Settings › Packages and checks: what brine reads, and the Salt permissions it needs. */
+export const INVENTORY_SETTINGS_ID = 'packages-and-checks'
+export const INVENTORY_SETTINGS = `/settings#${INVENTORY_SETTINGS_ID}`
+
 /** The explorer on a grain, package or check entry: which minions have which value. */
 export function explorerPath(key: string): string {
   return `/?${new URLSearchParams({ tab: 'grains', grain: key })}`

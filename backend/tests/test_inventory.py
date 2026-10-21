@@ -901,9 +901,15 @@ def test_minion_inventory_lists_every_source(with_checks: tuple[Api, FakeSalt]) 
         "answered_at": None,
         "error": None,
         "truncated": False,
+        "refused": None,
         "entries": [],
     }
     assert api.client.get("/api/minions/ghost/inventory").status_code == 404
+    # A source salt-api won't let brine ask for says why.
+    why = "brine's Salt account isn't allowed to run cmd.run_all"
+    api.seed(api.ingest.set_state_entry, inv.REFUSED_STATE, "containers", why)
+    *_, containers = api.get("/api/minions/rover-01/inventory")["sources"]
+    assert (packages["refused"], containers["refused"]) == (None, why)
 
 
 @pytest.mark.parametrize("key", ["app_version", "os:family", "@", "@packages", "@nope:x", "@nope"])

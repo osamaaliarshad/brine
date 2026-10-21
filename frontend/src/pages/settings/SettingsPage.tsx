@@ -1,23 +1,41 @@
 import { Monitor, Moon, Sun, type LucideIcon } from 'lucide-react'
-import { type ReactNode, useState } from 'react'
+import { type ReactNode, useEffect, useId, useState } from 'react'
+import { useLocation } from 'react-router'
 import { useMe, useSettings, useSystemStatus } from '@/api/queries'
 import type { Role, Settings } from '@/api/types'
 import { PageHeader } from '@/components/PageHeader'
 import { Badge, Card, Pill, StatusDot } from '@/components/ui'
 import { cn } from '@/lib/cn'
+import { describeSource, INVENTORY_SETTINGS_ID } from '@/lib/inventoryKey'
 import { getThemePreference, setThemePreference, type ThemePreference } from '@/lib/theme'
 import { formatAbsolute, formatRelative, useNow } from '@/lib/time'
 import { DEFAULT_PREFS, loadPrefs, savePrefs } from '@/pages/fleet/columnPrefs'
 
-function Section({ title, description, children }: { title: string; description?: string; children: ReactNode }) {
+function Section({
+  id,
+  title,
+  description,
+  children,
+}: {
+  /** For links to it: /settings#<id>. */
+  id?: string
+  title: string
+  description?: string
+  children: ReactNode
+}) {
+  const heading = useId()
   return (
-    <Card className="overflow-hidden">
-      <div className="border-b px-5 py-4 sm:px-6">
-        <h2 className="font-semibold">{title}</h2>
-        {description && <p className="mt-0.5 text-sm text-muted">{description}</p>}
-      </div>
-      <dl className="divide-y">{children}</dl>
-    </Card>
+    <section id={id} aria-labelledby={heading} className="scroll-mt-4">
+      <Card className="overflow-hidden">
+        <div className="border-b px-5 py-4 sm:px-6">
+          <h2 id={heading} className="font-semibold">
+            {title}
+          </h2>
+          {description && <p className="mt-0.5 text-sm text-muted">{description}</p>}
+        </div>
+        <dl className="divide-y">{children}</dl>
+      </Card>
+    </section>
   )
 }
 
@@ -134,6 +152,68 @@ function SignIn({ auth }: { auth: Settings['auth'] }) {
   )
 }
 
+/** "6 hours", "hour", "30 minutes": how often, after "every". */
+function every(hours: number): string {
+  if (hours === 1) return 'hour'
+  if (hours < 1) return `${Math.round(hours * 60)} minutes`
+  return `${hours} hours`
+}
+
+function PackagesAndChecks({ inventory, saltApi }: { inventory: Settings['inventory']; saltApi: Settings['salt_api'] }) {
+  const refused = Object.entries(inventory.refused)
+  return (
+    <Section
+      id={INVENTORY_SETTINGS_ID}
+      title="Packages and checks"
+      description="What brine reads from each minion and keeps the history of: its packages, and what each check prints."
+    >
+      <Row label="When">
+        Read every {every(inventory.refresh_hours)}, after people's jobs, when a minion comes back, and on Read now
+      </Row>
+      <Row
+        label="Checks"
+        hint={
+          inventory.checks.length
+            ? 'Commands are sent exactly as written and shown to everyone signed in; keep secrets out of them.'
+            : undefined
+        }
+      >
+        {inventory.checks.length ? (
+          <ul className="flex flex-col gap-1">
+            {inventory.checks.map((c) => (
+              <li key={c.name}>
+                <code className="font-mono break-all">
+                  {c.name}: {c.command}
+                </code>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          'None, so brine reads only packages. Add checks under inventory › checks in the config.'
+        )}
+      </Row>
+      <Row label="Salt permissions">
+        {refused.length > 0 && (
+          <ul className="mb-2 flex flex-col gap-1 text-warn">
+            {refused.map(([source, why]) => (
+              <li key={source}>
+                brine can't read {describeSource(source)}: {why}
+              </li>
+            ))}
+          </ul>
+        )}
+        <details open={refused.length > 0}>
+          <summary className="cursor-pointer text-accent hover:underline">Salt permissions brine needs</summary>
+          <p className="mt-2 text-muted">
+            Add these under external_auth › {saltApi.eauth} › {saltApi.username} in the master's config.
+          </p>
+          <pre className="mt-2 overflow-x-auto rounded-lg bg-surface-2 p-3 font-mono text-xs">{inventory.acl}</pre>
+        </details>
+      </Row>
+    </Section>
+  )
+}
+
 const keptFor = (days: number) => (days ? `${days} days` : 'forever')
 
 export function SettingsPage() {
@@ -142,6 +222,12 @@ export function SettingsPage() {
   const status = useSystemStatus()
   const s = settings.data
   const api = status.data?.salt_api
+  // A link to a section (/settings#packages-and-checks): go there once it's on the page.
+  const { hash } = useLocation()
+  const loaded = !!s
+  useEffect(() => {
+    if (loaded && hash) document.getElementById(decodeURIComponent(hash.slice(1)))?.scrollIntoView?.({ block: 'start' })
+  }, [loaded, hash])
 
   return (
     <>
@@ -231,6 +317,8 @@ export function SettingsPage() {
                   ].join(' · ')}
                 </Row>
               </Section>
+
+              <PackagesAndChecks inventory={s.inventory} saltApi={s.salt_api} />
 
               <Section title="Server">
                 <Row label="Version">{s.version}</Row>

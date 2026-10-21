@@ -258,6 +258,7 @@ async def minion_inventory(
         entries.setdefault(item.source, []).append(
             InventoryEntry(name=item.name, value=item.value, since=item.since)
         )
+    refused = await refused_sources(session, runtime.settings)
     found = []
     for source in inventory.sources(runtime.settings):
         read = reads.get(source)
@@ -270,6 +271,7 @@ async def minion_inventory(
                 answered_at=read.answered_at if read else None,
                 error=read.error if read else None,
                 truncated=bool(read and read.truncated),
+                refused=refused.get(source),
                 entries=entries.get(source, []),
             )
         )

@@ -5,7 +5,7 @@ import { useMinionInventory } from '@/api/queries'
 import type { InventoryEntry, InventorySource, MinionDetail } from '@/api/types'
 import { Badge } from '@/components/ui'
 import { cn } from '@/lib/cn'
-import { explorerPath, keyOf } from '@/lib/inventoryKey'
+import { describeSource, explorerPath, INVENTORY_SETTINGS, keyOf } from '@/lib/inventoryKey'
 import { formatAbsolute, formatDay, formatRelative } from '@/lib/time'
 import { useMediaQuery } from '@/lib/useMediaQuery'
 import { useReadNow } from '@/lib/useReadNow'
@@ -137,9 +137,19 @@ function SourceSection({
           Couldn't read: {s.error}
         </p>
       )}
+      {s.refused && (
+        <p className="px-4 pb-2 text-sm text-warn sm:px-6">
+          brine can't read {describeSource(s.source)}: {s.refused.replace(/\.$/, '')}.{' '}
+          <Link to={INVENTORY_SETTINGS} className="text-fg underline underline-offset-2 hover:text-accent">
+            Settings › Packages and checks
+          </Link>{' '}
+          has the lines to add.
+        </p>
+      )}
       {s.truncated && <p className={NOTE}>The last answer was cut short; some entries may be missing.</p>}
       {!s.read_at ? (
-        !s.error && <p className={NOTE}>Not read yet. brine reads every online minion within a few minutes.</p>
+        !s.error &&
+        !s.refused && <p className={NOTE}>Not read yet. brine reads every online minion within a few minutes.</p>
       ) : s.entries.length === 0 ? (
         <p className={NOTE} title={s.kind === 'check' ? 'The check printed nothing' : undefined}>
           {s.kind === 'check' ? 'Not reported' : 'No packages reported'}

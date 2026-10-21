@@ -3,7 +3,14 @@ import type { ReactNode } from 'react'
 import { Link } from 'react-router'
 import { useInventoryChanges, useInventoryValues } from '@/api/queries'
 import type { InventoryDistribution, MinionStatus } from '@/api/types'
-import { describeSource, keyLabel, missingLabel, NO_ANSWER, NO_ANSWER_DETAIL } from '@/lib/inventoryKey'
+import {
+  describeSource,
+  INVENTORY_SETTINGS,
+  keyLabel,
+  missingLabel,
+  NO_ANSWER,
+  NO_ANSWER_DETAIL,
+} from '@/lib/inventoryKey'
 import { formatAbsolute, formatRelative, relativeRange } from '@/lib/time'
 import type { ReadNow } from '@/lib/useReadNow'
 import { ChangeList } from '@/pages/fleet/ChangeList'
@@ -27,7 +34,7 @@ function Refused({ source, why }: { source: string; why: string }) {
         <div className="font-medium">brine can't read {describeSource(source)}</div>
         <div className="mt-1 text-muted">
           {why.replace(/\.$/, '')}.{' '}
-          <Link to="/settings" className="text-fg underline underline-offset-2 hover:text-accent">
+          <Link to={INVENTORY_SETTINGS} className="text-fg underline underline-offset-2 hover:text-accent">
             Settings › Packages and checks
           </Link>{' '}
           has the lines to add to brine's Salt account.

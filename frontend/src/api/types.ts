@@ -434,6 +434,8 @@ export type InventorySource = {
   error: string | null
   /** The last good answer was cut short, so some entries may be missing. */
   truncated: boolean
+  /** Why salt-api refuses to ask for this source, if it does. */
+  refused: string | null
   /** By name. */
   entries: InventoryEntry[]
 }

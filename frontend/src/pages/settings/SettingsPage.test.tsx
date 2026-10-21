@@ -1,6 +1,6 @@
-import { screen } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { Settings } from '@/api/types'
 import { mockApi, renderApp, systemStatus } from '@/test/render'
 
@@ -23,6 +23,23 @@ const SETTINGS: Settings = {
     role_patterns: { viewer: 3, operator: 0, admin: 1 },
   },
   inventory: { refresh_hours: 6, checks: [], acl: "- '*':\n  - pkg.list_pkgs\n", refused: {} },
+}
+
+const INVENTORY: Settings['inventory'] = {
+  refresh_hours: 6,
+  checks: [
+    { name: 'rover-cli', command: '/opt/rover/bin/rover-cli --version' },
+    { name: 'containers', command: "podman ps --format '{{.Names}}={{.Image}}'" },
+  ],
+  acl: [
+    "- '*':",
+    '  - pkg.list_pkgs',
+    '  - cmd.run_all:',
+    '      args:',
+    "        - '^/opt/rover/bin/rover\\-cli\\ \\-\\-version$'",
+    '',
+  ].join('\n'),
+  refused: {},
 }
 
 describe('SettingsPage', () => {
@@ -70,6 +87,82 @@ describe('SettingsPage', () => {
     expect(screen.getByRole('button', { name: 'Switch to dark theme' })).toBeInTheDocument()
     await user.click(screen.getByRole('radio', { name: 'System' }))
     expect(localStorage.getItem('brine-theme')).toBeNull()
+  })
+
+  it('shows what brine reads from each minion, and the Salt permissions it needs', async () => {
+    mockApi({ '/api/settings': { ...SETTINGS, inventory: INVENTORY }, '/api/status': systemStatus() })
+    renderApp('/settings')
+    const section = await screen.findByRole('region', { name: 'Packages and checks' })
+    expect(section).toHaveAttribute('id', 'packages-and-checks')
+    expect(
+      within(section).getByText("Read every 6 hours, after people's jobs, when a minion comes back, and on Read now"),
+    ).toBeInTheDocument()
+    expect(within(section).getByText('rover-cli: /opt/rover/bin/rover-cli --version')).toHaveClass('font-mono')
+    expect(within(section).getByText("containers: podman ps --format '{{.Names}}={{.Image}}'")).toHaveClass('font-mono')
+    expect(
+      within(section).getByText(
+        'Commands are sent exactly as written and shown to everyone signed in; keep secrets out of them.',
+      ),
+    ).toBeInTheDocument()
+
+    // Nothing refused: the permissions are there to look at, folded away.
+    const permissions = within(section).getByText('Salt permissions brine needs').closest('details')!
+    expect(permissions).not.toHaveAttribute('open')
+    expect(permissions.querySelector('pre')?.textContent).toBe(INVENTORY.acl)
+    expect(
+      within(permissions).getByText("Add these under external_auth › pam › brine in the master's config."),
+    ).toBeInTheDocument()
+    expect(within(section).queryByText(/can't read/)).toBeNull()
+  })
+
+  it('opens the permissions and says what Salt refused', async () => {
+    mockApi({
+      '/api/settings': {
+        ...SETTINGS,
+        inventory: {
+          ...INVENTORY,
+          refused: {
+            packages: "brine's Salt account isn't allowed to run pkg.list_pkgs",
+            containers: "brine's Salt account isn't allowed to run cmd.run_all",
+          },
+        },
+      },
+      '/api/status': systemStatus(),
+    })
+    renderApp('/settings')
+    const section = await screen.findByRole('region', { name: 'Packages and checks' })
+    expect(within(section).getByText('Salt permissions brine needs').closest('details')).toHaveAttribute('open')
+    expect(
+      within(section).getByText("brine can't read packages: brine's Salt account isn't allowed to run pkg.list_pkgs"),
+    ).toBeInTheDocument()
+    expect(
+      within(section).getByText(
+        "brine can't read the containers check: brine's Salt account isn't allowed to run cmd.run_all",
+      ),
+    ).toBeInTheDocument()
+  })
+
+  it('says how to add checks when there are none', async () => {
+    mockApi({ '/api/settings': SETTINGS, '/api/status': systemStatus() })
+    renderApp('/settings')
+    const section = await screen.findByRole('region', { name: 'Packages and checks' })
+    expect(within(section).getByText('None, so brine reads only packages. Add checks under inventory › checks in the config.')).toBeInTheDocument()
+    expect(within(section).queryByText(/keep secrets out/)).toBeNull()
+  })
+
+  it('scrolls to a section a link points at', async () => {
+    const scroll = vi.fn()
+    Element.prototype.scrollIntoView = scroll
+    try {
+      mockApi({ '/api/settings': SETTINGS, '/api/status': systemStatus() })
+      renderApp('/settings#packages-and-checks')
+      const section = await screen.findByRole('region', { name: 'Packages and checks' })
+      await waitFor(() => expect(scroll).toHaveBeenCalled())
+      expect(scroll.mock.contexts[0]).toBe(section)
+    } finally {
+      // @ts-expect-error -- jsdom doesn't have it; take the stub away again.
+      delete Element.prototype.scrollIntoView
+    }
   })
 
   it('resets customised fleet columns', async () => {

@@ -256,6 +256,7 @@ class InventorySource(BaseModel):
     answered_at: datetime | None  # last answer, good or failed
     error: str | None  # the last answer's error, if it failed
     truncated: bool  # the last good answer was cut short, so some entries may be missing
+    refused: str | None  # why salt-api refuses to ask for this source, if it does
     entries: list[InventoryEntry]  # by name
 
 

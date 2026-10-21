@@ -36,6 +36,22 @@ describe('IssuesPage', () => {
     expect(link).toHaveAttribute('href', '/keys?state=pending')
   })
 
+  it("sends a package or check brine can't read to Settings", async () => {
+    const refused: Issue = {
+      key: 'inventory:packages',
+      severity: 'warning',
+      title: "brine can't read packages",
+      detail: "brine's Salt account isn't allowed to run pkg.list_pkgs. Settings › Packages and checks has the lines to add to brine's Salt account.",
+      since: null,
+      minion_id: null,
+      jid: null,
+    }
+    mockApi({ '/api/issues': [refused], '/api/status': systemStatus() })
+    renderApp('/issues')
+    const link = await screen.findByRole('link', { name: 'Open Settings › Packages and checks' })
+    expect(link).toHaveAttribute('href', '/settings#packages-and-checks')
+  })
+
   it('filters by severity', async () => {
     const user = userEvent.setup()
     mockApi({ '/api/issues': ISSUES, '/api/status': systemStatus() })

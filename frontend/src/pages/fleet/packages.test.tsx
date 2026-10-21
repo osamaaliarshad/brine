@@ -331,7 +331,10 @@ describe('Fleet › Grains & packages', () => {
     expect(banner).toHaveTextContent(
       "salt-api answered 403: brine's account may not run cmd.run_all. Settings › Packages and checks has the lines to add to brine's Salt account.",
     )
-    expect(within(banner).getByRole('link', { name: 'Settings › Packages and checks' })).toHaveAttribute('href', '/settings')
+    expect(within(banner).getByRole('link', { name: 'Settings › Packages and checks' })).toHaveAttribute(
+      'href',
+      '/settings#packages-and-checks',
+    )
 
     expect(screen.getByRole('heading', { name: 'web' })).toBeInTheDocument()
     expect(screen.getByText('From the containers check · 1 distinct value across 1 of 5 minions')).toBeInTheDocument()

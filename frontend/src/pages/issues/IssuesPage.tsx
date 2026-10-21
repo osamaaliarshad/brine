@@ -5,6 +5,7 @@ import type { Issue, IssueSeverity } from '@/api/types'
 import { PageHeader } from '@/components/PageHeader'
 import { Card } from '@/components/ui'
 import { cn } from '@/lib/cn'
+import { INVENTORY_SETTINGS } from '@/lib/inventoryKey'
 import { formatAbsolute, formatRelative, useNow } from '@/lib/time'
 
 const SEVERITY: Record<IssueSeverity, { label: string; icon: LucideIcon; tone: string }> = {
@@ -17,6 +18,8 @@ const FILTERS: (IssueSeverity | 'all')[] = ['all', 'critical', 'warning', 'info'
 
 function IssueRow({ issue, now }: { issue: Issue; now: number }) {
   const { icon: Icon, tone } = SEVERITY[issue.severity]
+  // Salt won't let brine read packages or a check: Settings has the permissions to add.
+  const settings = issue.key.startsWith('inventory:')
   return (
     <li className="flex gap-4 border-t px-4 py-4 sm:px-6">
       <Icon className={cn('mt-0.5 size-5 shrink-0', tone)} aria-label={SEVERITY[issue.severity].label} />
@@ -30,8 +33,13 @@ function IssueRow({ issue, now }: { issue: Issue; now: number }) {
           )}
         </div>
         {issue.detail && <p className="mt-0.5 text-sm text-muted">{issue.detail}</p>}
-        {(issue.minion_id || issue.jid) && (
+        {(issue.minion_id || issue.jid || settings) && (
           <div className="mt-2 flex gap-4 text-sm">
+            {settings && (
+              <Link to={INVENTORY_SETTINGS} className="text-accent hover:underline">
+                Open Settings › Packages and checks
+              </Link>
+            )}
             {issue.minion_id &&
               (issue.key.startsWith('key:') ? (
                 // A pending key isn't a minion yet: its fingerprint is what to look at.

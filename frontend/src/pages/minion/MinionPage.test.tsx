@@ -34,6 +34,7 @@ const source = (patch: Partial<InventorySource> & Pick<InventorySource, 'source'
   answered_at: ago(3600),
   error: null,
   truncated: false,
+  refused: null,
   entries: [],
   ...patch,
 })
@@ -149,6 +150,23 @@ describe('MinionPage', () => {
 
     expect(region('ports')).toHaveTextContent('Not reported')
     expect(region('gpu')).toHaveTextContent('Not read yet. brine reads every online minion within a few minutes.')
+  })
+
+  it("says when Salt won't let brine read a source, and where to fix it", async () => {
+    const why = "brine's Salt account isn't allowed to run cmd.run_all"
+    api({
+      '/api/minions/rover-01/inventory': {
+        sources: INVENTORY.sources.map((s) => (s.source === 'gpu' ? { ...s, refused: why } : s)),
+      },
+    })
+    renderApp('/minions/rover-01?tab=packages')
+    const gpu = await screen.findByRole('region', { name: 'gpu' })
+    expect(gpu).toHaveTextContent(`brine can't read the gpu check: ${why}. Settings › Packages and checks has the lines to add.`)
+    expect(within(gpu).getByRole('link', { name: 'Settings › Packages and checks' })).toHaveAttribute(
+      'href',
+      '/settings#packages-and-checks',
+    )
+    expect(gpu).not.toHaveTextContent('Not read yet')
   })
 
   it('filters every package and check with one search box', async () => {
