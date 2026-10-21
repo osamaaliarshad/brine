@@ -1,8 +1,8 @@
-import { Server, TerminalSquare } from 'lucide-react'
+import { LayoutTemplate, Server, TerminalSquare } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
-import { useCapabilities, useCommandPreview, useRunCommand } from '@/api/queries'
-import type { CommandPreview, CommandRequest, TargetType } from '@/api/types'
+import { useCapabilities, useCommandPreview, useRunCommand, useTemplates } from '@/api/queries'
+import type { CommandPreview, CommandRequest, CommandTemplate, TargetType } from '@/api/types'
 import { JsonTree } from '@/components/JsonView'
 import { PageHeader } from '@/components/PageHeader'
 import { Badge, Card } from '@/components/ui'
@@ -92,6 +92,61 @@ function Preview({ preview }: { preview: CommandPreview }) {
   )
 }
 
+/** Ready-made commands (brine's templates and SaltGUI's saltgui_templates), by category. */
+function Templates({ onPick }: { onPick: (template: CommandTemplate) => void }) {
+  const templates = useTemplates(true).data ?? []
+  const [category, setCategory] = useState<string | null>(null)
+  if (templates.length === 0) return null
+  const categories = [...new Set(templates.flatMap((t) => t.categories))].sort()
+  const shown = category ? templates.filter((t) => t.categories.includes(category)) : templates
+  return (
+    <Card className="h-fit overflow-hidden">
+      <h2 className="flex items-center gap-2 border-b px-4 py-3 font-medium">
+        <LayoutTemplate className="size-4 text-muted" aria-hidden />
+        Templates
+      </h2>
+      {categories.length > 0 && (
+        <div role="tablist" aria-label="Template categories" className="flex flex-wrap gap-1.5 border-b px-4 py-2.5">
+          {[null, ...categories].map((c) => (
+            <button
+              key={c ?? '(all)'}
+              type="button"
+              role="tab"
+              aria-selected={category === c}
+              onClick={() => setCategory(c)}
+              className={cn(
+                'rounded-md border px-2 py-0.5 text-xs hover:bg-surface-2',
+                category === c && 'border-accent bg-accent/10',
+              )}
+            >
+              {c ?? 'All'}
+            </button>
+          ))}
+        </div>
+      )}
+      <ul>
+        {shown.map((t) => (
+          <li key={t.name} className="border-b last:border-b-0">
+            <button
+              type="button"
+              disabled={!t.allowed}
+              title={t.allowed ? undefined : "Your role can't run this one"}
+              onClick={() => onPick(t)}
+              className="w-full px-4 py-2.5 text-left hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <div className="text-sm">{t.description || t.name}</div>
+              <div className="truncate font-mono text-xs text-muted">
+                {t.command || '(fills in the target)'}
+                {t.target && !onMaster(t.command) && ` · ${t.target}`}
+              </div>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </Card>
+  )
+}
+
 export function RunPage() {
   const [params] = useSearchParams()
   const navigate = useNavigate()
@@ -127,6 +182,17 @@ export function RunPage() {
     setTarget(item.target)
     setTargetType(item.target_type)
     changed()
+  }
+
+  // A template fills the form and previews straight away (a preview runs nothing).
+  const pick = (template: CommandTemplate) => {
+    fill({ command: template.command, target: template.target, target_type: template.target_type })
+    if (template.command.trim())
+      preview.mutate({
+        command: template.command,
+        target: onMaster(template.command) ? '' : template.target,
+        target_type: template.target_type,
+      })
   }
 
   const start = () => {
@@ -294,36 +360,39 @@ export function RunPage() {
           )}
         </div>
 
-        <Card className="h-fit overflow-hidden">
-          <h2 className="flex items-center gap-2 border-b px-4 py-3 font-medium">
-            <TerminalSquare className="size-4 text-muted" aria-hidden />
-            Recent
-          </h2>
-          {history.length === 0 ? (
-            <p className="px-4 py-6 text-sm text-muted">
-              Commands you run show up here (in this browser only). Results are on the{' '}
-              <Link to="/jobs" className="text-accent hover:underline">
-                Jobs
-              </Link>{' '}
-              page.
-            </p>
-          ) : (
-            <ul>
-              {history.map((h) => (
-                <li key={`${h.target_type}:${h.target}:${h.command}`} className="border-b last:border-b-0">
-                  <button
-                    type="button"
-                    onClick={() => fill(h)}
-                    className="w-full px-4 py-2.5 text-left hover:bg-surface-2"
-                  >
-                    <div className="truncate font-mono text-sm">{h.command}</div>
-                    <div className="truncate text-xs text-muted">{h.target ? `${h.target} (${h.target_type})` : 'master'}</div>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Card>
+        <div className="flex flex-col gap-4 sm:gap-6">
+          <Templates onPick={pick} />
+          <Card className="h-fit overflow-hidden">
+            <h2 className="flex items-center gap-2 border-b px-4 py-3 font-medium">
+              <TerminalSquare className="size-4 text-muted" aria-hidden />
+              Recent
+            </h2>
+            {history.length === 0 ? (
+              <p className="px-4 py-6 text-sm text-muted">
+                Commands you run show up here (in this browser only). Results are on the{' '}
+                <Link to="/jobs" className="text-accent hover:underline">
+                  Jobs
+                </Link>{' '}
+                page.
+              </p>
+            ) : (
+              <ul>
+                {history.map((h) => (
+                  <li key={`${h.target_type}:${h.target}:${h.command}`} className="border-b last:border-b-0">
+                    <button
+                      type="button"
+                      onClick={() => fill(h)}
+                      className="w-full px-4 py-2.5 text-left hover:bg-surface-2"
+                    >
+                      <div className="truncate font-mono text-sm">{h.command}</div>
+                      <div className="truncate text-xs text-muted">{h.target ? `${h.target} (${h.target_type})` : 'master'}</div>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+        </div>
       </div>
     </>
   )

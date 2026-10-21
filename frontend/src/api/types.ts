@@ -128,6 +128,8 @@ export type StateResult = {
   changed: boolean
   comment: string
   duration_ms: number | null
+  /** Orchestration steps: the job the step started. */
+  jid?: string | null
 }
 
 export type JobResult = {
@@ -213,6 +215,37 @@ export type CommandPreview = {
   offline: string[]
   unknown: string[]
   from_cache: boolean
+}
+
+export type CommandTemplate = {
+  name: string
+  description: string
+  target: string
+  target_type: TargetType
+  command: string
+  categories: string[]
+  source: 'brine' | 'master'
+  /** Whether you may use it (run its command). */
+  allowed: boolean
+}
+
+export type OrchestrationStep = {
+  id: string
+  function: string
+  what: string
+  target: string | null
+  target_type: string | null
+  needs: string[]
+  details: Record<string, unknown>
+}
+
+export type Orchestration = { sls: string; path: string; steps: OrchestrationStep[]; error: string | null }
+
+export type Orchestrations = {
+  saltenv: string
+  orchestrations: Orchestration[]
+  truncated: boolean
+  can_run: boolean
 }
 
 export type CommandResult = {

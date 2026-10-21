@@ -14,6 +14,7 @@ import {
   Sun,
   TerminalSquare,
   TriangleAlert,
+  Workflow,
   X,
   type LucideIcon,
 } from 'lucide-react'
@@ -38,6 +39,7 @@ const MAIN_NAV: NavItem[] = [
 
 const CONFIG_NAV: NavItem[] = [
   { to: '/states', label: 'States', icon: FileCode },
+  { to: '/orchestrations', label: 'Orchestrations', icon: Workflow },
   { to: '/automation', label: 'Automation', icon: CalendarClock },
   { to: '/keys', label: 'Keys', icon: KeyRound },
 ]

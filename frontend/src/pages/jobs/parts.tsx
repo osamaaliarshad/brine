@@ -1,4 +1,5 @@
 import { CircleCheck, CircleDashed, CircleX } from 'lucide-react'
+import { Link } from 'react-router'
 import type { JobSummary, StateDot, StateResult } from '@/api/types'
 import { Pill } from '@/components/ui'
 import { cn } from '@/lib/cn'
@@ -116,6 +117,14 @@ export function StateTable({ states }: { states: StateResult[] }) {
                   {s.function}
                   {s.sls && ` · ${s.sls}`}
                   {s.changed && <span className="ml-1.5 rounded bg-online/15 px-1 text-online">changed</span>}
+                  {s.jid && (
+                    <>
+                      {' · '}
+                      <Link to={`/jobs/${s.jid}`} className="text-accent hover:underline">
+                        its job
+                      </Link>
+                    </>
+                  )}
                 </div>
               </td>
               <td className="py-2 pr-4 whitespace-pre-wrap text-muted">{s.comment || '—'}</td>

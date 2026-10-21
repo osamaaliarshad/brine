@@ -13,6 +13,7 @@ import { RunPage } from '@/pages/run/RunPage'
 import { LoginPage } from '@/pages/LoginPage'
 import { MinionPage } from '@/pages/minion/MinionPage'
 import { NotFoundPage } from '@/pages/NotFoundPage'
+import { OrchestrationsPage } from '@/pages/orchestrations/OrchestrationsPage'
 import { SettingsPage } from '@/pages/settings/SettingsPage'
 import { StatesPage } from '@/pages/states/StatesPage'
 
@@ -38,6 +39,7 @@ export const routes: RouteObject[] = [
       { path: 'keys', element: <KeysPage /> },
       { path: 'run', element: <RunPage /> },
       { path: 'states', element: <StatesPage /> },
+      { path: 'orchestrations', element: <OrchestrationsPage /> },
       { path: 'automation', element: <AutomationPage /> },
       { path: 'events', element: <EventsPage /> },
       { path: 'issues', element: <IssuesPage /> },

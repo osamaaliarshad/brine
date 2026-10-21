@@ -7,6 +7,7 @@ import type {
   CommandPreview,
   CommandRequest,
   CommandResult,
+  CommandTemplate,
   Fleet,
   FleetLiveView,
   GrainDistribution,
@@ -23,6 +24,7 @@ import type {
   LiveView,
   MinionDetail,
   Nodegroups,
+  Orchestrations,
   Reactor,
   Settings,
   StateFile,
@@ -149,6 +151,23 @@ export function useCapabilities(enabled: boolean) {
     queryKey: ['capabilities'],
     queryFn: () => fetchJson<Capabilities>('/api/capabilities'),
     enabled,
+    staleTime: 60_000,
+  })
+}
+
+export function useTemplates(enabled: boolean) {
+  return useQuery({
+    queryKey: ['command-templates'],
+    queryFn: () => fetchJson<CommandTemplate[]>('/api/commands/templates'),
+    enabled,
+    staleTime: 60_000,
+  })
+}
+
+export function useOrchestrations() {
+  return useQuery({
+    queryKey: ['orchestrations'],
+    queryFn: () => fetchJson<Orchestrations>('/api/orchestrations'),
     staleTime: 60_000,
   })
 }
