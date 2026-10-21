@@ -275,7 +275,7 @@ class AskResult(BaseModel):
     # nobody online), and for one minion: it's asked straight away.
     queued: bool
     failed: dict[str, str] = Field(default_factory=dict)  # source -> why it couldn't be asked
-    reason: str | None = None  # why nobody was asked: "presence is stale", "... isn't online"
+    reason: str | None = None  # why nobody was asked: "no minions are online", "... isn't online"
 
 
 class PresencePoint(BaseModel):

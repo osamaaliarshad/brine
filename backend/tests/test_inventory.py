@@ -1114,10 +1114,11 @@ def test_ask_now_when_presence_is_stale_or_nobody_is_online(admin: tuple[Api, Fa
     api, salt = admin
     now = datetime.now(UTC)
     api.seed(api.ingest.presence, ONLINE, at=now - HOUR, method="events")
-    stale = {"asked": [], "queued": False, "failed": {}, "reason": "presence is stale"}
+    stale = {"asked": [], "queued": False, "failed": {}, "reason": sweeper.STALE}
     assert ask(api).json() == stale
     assert ask(api).json() == stale  # nothing was queued, so not throttled
-    assert ask(api, minion="rover-01").json()["reason"] == "presence is stale"
+    assert ask(api, minion="rover-01").json()["reason"] == sweeper.STALE
+    assert sweeper.STALE == "brine hasn't checked who's online recently; try again in a minute"
     api.seed(api.ingest.presence, [], at=now, method="events")
     nobody = ask(api).json()
     assert (nobody["queued"], nobody["reason"]) == (False, "no minions are online")

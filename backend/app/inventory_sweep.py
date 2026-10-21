@@ -47,8 +47,8 @@ _MINUTE = 60.0
 # In the sweep's turns, a minion never asked counts as asked before anyone.
 _NEVER = datetime.min.replace(tzinfo=UTC)
 
-# Why Ask now asked nobody.
-STALE = "presence is stale"
+# Why Ask now asked nobody, as the UI shows it after "Nobody was asked: ".
+STALE = "brine hasn't checked who's online recently; try again in a minute"
 NOBODY = "no minions are online"
 
 # runtime.memo keys: the last fleet-wide Ask now; each minion's (with its ID after the colon);
