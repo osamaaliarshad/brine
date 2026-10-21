@@ -1504,6 +1504,66 @@ yet").
 
 ---
 
+### Task 13b: Compare with a golden robot
+
+Borrowed from Uyuni's package profiles: pick a reference robot and see how every other robot's
+packages and checks differ from it, then drill into one robot.
+
+**Files:**
+- Modify: `backend/app/api/inventory.py`, `backend/app/api/schemas.py`
+- Modify: `frontend/src/pages/minion/PackagesPanel.tsx` (+ types/queries)
+- Test: `backend/tests/test_inventory.py`, `frontend/src/pages/minion/MinionPage.test.tsx`
+
+**Step 1: Failing backend tests**
+
+```python
+def test_fleet_differences_from_a_reference(admin) -> None:
+    api, _ = admin
+    now = datetime.now(UTC)
+    api.seed(api.ingest.inventory_read, "rover-01", "packages", {"agent": "2.4.1", "bash": "5.2"}, at=now)
+    api.seed(api.ingest.inventory_read, "rover-02", "packages", {"agent": "2.4.1", "bash": "5.2"}, at=now)
+    api.seed(api.ingest.inventory_read, "rover-03", "packages", {"agent": "2.3.0", "bash": "5.2", "vim": "9"}, at=now)
+    api.seed(api.ingest.inventory_read, "dock-01", "packages", {"bash": "5.2"}, at=now)
+    rows = {r["minion_id"]: r for r in api.get("/api/inventory/compare", reference="rover-01")["minions"]}
+    assert (rows["rover-02"]["different"], rows["rover-02"]["only_reference"], rows["rover-02"]["only_minion"]) == (0, 0, 0)
+    assert (rows["rover-03"]["different"], rows["rover-03"]["only_minion"]) == (1, 1)
+    assert rows["dock-01"]["only_reference"] == 1
+    assert "rover-01" not in rows
+
+
+def test_one_robot_against_the_reference(admin) -> None:
+    # same seed; /api/inventory/compare/rover-03?reference=rover-01 ->
+    # [{source: packages, name: agent, reference: 2.4.1, minion: 2.3.0},
+    #  {source: packages, name: vim, reference: None, minion: 9}]
+    ...
+
+
+def test_unread_minions_are_marked_not_compared(admin) -> None:
+    # rover-02 never read -> its row has read: false and no counts
+    ...
+```
+
+**Step 3: Implement.**
+- `GET /api/inventory/compare?reference=<id>` → `{reference, minions: [{minion_id, read, different,
+  only_reference, only_minion}]}` for every other accepted minion; counts across all sources the
+  reference has read. Compute with SQL aggregation (an `InventoryItem` self-join on
+  `(source, name)` against the reference's items, grouped by `minion_id`), not by loading every
+  row into Python: a fleet of 500 robots × 1,500 packages is 750k rows.
+- `GET /api/inventory/compare/{minion_id}?reference=<id>` → `{reference, minion, differences:
+  [{source, name, reference, minion}]}`, sorted by source then name; `None` means not there.
+- 404 for an unknown reference or minion; `read: false` when either side never answered.
+
+**Step 4: Frontend.** On the minion's Packages tab:
+- "Compare with…" select (other accepted minions) sets `?compare=<id>` and shows a diff table:
+  Name | this robot | <other> (rows only where they differ; "Same packages and checks" when none).
+- "Use as the reference" shows "How the fleet differs from <this robot>": robots sorted by most
+  differences, counts as "3 different · 1 missing · 2 extra" (missing = the reference has it, the
+  robot doesn't), each linking to that robot's comparison; "not read yet" for unread robots.
+
+**Step 5:** tests, lint, typecheck; commit `git commit -m "Compare packages with a golden robot"`.
+
+---
+
 ### Task 14: Settings page section
 
 **Files:**
@@ -1677,6 +1737,36 @@ PATH) and look at each changed image. **Step 3:** commit
 
 ---
 
+### Task 17b: Guide: Salt on robots
+
+**Files:**
+- Create: `docs/salt-on-robots.md`; link it from `README.md` (Install › Good to know) and
+  `CONTRIBUTING.md` is not needed.
+
+Contents (verify every command and option against the Salt docs for 3006/3007/3008 before
+writing it down; cite the Salt option names exactly):
+1. **Installing the minion on Jetson / arm64 Ubuntu:** the Salt Project's arm64 packages for
+   Ubuntu 22.04 and 24.04 (JetPack 6 is Ubuntu 22.04 arm64), pinning the Salt version to match
+   the master's release line.
+2. **Identity:** minion ID scheme, static grains brine can show as columns (`site`, `role`,
+   `hw_rev`), and that the package list already carries `nvidia-jetpack` and `nvidia-l4t-*`
+   versions, so "which robots run JetPack 6.2" needs no grain or check.
+3. **Flaky networks:** minion-side TCP keepalive and `master_alive_interval` / `ping_interval`
+   style settings that make a dropped cellular link reconnect, with what each does (Uyuni's
+   connectivity guide is a useful reference for which knobs matter).
+4. **Don't let apt upgrade JetPack:** hold `nvidia-l4t-*` with a Salt state (`pkg.held` or
+   `apt-mark hold`) and why; full-OS/JetPack upgrades belong to NVIDIA's OTA tooling or an A/B
+   updater, not `state.apply`.
+5. **How brine helps on robots:** presence, catch-up runs for robots that were offline, packages
+   and checks (example check: `head -1 /etc/nv_tegra_release`), comparing against a golden
+   robot.
+6. **Security:** the master is root on every robot: firewall 4505/4506 to the robots' networks,
+   key acceptance through brine's Keys page, salt-api reachable only by brine.
+
+Commit: `git commit -m "Guide: Salt on robots (Jetson, flaky links, JetPack holds)"`.
+
+---
+
 ### Task 18: Final checks, tidy, push
 
 1. Backend: `uv run ruff check . && uv run ruff format --check . && uv run mypy && uv run pytest -q`.
@@ -1686,4 +1776,23 @@ PATH) and look at each changed image. **Step 3:** commit
 4. Fold this plan and the design into `docs/decisions.md` (the decision written in Task 17), then
    `git rm -r docs/plans` so the public repo carries no planning files.
 5. Scans (sensitive paths, former-employer names, secrets), commit, `git push`, watch CI
-   (`gh run watch`), then ask the user before tagging v0.1.0.
+   (`gh run watch`).
+
+---
+
+### Task 19: Hands-on test pass with the user (before tagging)
+
+The user wants to test every feature in the demo environment for three things: does it work, is
+it reliable, and is it intuitive. Intuitiveness matters most.
+
+1. Bring up the demo with brine (`docker compose -f docker-compose.demo.yml --profile brine up -d
+   --build --wait`, `BRINE_PORT=8090` on this machine) plus a sign-in setup for the auth items.
+2. Publish a checklist page (Artifact, with the `db` capability so ticks and notes are shared
+   with Claude): every page and feature, each with steps, what should happen, a reliability poke
+   where relevant (stop a minion, restart the master, kill brine mid-run), and an
+   "Was it obvious?" note field. Group: Fleet, Minion, Jobs/State runs/Job, Run (incl.
+   templates, catch-up), Keys, States, Orchestrations, Automation, Events, Issues, Audit,
+   Settings, Packages & checks, Golden robot, Sign-in and roles, Install-from-release.
+3. Walk through it with the user; read their notes back (ArtifactData), fix what they flag,
+   re-test.
+4. Only then ask the user before pushing the v0.1.0 tag.

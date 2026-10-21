@@ -58,6 +58,16 @@ Changes follow `retention.history_days`; current entries live as long as the min
 - **Settings:** cadence, checks and their commands, last fleet read; any missing ACL entry with
   the exact lines to paste. **Issues:** one entry when packages can't be read at all.
 
+## Added after comparing with Uyuni
+
+- **Compare with a golden robot** (from Uyuni's package profiles): pick a reference robot; see
+  how every robot's packages and checks differ from it (different, missing, extra), and drill
+  into one robot's differences. On the minion's Packages tab.
+- **Guide: Salt on robots** (`docs/salt-on-robots.md`): arm64 minions on Jetson, settings for
+  flaky links, holding JetPack/L4T packages, and how brine's features apply.
+- Then a hands-on test pass with the user over every feature in the demo, for reliability and
+  intuitiveness, before tagging 0.1.0.
+
 ## Salt account
 
 `pkg.list_pkgs` joins the read-only ACL. Each check needs `cmd.run_all` limited to its exact
