@@ -141,6 +141,42 @@ def test_inventory_check_command_is_one_line() -> None:
         parse_config(MINIMAL + 'inventory: {checks: {containers: "a\\nb"}}\n', {"PW": "x"})
 
 
+# Double-quoted in the YAML, so the escapes are real characters.
+@pytest.mark.parametrize("command", ["podman\\0ps", "a\\x1bb", "a\\u2028b", "a\\x7fb"])
+def test_inventory_check_command_is_printable(command: str) -> None:
+    with pytest.raises(ConfigError, match="characters that can't be used"):
+        parse_config(MINIMAL + f'inventory: {{checks: {{c: "{command}"}}}}\n', {"PW": "x"})
+
+
+def test_inventory_check_command_may_have_tabs_and_unicode() -> None:
+    text = "inventory: {checks: {c: \"printf '%s\\t%s' café x\"}}\n"
+    settings = parse_config(MINIMAL + text, {"PW": "x"})
+    assert settings.inventory.checks == {"c": "printf '%s\t%s' café x"}
+
+
+@pytest.mark.parametrize("command", ["LC_ALL=C dpkg-query -W", "a.b-c=1 x", "_X=1"])
+def test_inventory_check_command_cant_start_with_a_kwarg(command: str) -> None:
+    # The minion would read it as an option to cmd.run_all, so the check would never run.
+    with pytest.raises(ConfigError, match="start the command with env"):
+        parse_config(MINIMAL + f"inventory: {{checks: {{c: '{command}'}}}}\n", {"PW": "x"})
+
+
+@pytest.mark.parametrize(
+    "command",
+    ["env LC_ALL=C dpkg-query -W", "/opt/x=1/run", "1x=2", "podman ps --format '{{.A}}={{.B}}'"],
+)
+def test_inventory_check_command_may_have_an_equals_sign_later(command: str) -> None:
+    quoted = command.replace("'", "''")
+    text = f"inventory: {{checks: {{c: '{quoted}'}}}}\n"
+    assert parse_config(MINIMAL + text, {"PW": "x"}).inventory.checks == {"c": command}
+
+
+def test_inventory_checks_run_different_commands() -> None:
+    text = "inventory: {checks: {a: podman ps, b: ' podman ps '}}\n"
+    with pytest.raises(ConfigError, match="checks 'a' and 'b' run the same command"):
+        parse_config(MINIMAL + text, {"PW": "x"})
+
+
 def test_non_mapping_yaml_is_rejected() -> None:
     with pytest.raises(ConfigError, match="mapping"):
         parse_config("- just\n- a list\n", {})

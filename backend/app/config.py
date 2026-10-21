@@ -160,6 +160,8 @@ class RetentionConfig(_Strict):
 
 # Up to 64 characters: the size of the `source` column in the inventory tables.
 _CHECK_NAME = re.compile(r"[a-z0-9][a-z0-9_-]{0,63}")
+# A first argument like `NAME=value`: the minion reads it as a keyword argument, not a command.
+_LEADING_KWARG = re.compile(r"[^\d\W][\w.-]*=")
 
 
 class InventoryConfig(_Strict):
@@ -177,6 +179,7 @@ class InventoryConfig(_Strict):
     @classmethod
     def _checks(cls, checks: dict[str, str]) -> dict[str, str]:
         cleaned: dict[str, str] = {}
+        named: dict[str, str] = {}  # command -> the check that runs it
         for name, command in checks.items():
             if name == "packages" or not _CHECK_NAME.fullmatch(name):
                 raise ValueError(
@@ -189,6 +192,18 @@ class InventoryConfig(_Strict):
                 raise ValueError(f"check {name!r} has no command")
             if "\n" in command or "\r" in command:
                 raise ValueError(f"check {name!r}: put the command on one line")
+            # Tabs are fine; other control characters would break the ACL brine suggests.
+            if not command.replace("\t", " ").isprintable():
+                raise ValueError(f"check {name!r}: the command has characters that can't be used")
+            if _LEADING_KWARG.match(command):
+                raise ValueError(
+                    f"check {name!r}: Salt reads a leading NAME=value as an option; start the "
+                    "command with env, e.g. env LC_ALL=C dpkg-query …"
+                )
+            # Answers are matched to checks by their command, so each needs its own.
+            if command in named:
+                raise ValueError(f"checks {named[command]!r} and {name!r} run the same command")
+            named[command] = name
             cleaned[name] = command
         return cleaned
 

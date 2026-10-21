@@ -13,6 +13,7 @@ brine shows what each one said, and when.
 from __future__ import annotations
 
 import re
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
@@ -36,7 +37,14 @@ MAX_NAME = 255
 MAX_VALUE = 4096
 
 # Jobs in these modules can install, remove or change software.
-_SOFTWARE_PREFIXES = ("state.", "pkg.", "cmd.", "docker.", "file.", "archive.", "cp.", "service.")
+_SOFTWARE_PREFIXES = (
+    *("state.", "pkg.", "cmd.", "docker.", "file.", "archive.", "cp.", "service."),
+    *("pip.", "snap.", "flatpak.", "npm."),
+)
+# C0 control characters but tab and newline. PostgreSQL text can't hold NUL (and
+# /proc/device-tree/model ends in one); the rest only garble what's shown. Newlines stay: a
+# check's single value is its lines joined by them.
+_CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f]")
 
 
 def sources(settings: Settings) -> list[str]:
@@ -60,36 +68,55 @@ def parse_key(key: str) -> tuple[str, str] | None:
 
 def may_change_software(fun: str) -> bool:
     """Whether a job running ``fun`` could change what's installed, so worth reading again."""
-    # A person can run cmd.run_all too, and it could change software. But it's what checks run,
-    # so it counts as one of brine's reads, like pkg.list_pkgs.
-    return fun.startswith(_SOFTWARE_PREFIXES) and fun not in (PACKAGES_FUN, CHECK_FUN)
+    # pkg.list_pkgs is brine's own read. cmd.run_all counts: a person can install things with it,
+    # and brine's own check jobs are told apart elsewhere, as its service user's housekeeping.
+    return fun.startswith(_SOFTWARE_PREFIXES) and fun != PACKAGES_FUN
+
+
+def _clean(text: str) -> str:
+    return _CONTROL.sub("", text)
+
+
+def _lines(text: str) -> Iterator[str]:
+    """The lines of some output that have something in them, stripped and cleaned."""
+    # Only "\n" ends a line (strip() takes the "\r" of a "\r\n"). str.splitlines() would also
+    # split on characters such as \x0b, \x1c and \u2028 inside a line.
+    for raw in text.split("\n"):
+        if line := _clean(raw).strip():
+            yield line
+
+
+def _unexpected(data: object) -> str:
+    return f"unexpected answer: {_clean(str(data))[:200]}"
 
 
 def _put(entries: dict[str, str], name: str, value: str) -> bool:
-    """Add one entry within the caps. True when it was skipped or cut."""
+    """Add one entry within the caps, without control characters. True if skipped or cut."""
+    name, value = _clean(name), _clean(value)
     if len(name) > MAX_NAME:
         return True
     entries[name] = value[:MAX_VALUE]
     return len(value) > MAX_VALUE
 
 
-def parse_packages(data: object) -> tuple[dict[str, str], bool] | None:
-    """``(entries, truncated)`` from a ``pkg.list_pkgs`` answer; None if it isn't one.
+def parse_packages(data: object) -> tuple[dict[str, str], str | None, bool]:
+    """``(entries, error, truncated)`` from a ``pkg.list_pkgs`` answer.
 
-    The answer maps each package to its version, or to a list when several are installed.
+    The answer maps each package to its version, or to a list when several are installed. An
+    empty list is an error, not "nothing installed": a locked or broken package database gives
+    one, and a real system always has packages.
     """
     if not isinstance(data, dict):
-        return None
+        return {}, _unexpected(data), False
+    if not data:
+        return {}, "the package list was empty", False
     entries: dict[str, str] = {}
     truncated = False
     for name, version in data.items():
-        value = ", ".join(map(str, version)) if isinstance(version, list) else str(version)
+        # Several versions are joined the way Salt writes them (pkg_resource.stringify).
+        value = ",".join(map(str, version)) if isinstance(version, list) else str(version)
         truncated |= _put(entries, str(name), value)
-    return entries, truncated
-
-
-def _first_line(text: str) -> str:
-    return next((line.strip() for line in text.splitlines() if line.strip()), "")
+    return entries, None, truncated
 
 
 def parse_check(data: object) -> tuple[dict[str, str], str | None, bool]:
@@ -100,19 +127,23 @@ def parse_check(data: object) -> tuple[dict[str, str], str | None, bool]:
     isn't mistaken for an empty answer.
     """
     if not isinstance(data, dict):
-        return {}, f"unexpected answer: {str(data)[:200]}", False
+        return {}, _unexpected(data), False
     retcode = data.get("retcode")
     stdout = str(data.get("stdout") or "")
     if retcode not in (0, None):
-        message = _first_line(str(data.get("stderr") or "")) or _first_line(stdout)
+        message = next(_lines(str(data.get("stderr") or "")), "") or next(_lines(stdout), "")
         return {}, f"exit {retcode}: {message[:200]}" if message else f"exit {retcode}", False
 
     truncated = len(stdout) > MAX_TEXT
-    lines = stdout[:MAX_TEXT].splitlines()
-    if truncated and len(lines) > 1:
-        # Leave out the line the cut went through, rather than keep half of it.
-        lines.pop()
-    lines = [line.strip() for line in lines if line.strip()]
+    text = stdout
+    if truncated:
+        # Cut after the last whole line that fits, so no line is kept half. If no line with
+        # anything in it fits whole, keep what fits of the long one (it's cut to MAX_VALUE).
+        end = stdout.rfind("\n", 0, MAX_TEXT + 1)
+        text = stdout[:end] if end > 0 else ""
+        if not any(_lines(text)):
+            text = stdout[:MAX_TEXT]
+    lines = list(_lines(text))
     entries: dict[str, str] = {}
     if not lines:
         return entries, None, truncated
@@ -146,8 +177,11 @@ def acl_lines(settings: Settings) -> str:
     """The ``external_auth`` entries brine's Salt account needs, as YAML.
 
     Salt matches each listed argument with ``re.match``, in order, so ``^...$`` around the
-    escaped command allows exactly that command. Each check gets its own ``cmd.run_all`` rule:
+    escaped command pins each check's command. Each check gets its own ``cmd.run_all`` rule:
     two patterns in one ``args`` list would be the first and second argument of one call.
+
+    Salt can't forbid other arguments or keyword arguments, though (``shell``, ``env``,
+    ``runas``, ``cwd``), so an account that's allowed checks can in practice run commands.
     """
     lines = ["- '*':", f"  - {PACKAGES_FUN}"]
     for command in settings.inventory.checks.values():
@@ -179,6 +213,9 @@ def is_due(
         return False
     if answered is None or now - answered >= every:
         return True
-    if read.wanted_at is not None and read.wanted_at <= now and answered < read.wanted_at:
+    # A want (Ask now, a job) is met only by an ask made at or after it, not by a late answer
+    # to an older ask.
+    wanted = read.wanted_at
+    if wanted is not None and wanted <= now and (asked is None or asked < wanted):
         return True
     return back_at is not None and answered < back_at
