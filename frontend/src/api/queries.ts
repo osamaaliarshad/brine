@@ -98,10 +98,15 @@ export function useMinion(id: string) {
   })
 }
 
+/** How many grains changes, and package and check changes, a minion's History asks for. */
+export const GRAINS_HISTORY_LIMIT = 20
+export const MINION_CHANGES_LIMIT = 500
+
 export function useGrainsHistory(id: string, enabled: boolean) {
   return useQuery({
     queryKey: [...queryKeys.minion(id), 'grains-history'],
-    queryFn: () => fetchJson<GrainsChange[]>(`/api/minions/${enc(id)}/grains/history`),
+    queryFn: () =>
+      fetchJson<GrainsChange[]>(`/api/minions/${enc(id)}/grains/history?limit=${GRAINS_HISTORY_LIMIT}`),
     enabled,
   })
 }
@@ -281,14 +286,19 @@ export function useInventoryValues(key: string | null) {
   })
 }
 
-/** What appeared, changed or went away, newest first: for one package or check entry, or one minion. */
+/**
+ * What appeared, changed or went away, newest first: for one package or check entry, or one
+ * minion (up to MINION_CHANGES_LIMIT, so one big upgrade fits).
+ */
 export function useInventoryChanges(filter: { key: string } | { minion: string }, enabled = true) {
+  const params = new URLSearchParams(filter)
+  if ('minion' in filter) params.set('limit', String(MINION_CHANGES_LIMIT))
   return useQuery({
     queryKey:
       'minion' in filter
         ? [...queryKeys.minion(filter.minion), 'inventory-changes']
         : [...queryKeys.inventory, 'changes', filter.key],
-    queryFn: () => fetchJson<InventoryChange[]>(`/api/inventory/changes?${new URLSearchParams(filter)}`),
+    queryFn: () => fetchJson<InventoryChange[]>(`/api/inventory/changes?${params}`),
     enabled,
   })
 }

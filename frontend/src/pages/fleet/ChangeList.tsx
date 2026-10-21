@@ -10,7 +10,7 @@ import { formatAbsolute, formatRelative, relativeRange } from '@/lib/time'
  * "found after" a job (or several by one person), never "made by" it: the read also catches
  * anything else since the one before. Without a job, all brine knows is the two reads around it.
  */
-function FoundWhen({ change, now }: { change: InventoryChange; now: number }) {
+export function FoundWhen({ change, now }: { change: InventoryChange; now: number }) {
   const { jid, user, since, at } = change
   if (jid)
     return (
@@ -54,6 +54,14 @@ function OldToNew({ change }: { change: InventoryChange }) {
   )
 }
 
+function Name({ change }: { change: InventoryChange }) {
+  return (
+    <span className="font-mono text-[13px]" title={keyDescription(keyOf(change))}>
+      {keyLabel(keyOf(change))}
+    </span>
+  )
+}
+
 /** Package or check changes, newest first: when, which minion, old → new, and what it was found after. */
 export function ChangeList({
   changes,
@@ -61,6 +69,7 @@ export function ChangeList({
   statusOf = {},
   label,
   showName = false,
+  oneRead = false,
 }: {
   changes: InventoryChange[]
   now: number
@@ -68,7 +77,24 @@ export function ChangeList({
   label: string
   /** Say which package or check entry changed (for a list that mixes them). */
   showName?: boolean
+  /** All found by one read of one minion, which the heading names, with when and what after: say just what changed. */
+  oneRead?: boolean
 }) {
+  if (oneRead)
+    return (
+      <ul aria-label={label}>
+        {changes.map((c) => (
+          <li key={c.name} className="flex flex-wrap items-center gap-1.5 py-1 text-sm">
+            {showName && (
+              <>
+                <Name change={c} />{' '}
+              </>
+            )}
+            <OldToNew change={c} />
+          </li>
+        ))}
+      </ul>
+    )
   return (
     <ul aria-label={label}>
       {changes.map((c, i) => (
@@ -84,9 +110,7 @@ export function ChangeList({
           <span className="flex min-w-0 items-center gap-1.5">
             {showName && (
               <>
-                <span className="font-mono text-[13px]" title={keyDescription(keyOf(c))}>
-                  {keyLabel(keyOf(c))}
-                </span>{' '}
+                <Name change={c} />{' '}
               </>
             )}
             <OldToNew change={c} />

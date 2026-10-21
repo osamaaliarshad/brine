@@ -1,7 +1,9 @@
-import { screen, within } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { MinionDetail } from '@/api/types'
+import { GRAINS_HISTORY_LIMIT, MINION_CHANGES_LIMIT } from '@/api/queries'
+import type { InventoryChange, InventorySource, MinionDetail, MinionInventory } from '@/api/types'
+import { FakeEventSource } from '@/test/setup'
 import { ago, minion, mockApi, NOW, renderApp, systemStatus } from '@/test/render'
 
 const DETAIL: MinionDetail = {
@@ -22,6 +24,57 @@ const DETAIL: MinionDetail = {
 function api(extra: Record<string, unknown> = {}) {
   return mockApi({ '/api/minions/rover-01': DETAIL, '/api/status': systemStatus(), ...extra })
 }
+
+const DAY = 86400
+
+const source = (patch: Partial<InventorySource> & Pick<InventorySource, 'source'>): InventorySource => ({
+  kind: patch.source === 'packages' ? 'package' : 'check',
+  read_at: ago(3600),
+  first_read_at: ago(DAY),
+  answered_at: ago(3600),
+  error: null,
+  truncated: false,
+  entries: [],
+  ...patch,
+})
+
+const INVENTORY: MinionInventory = {
+  sources: [
+    source({
+      source: 'packages',
+      read_at: ago(2 * 3600),
+      first_read_at: ago(17 * DAY),
+      answered_at: ago(2 * 3600),
+      entries: [
+        { name: 'bash', value: '5.2', since: ago(17 * DAY) },
+        { name: 'rover-agent', value: '2.4.1', since: ago(5 * 3600) },
+        { name: 'vim', value: '9.0', since: ago(3 * DAY) },
+      ],
+    }),
+    // The last answer failed: the entries are the last good read's.
+    source({
+      source: 'rover-cli',
+      answered_at: ago(600),
+      error: 'exit 127: sh: rover-cli: not found',
+      entries: [{ name: '', value: 'rover-cli 1.2.0', since: ago(DAY) }],
+    }),
+    source({
+      source: 'containers',
+      truncated: true,
+      entries: [
+        { name: 'db', value: '', since: ago(DAY) },
+        { name: 'web', value: 'ghcr.io/acme/web:1.4', since: ago(3600) },
+      ],
+    }),
+    source({ source: 'ports' }), // read, and printed nothing
+    source({ source: 'gpu', read_at: null, first_read_at: null, answered_at: null }),
+  ],
+}
+
+/** "Oct 3" (in the test machine's locale), as "first read" shows a day. */
+const day = (iso: string) => new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+
+const region = (name: string) => screen.getByRole('region', { name })
 
 describe('MinionPage', () => {
   beforeEach(() => {
@@ -47,17 +100,218 @@ describe('MinionPage', () => {
     expect(screen.getAllByRole('rowheader').map((r) => r.textContent)).toEqual(['hw'])
   })
 
-  it('shows grains history as diffs', async () => {
+  it('lists packages and each check, with when each was read', async () => {
+    api({ '/api/minions/rover-01/inventory': INVENTORY })
+    renderApp('/minions/rover-01?tab=packages')
+    const tabs = await screen.findAllByRole('tab')
+    expect(tabs.slice(0, 3).map((t) => t.textContent)).toEqual(['Grains', 'Packages', 'History'])
+
+    const packages = await screen.findByRole('region', { name: 'Packages' })
+    expect(packages).toHaveTextContent(`Read 2h ago · first read ${day(ago(17 * DAY))}`)
+    expect(within(packages).getByText('Read 2h ago')).toHaveAttribute('title', expect.stringContaining('UTC'))
+    expect(within(packages).getByRole('columnheader', { name: 'Version' })).toBeInTheDocument()
+    expect(within(packages).getAllByRole('row').slice(1).map((r) => r.textContent)).toEqual([
+      'bash5.2since brine first looked',
+      'rover-agent2.4.15h ago',
+      'vim9.03d ago',
+    ])
+    expect(within(packages).getByText('since brine first looked')).toHaveAttribute('title', expect.stringContaining('UTC'))
+    expect(within(packages).getByText('5h ago')).toHaveAttribute('title', expect.stringContaining('UTC'))
+    // One click to who else has it.
+    expect(within(packages).getByRole('link', { name: 'rover-agent' })).toHaveAttribute(
+      'href',
+      '/?tab=grains&grain=%40packages%3Arover-agent',
+    )
+
+    // The last answer failed: the entries kept are the last good read's, and it says so.
+    const cli = region('rover-cli')
+    expect(cli).toHaveTextContent('check')
+    expect(cli).toHaveTextContent(`Last good read 1h ago · first read ${day(ago(DAY))}`)
+    expect(within(cli).getByText("Couldn't read: exit 127: sh: rover-cli: not found")).toBeInTheDocument()
+    // A check's single value is shown as it is.
+    expect(within(cli).queryByRole('table')).toBeNull()
+    expect(within(cli).getByRole('link', { name: 'rover-cli 1.2.0' })).toHaveAttribute('href', '/?tab=grains&grain=%40rover-cli')
+
+    const containers = region('containers')
+    expect(containers).toHaveTextContent('The last answer was cut short; some entries may be missing.')
+    expect(within(containers).getByRole('columnheader', { name: 'Value' })).toBeInTheDocument()
+    expect(within(within(containers).getByRole('row', { name: /^db/ })).getByText('(empty)')).toBeInTheDocument()
+
+    expect(region('ports')).toHaveTextContent('Not reported')
+    expect(region('gpu')).toHaveTextContent('Not read yet. brine reads every online minion within a few minutes.')
+  })
+
+  it('filters every package and check with one search box', async () => {
+    const user = userEvent.setup()
+    api({ '/api/minions/rover-01/inventory': INVENTORY })
+    renderApp('/minions/rover-01?tab=packages')
+    const search = await screen.findByRole('searchbox', { name: 'Filter packages and checks' })
+    const rows = (name: string) => within(region(name)).getAllByRole('row').slice(1).map((r) => r.textContent)
+
+    await user.type(search, 'agent')
+    expect(rows('Packages')).toEqual(['rover-agent2.4.15h ago'])
+    expect(region('Packages')).toHaveTextContent('1 of 3')
+    expect(screen.queryByRole('region', { name: 'containers' })).toBeNull()
+
+    // Values too.
+    await user.clear(search)
+    await user.type(search, 'GHCR')
+    expect(rows('containers')).toEqual(['webghcr.io/acme/web:1.41h ago'])
+    expect(screen.queryByRole('region', { name: 'Packages' })).toBeNull()
+
+    // A check by its name, whatever it has.
+    await user.clear(search)
+    await user.type(search, 'gpu')
+    expect(screen.getAllByRole('region')).toEqual([region('gpu')])
+
+    await user.clear(search)
+    await user.type(search, 'zzz')
+    expect(screen.getByText('No packages or checks match “zzz”.')).toBeInTheDocument()
+  })
+
+  it('reads this minion now, and says so until its answers arrive', async () => {
+    const user = userEvent.setup()
+    const bodies: unknown[] = []
+    let inventory = INVENTORY
+    const answers: unknown[] = [
+      { asked: ['rover-01'], queued: false, failed: {}, reason: null },
+      new Response(JSON.stringify({ detail: 'Already reading; try again in a few seconds.' }), { status: 429 }),
+      { asked: [], queued: false, failed: {}, reason: "rover-01 isn't online" },
+    ]
+    api({
+      '/api/minions/rover-01/inventory': () => inventory,
+      '/api/inventory/ask': (_url: URL, init?: RequestInit) => {
+        bodies.push(JSON.parse(String(init?.body)))
+        return answers.shift()
+      },
+    })
+    renderApp('/minions/rover-01?tab=packages')
+    const read = await screen.findByRole('button', { name: 'Read now' })
+    await user.click(read)
+    expect(await screen.findByRole('status')).toHaveTextContent('Reading rover-01; answers appear as they arrive.')
+    expect(bodies).toEqual([{ minion: 'rover-01' }])
+
+    // An answer comes in, stamped before the click by this browser's clock: the note goes.
+    inventory = {
+      sources: INVENTORY.sources.map((s) =>
+        s.source === 'gpu' ? { ...s, read_at: ago(5), first_read_at: ago(5), answered_at: ago(5) } : s,
+      ),
+    }
+    FakeEventSource.instances[0]!.emit({ type: 'minion', id: 'rover-01' })
+    await waitFor(() => expect(screen.queryByRole('status')).toBeNull())
+
+    await user.click(read)
+    expect(await screen.findByRole('status')).toHaveTextContent('Already reading; try again in a few seconds.')
+    await user.click(read)
+    expect(await screen.findByRole('status')).toHaveTextContent("Not asked: rover-01 isn't online.")
+  })
+
+  it('shows grains, package and check changes in one history, newest first', async () => {
+    const change = (patch: Partial<InventoryChange>): InventoryChange => ({
+      minion_id: 'rover-01',
+      source: 'packages',
+      name: 'rover-agent',
+      old: '2.3.0',
+      new: '2.4.1',
+      at: ago(600),
+      since: ago(6 * 3600),
+      jid: '20261020114000000001',
+      user: 'alice@example.com',
+      ...patch,
+    })
     api({
       '/api/minions/rover-01/grains/history': [
         { collected_at: ago(60), added: { new: 1 }, removed: {}, changed: { app_version: { from: '2.4.0', to: '2.4.1' } } },
-        { collected_at: ago(86400), added: { os: 'Debian', app_version: '2.4.0' }, removed: {}, changed: {} },
+        { collected_at: ago(DAY), added: { os: 'Debian', app_version: '2.4.0' }, removed: {}, changed: {} },
       ],
+      '/api/inventory/changes': (url: URL) =>
+        url.searchParams.get('minion') === 'rover-01'
+          ? [
+              change({}),
+              change({ name: 'vim', old: null, new: '9.0' }),
+              change({ source: 'rover-cli', name: '', old: '1.1.0', new: '1.2.0', at: ago(2 * 3600), since: ago(8 * 3600), jid: null, user: null }),
+            ]
+          : [],
     })
     renderApp('/minions/rover-01?tab=history')
-    expect(await screen.findByText('1 changed · 1 added')).toBeInTheDocument()
-    expect(screen.getByText('"2.4.0"')).toHaveClass('line-through')
-    expect(screen.getByText('First collection · 2 grains')).toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: 'Grains history' })).toBeNull()
+    const history = await screen.findByRole('list', { name: 'History' })
+    const [grains, packages, cli, first] = Array.from(history.children) as HTMLElement[]
+    expect(history.children).toHaveLength(4)
+
+    expect(grains).toHaveTextContent('1m ago')
+    expect(within(grains!).getByText('1 changed · 1 added')).toBeInTheDocument()
+    expect(within(grains!).getByText('"2.4.0"')).toHaveClass('line-through')
+
+    expect(packages).toHaveTextContent('10m ago')
+    expect(packages).toHaveTextContent('Packages: 1 changed · 1 added')
+    expect(packages).toHaveTextContent('found after job 20261020114000000001 by alice@example.com')
+    expect(within(packages!).getByRole('link', { name: '20261020114000000001' })).toHaveAttribute(
+      'href',
+      '/jobs/20261020114000000001',
+    )
+    expect(within(packages!).getAllByRole('listitem').map((r) => r.textContent)).toEqual([
+      'rover-agent 2.3.0 → 2.4.1',
+      'vim 9.0 (new)',
+    ])
+
+    expect(cli).toHaveTextContent('2h ago')
+    expect(cli).toHaveTextContent('rover-cli check: changed')
+    expect(cli).toHaveTextContent('sometime between 8h and 2h ago')
+    expect(within(cli!).getAllByRole('listitem').map((r) => r.textContent)).toEqual(['rover-cli 1.1.0 → 1.2.0'])
+
+    expect(first).toHaveTextContent('First collection · 2 grains')
+  })
+
+  it('stops the history where either list was cut short', async () => {
+    const upgrade: InventoryChange[] = Array.from({ length: MINION_CHANGES_LIMIT }, (_, i) => ({
+      minion_id: 'rover-01',
+      source: 'packages',
+      name: `lib-${i}`,
+      old: '1.0',
+      new: '1.1',
+      at: ago(3600),
+      since: ago(7200),
+      jid: null,
+      user: null,
+    }))
+    api({
+      '/api/minions/rover-01/grains/history': [
+        { collected_at: ago(60), added: { new: 1 }, removed: {}, changed: {} },
+        // Older than the oldest change listed: other package changes may be missing around it.
+        { collected_at: ago(DAY), added: { os: 'Debian' }, removed: {}, changed: {} },
+      ],
+      '/api/inventory/changes': upgrade,
+    })
+    renderApp('/minions/rover-01?tab=history')
+    const history = await screen.findByRole('list', { name: 'History' })
+    expect(Array.from(history.children).map((e) => e.firstElementChild?.textContent)).toEqual(['1m ago', '1h ago'])
+    expect(history.children[1]).toHaveTextContent(`Packages: ${MINION_CHANGES_LIMIT} changed`)
+    expect(screen.getByText("Older history isn't shown.")).toBeInTheDocument()
+  })
+
+  it('does not call the oldest of a cut-short grains history the first collection', async () => {
+    api({
+      '/api/minions/rover-01/grains/history': Array.from({ length: GRAINS_HISTORY_LIMIT }, (_, i) => ({
+        collected_at: ago(60 * (i + 1)),
+        added: {},
+        removed: {},
+        changed: { app_version: { from: `2.${i}`, to: `2.${i + 1}` } },
+      })),
+      '/api/inventory/changes': [],
+    })
+    renderApp('/minions/rover-01?tab=history')
+    const history = await screen.findByRole('list', { name: 'History' })
+    expect(history.children).toHaveLength(GRAINS_HISTORY_LIMIT)
+    expect(history.lastElementChild).toHaveTextContent('1 changed')
+    expect(screen.queryByText(/First collection/)).toBeNull()
+    expect(screen.getByText("Older history isn't shown.")).toBeInTheDocument()
+  })
+
+  it('says when there is no history yet', async () => {
+    api({ '/api/minions/rover-01/grains/history': [], '/api/inventory/changes': [] })
+    renderApp('/minions/rover-01?tab=history')
+    expect(await screen.findByText('No grains or packages collected yet.')).toBeInTheDocument()
   })
 
   it('lists recent jobs with results and links', async () => {

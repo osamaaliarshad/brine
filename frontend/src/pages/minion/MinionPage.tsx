@@ -20,10 +20,12 @@ import {
   LivePanel,
   TimelinePanel,
 } from '@/pages/minion/panels'
+import { PackagesPanel } from '@/pages/minion/PackagesPanel'
 
 const TABS = [
   { key: 'grains', label: 'Grains' },
-  { key: 'history', label: 'Grains history' },
+  { key: 'packages', label: 'Packages' },
+  { key: 'history', label: 'History' },
   { key: 'jobs', label: 'Jobs' },
   { key: 'timeline', label: 'Timeline' },
   { key: 'pillar', label: 'Pillar' },
@@ -168,6 +170,7 @@ export function MinionPage() {
                 <Tabs tabs={TABS} active={tab} onSelect={setTab} label="Minion details" />
               </div>
               {tab === 'grains' && <GrainsPanel minion={minion} now={now} />}
+              {tab === 'packages' && <PackagesPanel minion={minion} now={now} />}
               {tab === 'history' && <HistoryPanel minionId={id} now={now} />}
               {tab === 'jobs' && <JobsPanel minion={minion} now={now} />}
               {tab === 'timeline' && <TimelinePanel minion={minion} now={now} />}

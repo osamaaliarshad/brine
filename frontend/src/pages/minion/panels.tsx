@@ -1,12 +1,19 @@
 import { CircleCheck, CircleX, RefreshCw, Search } from 'lucide-react'
 import { useState } from 'react'
 import { Link } from 'react-router'
-import { useGrainsHistory, useMinionLive } from '@/api/queries'
-import type { LiveKind, MinionDetail } from '@/api/types'
+import {
+  GRAINS_HISTORY_LIMIT,
+  MINION_CHANGES_LIMIT,
+  useGrainsHistory,
+  useInventoryChanges,
+  useMinionLive,
+} from '@/api/queries'
+import type { GrainsChange, InventoryChange, LiveKind, MinionDetail } from '@/api/types'
 import { JsonTree } from '@/components/JsonView'
 import { Badge, StatusDot } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { formatAbsolute, formatDuration, formatRelative } from '@/lib/time'
+import { ChangeList, FoundWhen } from '@/pages/fleet/ChangeList'
 
 function Empty({ children }: { children: React.ReactNode }) {
   return <div className="px-6 py-12 text-center text-muted">{children}</div>
@@ -72,64 +79,141 @@ function Change({ label, tone, children }: { label: string; tone: string; childr
   )
 }
 
-export function HistoryPanel({ minionId, now }: { minionId: string; now: number }) {
-  const history = useGrainsHistory(minionId, true)
-  if (history.isPending) return <Empty>Loading history…</Empty>
-  if (history.isError) return <Empty>Couldn't load history: {history.error.message}</Empty>
-  if (history.data.length === 0) return <Empty>No grains collected from the minion yet.</Empty>
+/** "1 changed · 2 added". */
+function counts(changed: number, added: number, removed: number): string {
+  return [changed && `${changed} changed`, added && `${added} added`, removed && `${removed} removed`]
+    .filter(Boolean)
+    .join(' · ')
+}
+
+function GrainsEntry({ entry, first }: { entry: GrainsChange; first: boolean }) {
+  const added = Object.entries(entry.added)
+  const removed = Object.entries(entry.removed)
+  const changed = Object.entries(entry.changed)
   return (
-    <ol>
-      {history.data.map((entry, i) => {
-        const first = i === history.data.length - 1
-        const added = Object.entries(entry.added)
-        const removed = Object.entries(entry.removed)
-        const changed = Object.entries(entry.changed)
-        return (
-          <li key={entry.collected_at} className="border-b px-4 py-4 last:border-0 sm:px-6">
-            <div className="mb-2 flex flex-wrap items-baseline gap-x-3">
-              <span className="font-medium" title={formatAbsolute(entry.collected_at)}>
-                {formatRelative(entry.collected_at, now)}
-              </span>
-              <span className="text-sm text-muted">
-                {first
-                  ? `First collection · ${added.length} grains`
-                  : [
-                      changed.length && `${changed.length} changed`,
-                      added.length && `${added.length} added`,
-                      removed.length && `${removed.length} removed`,
-                    ]
-                      .filter(Boolean)
-                      .join(' · ')}
-              </span>
-            </div>
-            {!first && (
-              <div>
-                {changed.map(([key, { from, to }]) => (
-                  <Change key={key} label="~" tone="text-warn">
-                    <span className="text-muted">{key}: </span>
-                    <span className="line-through opacity-60">{JSON.stringify(from)}</span>
-                    {' → '}
-                    <span>{JSON.stringify(to)}</span>
-                  </Change>
-                ))}
-                {added.map(([key, value]) => (
-                  <Change key={key} label="+" tone="text-online">
-                    <span className="text-muted">{key}: </span>
-                    {JSON.stringify(value)}
-                  </Change>
-                ))}
-                {removed.map(([key, value]) => (
-                  <Change key={key} label="−" tone="text-danger">
-                    <span className="text-muted">{key}: </span>
-                    <span className="line-through opacity-60">{JSON.stringify(value)}</span>
-                  </Change>
-                ))}
-              </div>
-            )}
-          </li>
-        )
-      })}
-    </ol>
+    <>
+      <span className="text-sm text-muted">
+        {first ? `First collection · ${added.length} grains` : counts(changed.length, added.length, removed.length)}
+      </span>
+      {!first && (
+        <div className="mt-2 basis-full">
+          {changed.map(([key, { from, to }]) => (
+            <Change key={key} label="~" tone="text-warn">
+              <span className="text-muted">{key}: </span>
+              <span className="line-through opacity-60">{JSON.stringify(from)}</span>
+              {' → '}
+              <span>{JSON.stringify(to)}</span>
+            </Change>
+          ))}
+          {added.map(([key, value]) => (
+            <Change key={key} label="+" tone="text-online">
+              <span className="text-muted">{key}: </span>
+              {JSON.stringify(value)}
+            </Change>
+          ))}
+          {removed.map(([key, value]) => (
+            <Change key={key} label="−" tone="text-danger">
+              <span className="text-muted">{key}: </span>
+              <span className="line-through opacity-60">{JSON.stringify(value)}</span>
+            </Change>
+          ))}
+        </div>
+      )}
+    </>
+  )
+}
+
+/** "Packages: 1 changed · 1 added", "rover-cli check: changed". */
+function readTitle(source: string, changes: InventoryChange[]): string {
+  const what = source === 'packages' ? 'Packages' : `${source} check`
+  const added = changes.filter((c) => c.old === null).length
+  const removed = changes.filter((c) => c.new === null).length
+  if (changes.length === 1 && changes[0]!.name === '')
+    return `${what}: ${added ? 'added' : removed ? 'removed' : 'changed'}`
+  return `${what}: ${counts(changes.length - added - removed, added, removed)}`
+}
+
+type HistoryEntry =
+  | { kind: 'grains'; at: string; entry: GrainsChange; first: boolean }
+  | { kind: 'read'; at: string; source: string; changes: InventoryChange[] }
+
+/** Grains entries and package and check reads, newest first, and whether older ones were left out. */
+function timeline(grains: GrainsChange[], changes: InventoryChange[]): { entries: HistoryEntry[]; more: boolean } {
+  const grainsFull = grains.length < GRAINS_HISTORY_LIMIT
+  const changesFull = changes.length < MINION_CHANGES_LIMIT
+  const entries: HistoryEntry[] = grains.map((entry, i) => ({
+    kind: 'grains',
+    at: entry.collected_at,
+    entry,
+    // Unless the list was cut, its oldest entry is the first collection.
+    first: grainsFull && i === grains.length - 1,
+  }))
+  // Changes found by the same read: the same time and source.
+  const reads = new Map<string, InventoryChange[]>()
+  for (const c of changes) {
+    const key = `${c.at} ${c.source}`
+    reads.set(key, [...(reads.get(key) ?? []), c])
+  }
+  for (const group of reads.values())
+    entries.push({ kind: 'read', at: group[0]!.at, source: group[0]!.source, changes: group })
+  // Each list stops at its limit; past the end of either, the other would go on alone, as if
+  // nothing else changed. So the timeline stops there.
+  const ends = [grainsFull ? null : grains.at(-1)?.collected_at, changesFull ? null : changes.at(-1)?.at]
+  const cut = Math.max(...ends.map((at) => (at ? Date.parse(at) : -Infinity)))
+  return {
+    entries: entries.filter((e) => Date.parse(e.at) >= cut).sort((a, b) => Date.parse(b.at) - Date.parse(a.at)),
+    more: cut > -Infinity,
+  }
+}
+
+export function HistoryPanel({ minionId, now }: { minionId: string; now: number }) {
+  const grains = useGrainsHistory(minionId, true)
+  const changes = useInventoryChanges({ minion: minionId })
+  if (grains.isPending || changes.isPending) return <Empty>Loading history…</Empty>
+  if (grains.isError && changes.isError) return <Empty>Couldn't load history: {grains.error.message}</Empty>
+  const { entries, more } = timeline(grains.data ?? [], changes.data ?? [])
+  const failed = grains.isError
+    ? `Couldn't load grains history: ${grains.error.message}`
+    : changes.isError
+      ? `Couldn't load package and check changes: ${changes.error.message}`
+      : null
+  return (
+    <>
+      {failed && <p className="border-b px-4 py-3 text-sm text-danger sm:px-6">{failed}</p>}
+      {entries.length === 0 ? (
+        !failed && <Empty>No grains or packages collected yet.</Empty>
+      ) : (
+        <ol aria-label="History">
+          {entries.map((e) => {
+            const title = e.kind === 'read' ? readTitle(e.source, e.changes) : ''
+            return (
+              <li
+                key={e.kind === 'grains' ? e.at : `${e.at} ${e.source}`}
+                className="flex flex-wrap items-baseline gap-x-3 border-b px-4 py-4 last:border-0 sm:px-6"
+              >
+                <span className="font-medium" title={formatAbsolute(e.at)}>
+                  {formatRelative(e.at, now)}
+                </span>
+                {e.kind === 'grains' ? (
+                  <GrainsEntry entry={e.entry} first={e.first} />
+                ) : (
+                  <>
+                    <span className="text-sm text-muted">{title}</span>
+                    <span className="text-sm text-muted">
+                      <FoundWhen change={e.changes[0]!} now={now} />
+                    </span>
+                    <div className="mt-1 basis-full">
+                      <ChangeList changes={e.changes} now={now} label={title} showName oneRead />
+                    </div>
+                  </>
+                )}
+              </li>
+            )
+          })}
+        </ol>
+      )}
+      {more && <p className="border-t px-4 py-3 text-sm text-muted sm:px-6">Older history isn't shown.</p>}
+    </>
   )
 }
 

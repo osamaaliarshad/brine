@@ -28,6 +28,13 @@ export function relativeRange(from: string, to: string, now: number = Date.now()
   return [start.endsWith(' ago') && end.endsWith(' ago') ? start.slice(0, -' ago'.length) : start, end]
 }
 
+/** "Oct 3", with the year when it isn't this one. */
+export function formatDay(iso: string, now: number = Date.now()): string {
+  const date = new Date(iso)
+  const year = date.getFullYear() === new Date(now).getFullYear() ? undefined : 'numeric'
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year })
+}
+
 /** Local time with UTC alongside, for tooltips. */
 export function formatAbsolute(iso: string | null | undefined): string {
   if (!iso) return 'Never'
