@@ -506,6 +506,27 @@ async def test_asks_are_recorded_for_each_minion(ingest: Ingest, sessions: Sessi
     assert await count(sessions, InventoryRead) == 3
 
 
+async def test_ask_now_wants_every_source_read(ingest: Ingest, sessions: Sessions) -> None:
+    now = T0 + 30 * MINUTE  # brine's clock
+    await ingest.inventory_read("a", "packages", {"agent": "2.3.0"}, at=T0 + HOUR, jid=None)
+    await ingest.inventory_read("a", "rover-cli", {"": "1.2.0"}, at=T0, jid=None)
+    await ingest.inventory_asked(["a"], "rover-cli", at=T0 + MINUTE, jid="A1")
+    await ingest.inventory_read("b", "packages", {"agent": "2.3.0"}, at=T0, jid=None)
+    await ingest.inventory_job_done("b", jid="J1", user="alice", at=T0 + HOUR)
+    await ingest.inventory_want_now(["a", "b", "c"], at=now)
+    # Not an event, so nothing is a repeat: wanted although answered since (by the master's
+    # clock), and brine's ask still out is forgotten.
+    assert (await read_row(sessions, "a")).wanted_at == now
+    assert await due(sessions, now=now)
+    read = await read_row(sessions, "a", "rover-cli")
+    assert (read.wanted_at, read.asked_jid) == (now, None)
+    # A later want stays, with its job's credit.
+    read = await read_row(sessions, "b")
+    assert (read.wanted_at, read.after_jid) == (T0 + HOUR + AFTER_JOB, "J1")
+    # A minion never read gets no rows: it's due anyway.
+    assert await count(sessions, InventoryRead, minion_id="c") == 0
+
+
 async def test_an_ask_that_matched_no_minion(ingest: Ingest, sessions: Sessions) -> None:
     await ingest.inventory_read("a", "packages", {"agent": "2.3.0"}, at=T0 - EVERY, jid=None)
     # salt-api started no job: kept as NO_JOB, so brine waits as for any ask instead of asking

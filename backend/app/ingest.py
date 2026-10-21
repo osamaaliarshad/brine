@@ -259,8 +259,9 @@ class Ingest:
     #   updates the entries, but settles nothing.
     # * A start, or a person's job that may change software, wants the source read again (for
     #   a job, AFTER_JOB after it), and forgets brine's ask still out: that answer may predate
-    #   it. The want stays until brine's answer, good or failed, clears it, so a lost answer is
-    #   asked again.
+    #   it. So does Ask now for the fleet (at once, by brine's clock), which the sweep then
+    #   asks BATCH at a time. The want stays until brine's answer, good or failed, clears it,
+    #   so a lost answer is asked again.
     # * Credit: the job waits in `after_*` for brine's answer. A good one credits what changed
     #   to the job if brine asked at least CLOCK_MARGIN after it (see the next rule) and within
     #   CREDIT_WINDOW of it; later, too much else may have changed. brine's answer uses the
@@ -360,6 +361,20 @@ class Ingest:
                 answered_since = read.answered_at is not None and read.answered_at > at
                 if answered_since or read.wanted_at == at:
                     continue  # a repeat: answered since, or already wanted
+                read.wanted_at = _later(read.wanted_at, at)
+                read.asked_jid = None
+
+    async def inventory_want_now(self, mids: Iterable[str], *, at: datetime) -> None:
+        """Ask now for these minions, at `at` (brine's clock): read each source again, and
+        forget brine's asks still out. Sources never read have no rows, and are due anyway. Not
+        an event, so nothing is a repeat; a later want (a job's) is kept."""
+        wanted = set(mids)
+        if not wanted:
+            return
+        async with self._lock, self._sessions() as s, s.begin():
+            for read in await s.scalars(
+                select(InventoryRead).where(InventoryRead.minion_id.in_(wanted))
+            ):
                 read.wanted_at = _later(read.wanted_at, at)
                 read.asked_jid = None
 

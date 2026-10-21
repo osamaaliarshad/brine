@@ -13,10 +13,9 @@ from typing import Any, Literal
 from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import and_, func, or_, select
 
-# inventory_sweep imports app.api, so it may still be loading here: use it as a module, not
-# `from app.inventory_sweep import ...`.
-from app import inventory, inventory_sweep
+from app import inventory
 from app.api.deps import RuntimeDep, SessionDep
+from app.api.errors import salt_http_error
 from app.api.schemas import (
     AskRequest,
     AskResult,
@@ -28,19 +27,35 @@ from app.api.schemas import (
     InventorySource,
     MinionInventory,
 )
+from app.inventory_sweep import Throttled, ask_now
 from app.models import InventoryChange, InventoryItem, InventoryRead, Minion, SystemState
 from app.runtime import Runtime
+from app.salt.client import SaltApiError
 
 router = APIRouter()
 
-_DIGITS = re.compile(r"([0-9]+)")
+_EPOCH = re.compile(r"([0-9]+):(.*)", re.DOTALL)
+_PARTS = re.compile(r"[0-9]+|~|[^0-9~]+")
+# How each part ranks against another kind of part at the same place.
+_TILDE, _END, _NUMBER, _TEXT = -2, -1, 0, 1
 
 
-def version_key(text: str) -> list[tuple[int, int | str]]:
-    """Natural order, so 2.10 comes after 2.9: runs of digits compare as numbers."""
-    # Split with a group, so the digit runs are every other part.
-    parts = _DIGITS.split(text)
-    return [(0, int(part)) if i % 2 else (1, part) for i, part in enumerate(parts) if part]
+def version_key(text: str) -> tuple[int, list[tuple[int, int | str]]]:
+    """Newer versions sort later. Close to how dpkg and rpm compare versions, but not a full
+    copy: an epoch (`1:`) first, then runs of digits as numbers (2.10 after 2.9), other text
+    as it is, and `~` before anything, even the end (1.0~rc1 before 1.0)."""
+    epoch = 0
+    if match := _EPOCH.fullmatch(text):
+        epoch, text = int(match[1]), match[2]
+    parts: list[tuple[int, int | str]] = []
+    for part in _PARTS.findall(text):
+        if part == "~":
+            parts.append((_TILDE, ""))
+        elif part.isascii() and part.isdigit():
+            parts.append((_NUMBER, int(part)))
+        else:
+            parts.append((_TEXT, part))
+    return epoch, [*parts, (_END, "")]
 
 
 def _kind(source: str) -> Literal["package", "check"]:
@@ -123,16 +138,19 @@ async def inventory_values(
             select(Minion.id).where(Minion.key_state == "accepted").order_by(Minion.id)
         )
     ).all()
-    # Minions with a good read of the source (a failed answer only isn't one).
-    read_at: dict[str, datetime] = {
-        mid: at
-        for mid, at in await session.execute(
-            select(InventoryRead.minion_id, InventoryRead.read_at).where(
-                InventoryRead.source == source
-            )
+    # Minions with a good read of the source (a failed answer only isn't one), and those whose
+    # last good read was cut short: an entry it doesn't list may be past the cut.
+    read_at: dict[str, datetime] = {}
+    truncated: set[str] = set()
+    for mid, at, cut in await session.execute(
+        select(InventoryRead.minion_id, InventoryRead.read_at, InventoryRead.truncated).where(
+            InventoryRead.source == source
         )
-        if at is not None
-    }
+    ):
+        if at is not None:
+            read_at[mid] = at
+            if cut:
+                truncated.add(mid)
     held: dict[str, str] = {
         mid: value
         for mid, value in await session.execute(
@@ -147,7 +165,7 @@ async def inventory_values(
     for mid in accepted:
         if mid in held:
             groups.setdefault(held[mid], []).append(mid)
-        elif mid in read_at:
+        elif mid in read_at and mid not in truncated:
             missing.append(mid)
         else:
             unknown.append(mid)
@@ -155,7 +173,7 @@ async def inventory_values(
     newest_first = sorted(groups.items(), key=lambda g: (version_key(g[0]), g[0]), reverse=True)
     refused = await session.get(SystemState, inventory.REFUSED_STATE)
     return InventoryDistribution(
-        key=key,
+        key=inventory.key_of(source, name),
         source=source,
         name=name,
         kind=_kind(source),
@@ -228,12 +246,19 @@ async def minion_inventory(
 
 
 @router.post("/inventory/ask", response_model=AskResult)
-async def ask_now(body: AskRequest, runtime: RuntimeDep, session: SessionDep) -> AskResult:
-    """Ask the online minions (or one) for their packages and checks now, due or not. Open to
-    every role, as it only reads; the answers arrive as they come."""
+async def inventory_ask(body: AskRequest, runtime: RuntimeDep, session: SessionDep) -> AskResult:
+    """Ask the online minions (or one) for their packages and checks now, due or not. The
+    whole fleet is queued for the sweep; one minion is asked straight away. Open to every
+    role, as it only reads; the answers arrive as they come.
+
+    429 (with Retry-After) when asked too soon; salt-api's error when nothing could be
+    asked."""
     if body.minion is not None and await session.get(Minion, body.minion) is None:
         raise HTTPException(404, f"no minion {body.minion!r}")
-    asked = await inventory_sweep.ask_now(runtime, body.minion, datetime.now(UTC))
-    if asked is None:
-        raise HTTPException(429, "Asked a moment ago; try again in a minute.")
-    return AskResult(asked=asked)
+    try:
+        done = await ask_now(runtime, body.minion, datetime.now(UTC))
+    except Throttled as exc:
+        raise HTTPException(429, str(exc), headers={"Retry-After": str(exc.retry_after)}) from exc
+    except SaltApiError as exc:
+        raise salt_http_error(exc) from exc
+    return AskResult(asked=done.asked, queued=done.queued, failed=done.failed, reason=done.reason)

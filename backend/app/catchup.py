@@ -19,12 +19,12 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 
-from app.api.fleet import presence_info
 from app.audit import record
 from app.auth.roles import current_role
 from app.commands import Command, allowed_patterns, is_allowed
 from app.ingest import Changes
 from app.models import JobReturn, Minion, PendingRun
+from app.presence import CONNECTED, is_fresh, read_presence
 from app.runtime import Runtime
 from app.salt.client import SaltApiError, SaltApiUnavailable
 
@@ -39,21 +39,16 @@ async def sweep(runtime: Runtime, now: datetime | None = None) -> None:
     """Expire old runs, then send each minion that's back the oldest command it missed."""
     now = now or datetime.now(UTC)
     changes = await runtime.ingest.catch_up_expire(now)
-    stale_after = timedelta(minutes=runtime.settings.fleet.stale_after_minutes)
     async with runtime.sessions() as s:
-        presence = await presence_info(s)
+        _, checked_at = await read_presence(s)
         # Only trust "connected" from a fresh presence check.
-        fresh = presence.checked_at is not None and now - presence.checked_at <= stale_after
+        fresh = is_fresh(checked_at, now, runtime.settings)
         waiting = (
             (
                 await s.scalars(
                     select(PendingRun)
                     .join(Minion, Minion.id == PendingRun.minion_id)
-                    .where(
-                        PendingRun.state == "waiting",
-                        Minion.connected.is_(True),
-                        Minion.key_state == "accepted",
-                    )
+                    .where(PendingRun.state == "waiting", *CONNECTED)
                     .order_by(PendingRun.created_at, PendingRun.id)
                 )
             ).all()

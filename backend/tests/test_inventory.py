@@ -562,17 +562,66 @@ def test_an_ask_that_matched_no_minion_is_waited_for(admin: tuple[Api, FakeSalt]
     assert len(salt.calls) == 1
 
 
-def test_ask_now_asks_every_source_and_is_throttled(with_checks: tuple[Api, FakeSalt]) -> None:
+SOURCES = ("packages", "rover-cli", "containers")
+
+
+def test_ask_now_for_the_fleet_is_asked_by_the_sweep(
+    with_checks: tuple[Api, FakeSalt], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    api, salt = with_checks
+    monkeypatch.setattr(sweeper, "BATCH", 2)
+    rt, now = runtime(api), datetime.now(UTC)
+    sweep(api, now)
+    sweep(api, now + 15 * SECOND)
+    for mid in ONLINE:  # everyone has answered everything: nothing is due
+        for source in SOURCES:
+            answer(api, mid, {}, at=now + 20 * SECOND, source=source)
+    later = now + 30 * SECOND
+    queued = api.seed(sweeper.ask_now, rt, None, later)
+    assert (queued.asked, queued.queued, queued.failed, queued.reason) == (ONLINE, True, {}, None)
+    assert len(salt.calls) == 6  # nothing sent: the sweep asks them, BATCH at a time
+    sweep(api, later)
+    assert [kw["tgt"] for _, kw in calls(salt)][6:] == ["dock-01,rover-01"] * 3
+    sweep(api, later + 15 * SECOND)
+    assert [kw["tgt"] for _, kw in calls(salt)][9:] == ["rover-02"] * 3
+    with pytest.raises(sweeper.Throttled, match="in a minute") as caught:
+        api.seed(sweeper.ask_now, rt, None, later)  # once a minute for everyone
+    assert 0 < caught.value.retry_after <= 60
+
+
+def test_ask_now_for_one_minion_asks_it_directly(with_checks: tuple[Api, FakeSalt]) -> None:
     api, salt = with_checks
     rt, now = runtime(api), datetime.now(UTC)
-    assert api.seed(sweeper.ask_now, rt, None, now) == ONLINE
-    assert [fun for fun, _ in calls(salt)] == ["pkg.list_pkgs", "cmd.run_all", "cmd.run_all"]
-    assert api.seed(sweeper.ask_now, rt, None, now) is None  # once a minute for everyone
-    # One minion: asked again although its answers are still out.
-    assert api.seed(sweeper.ask_now, rt, "rover-01", now) == ["rover-01"]
-    assert api.seed(sweeper.ask_now, rt, "rover-01", now) is None
-    assert api.seed(sweeper.ask_now, rt, "rover-03", now) == []  # offline: not asked
-    assert len(salt.calls) == 6
+    one = api.seed(sweeper.ask_now, rt, "rover-01", now)
+    assert (one.asked, one.queued, one.failed, one.reason) == (["rover-01"], False, {}, None)
+    assert [(fun, kw["tgt"]) for fun, kw in calls(salt)] == [
+        ("pkg.list_pkgs", "rover-01"),
+        ("cmd.run_all", "rover-01"),
+        ("cmd.run_all", "rover-01"),
+    ]
+    with pytest.raises(sweeper.Throttled, match="in a few seconds") as caught:
+        api.seed(sweeper.ask_now, rt, "rover-01", now)
+    assert 0 < caught.value.retry_after <= 10
+    offline = api.seed(sweeper.ask_now, rt, "rover-03", now)
+    assert (offline.asked, offline.reason) == ([], "rover-03 isn't online")
+    # Nothing went out, so it may be asked again straight away.
+    assert api.seed(sweeper.ask_now, rt, "rover-03", now).reason == "rover-03 isn't online"
+
+
+def test_asking_minions_one_by_one_is_capped(
+    admin: tuple[Api, FakeSalt], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    api, salt = admin
+    monkeypatch.setattr(sweeper, "BATCH", 2)  # one by one: at most BATCH a minute
+    rt, now = runtime(api), datetime.now(UTC)
+    for mid in ("dock-01", "rover-01"):
+        assert api.seed(sweeper.ask_now, rt, mid, now).asked == [mid]
+    with pytest.raises(sweeper.Throttled, match="one by one") as caught:
+        api.seed(sweeper.ask_now, rt, "rover-02", now)
+    assert 0 < caught.value.retry_after <= 60
+    assert salt.asked("pkg.list_pkgs") == ["dock-01", "rover-01"]
+    # The whole fleet can still be asked.
+    assert api.seed(sweeper.ask_now, rt, None, now).asked == ONLINE
 
 
 # --- the API ---------------------------------------------------------------------------------
@@ -603,17 +652,24 @@ def when(text: str | None) -> datetime | None:
     return None if text is None else datetime.fromisoformat(text)
 
 
-def test_versions_sort_naturally() -> None:
-    versions = ["2.10.0", "2.9.1", "10.0", "2.9", "2.9.1-1ubuntu1", "1:2.3-1"]
+def test_versions_sort_like_package_managers() -> None:
+    versions = ["2.10.0", "2.9.1", "10.0", "2.9", "2.9.1-1ubuntu1", "1:1.0-1"]
     assert sorted(versions, key=version_key) == [
-        "1:2.3-1",
         "2.9",
         "2.9.1",
         "2.9.1-1ubuntu1",
         "2.10.0",
         "10.0",
+        "1:1.0-1",
     ]
-    assert version_key("²") == [(1, "²")]  # a digit to str.isdigit(), but not a number
+    assert version_key("1:1.0-1") > version_key("2.10-1")  # the epoch comes first
+    assert version_key("1.0~rc1-1") < version_key("1.0-1")  # ~ comes before anything,
+    assert version_key("1.0~rc1") < version_key("1.0")  # even the end
+    assert version_key("1.0~rc1") < version_key("1.0~rc2")
+    # A colon after something other than digits isn't an epoch.
+    assert version_key("ghcr.io/acme/web:1.4") < version_key("ghcr.io/acme/web:1.10")
+    # A digit to str.isdigit(), but not a number: text, and no crash.
+    assert sorted(["²", "2"], key=version_key) == ["2", "²"]
 
 
 def test_values_split_versions_missing_and_unknown(admin: tuple[Api, FakeSalt]) -> None:
@@ -675,6 +731,21 @@ def test_values_of_a_check(with_checks: tuple[Api, FakeSalt]) -> None:
     assert (d["source"], d["name"], d["kind"]) == ("rover-cli", "", "check")
     assert [(v["text"], v["minions"]) for v in d["values"]] == [("rover-cli 1.2.0", ["rover-01"])]
     assert (d["missing"], d["unknown"]) == (["rover-02"], ["dock-01", "rover-03"])
+    assert values(api, "@rover-cli:")["key"] == "@rover-cli"  # the key as brine writes it
+
+
+def test_a_read_cut_short_without_the_entry_is_unknown(with_checks: tuple[Api, FakeSalt]) -> None:
+    api, _ = with_checks
+    now = datetime.now(UTC)
+    # Truncated: an entry the answer doesn't list may be past the cut.
+    for mid, images in (("rover-01", {"db": "postgres:16"}), ("rover-02", {"web": "web:1.4"})):
+        api.seed(
+            api.ingest.inventory_read, mid, "containers", images, at=now, jid=None, truncated=True
+        )
+    read(api, "dock-01", {"db": "postgres:16"}, now, source="containers")
+    d = values(api, "@containers:web")
+    assert [(v["text"], v["minions"]) for v in d["values"]] == [("web:1.4", ["rover-02"])]
+    assert (d["missing"], d["unknown"]) == (["dock-01"], ["rover-01", "rover-03"])
 
 
 def test_keys_list_checks_and_find_packages(with_checks: tuple[Api, FakeSalt]) -> None:
@@ -809,13 +880,56 @@ def ask(api: Api, **body: Any) -> Any:
 
 def test_ask_now_for_everyone_signed_in(tmp_path: Path) -> None:
     for api, salt in make_api(tmp_path, "viewer"):  # it only reads
-        assert ask(api).json() == {"asked": ONLINE}
+        fleet = ask(api)
+        assert fleet.json() == {"asked": ONLINE, "queued": True, "failed": {}, "reason": None}
+        assert salt.calls == []  # queued: the sweep asks them
         throttled = ask(api)
         assert throttled.status_code == 429
         assert throttled.json()["detail"] == "Asked a moment ago; try again in a minute."
-        assert ask(api, minion="rover-01").json() == {"asked": ["rover-01"]}
-        assert ask(api, minion="rover-03").json() == {"asked": []}  # offline
+        assert 0 < int(throttled.headers["Retry-After"]) <= 60
+        one = ask(api, minion="rover-01")
+        assert one.json() == {"asked": ["rover-01"], "queued": False, "failed": {}, "reason": None}
+        throttled = ask(api, minion="rover-01")
+        assert throttled.status_code == 429
+        assert throttled.json()["detail"] == "Asked a moment ago; try again in a few seconds."
+        assert 0 < int(throttled.headers["Retry-After"]) <= 10
+        offline = ask(api, minion="rover-03").json()
+        assert (offline["asked"], offline["reason"]) == ([], "rover-03 isn't online")
         assert ask(api, minion="ghost").status_code == 404
         no_csrf = api.client.post("/api/inventory/ask", json={"minion": "dock-01"})
         assert no_csrf.status_code == 403 and "X-Requested-With" in no_csrf.json()["detail"]
-        assert salt.asked("pkg.list_pkgs") == [*ONLINE, "rover-01"]
+        assert salt.asked("pkg.list_pkgs") == ["rover-01"]
+
+
+def test_ask_now_says_what_salt_api_did(with_checks: tuple[Api, FakeSalt]) -> None:
+    api, salt = with_checks
+    salt.start_error = SaltApiUnavailable("can't reach salt-api")
+    down = ask(api, minion="rover-01")
+    assert down.status_code == 502 and down.json()["detail"] == "salt-api: can't reach salt-api"
+    # Nothing went out, so asking again isn't throttled.
+    salt.start_error = None
+    salt.forbidden |= {"pkg.list_pkgs", "cmd.run_all"}
+    refused = ask(api, minion="rover-01")
+    assert refused.status_code == 403
+    assert "isn't allowed to run pkg.list_pkgs" in refused.json()["detail"]
+    assert "external_auth" in refused.json()["detail"]
+    # Some sources went out: the others are named.
+    salt.forbidden = {"cmd.run_all"}
+    partly = ask(api, minion="rover-01")
+    assert partly.status_code == 200
+    body = partly.json()
+    assert (body["asked"], sorted(body["failed"])) == (["rover-01"], ["containers", "rover-cli"])
+    assert "isn't allowed to run cmd.run_all" in body["failed"]["rover-cli"]
+
+
+def test_ask_now_when_presence_is_stale_or_nobody_is_online(admin: tuple[Api, FakeSalt]) -> None:
+    api, salt = admin
+    now = datetime.now(UTC)
+    api.seed(api.ingest.presence, ONLINE, at=now - HOUR, method="events")
+    stale = {"asked": [], "queued": True, "failed": {}, "reason": "presence is stale"}
+    assert ask(api).json() == stale
+    assert ask(api).json() == stale  # nothing was queued, so not throttled
+    assert ask(api, minion="rover-01").json()["reason"] == "presence is stale"
+    api.seed(api.ingest.presence, [], at=now, method="events")
+    assert ask(api).json()["reason"] == "no minions are online"
+    assert salt.calls == []

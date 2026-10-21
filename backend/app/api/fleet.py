@@ -25,7 +25,7 @@ from app.api.schemas import (
     PresenceInfo,
     PresencePoint,
 )
-from app.ingest import PRESENCE_BLIND_STATE, PRESENCE_STATE
+from app.ingest import PRESENCE_BLIND_STATE
 from app.models import (
     GrainsSnapshot,
     Job,
@@ -35,6 +35,7 @@ from app.models import (
     PresenceChange,
     SystemState,
 )
+from app.presence import is_fresh, read_presence
 from app.runtime import Runtime
 from app.status import Status, minion_status
 
@@ -76,13 +77,8 @@ def primary_ip(grains: dict[str, Any] | None) -> str | None:
 
 
 async def presence_info(session: SessionDep) -> PresenceInfo:
-    row = await session.get(SystemState, PRESENCE_STATE)
-    value = row.value if row is not None else {}
-    at = value.get("at") if isinstance(value, dict) else None
-    return PresenceInfo(
-        method=value.get("method") if isinstance(value, dict) else None,
-        checked_at=datetime.fromisoformat(at) if at else None,
-    )
+    method, checked_at = await read_presence(session)
+    return PresenceInfo(method=method, checked_at=checked_at)
 
 
 async def reachable(runtime: Runtime, session: AsyncSession) -> tuple[list[str], list[str]]:
@@ -91,10 +87,7 @@ async def reachable(runtime: Runtime, session: AsyncSession) -> tuple[list[str],
     for minions presence can't see, brine can't tell, so it asks."""
     presence = await presence_info(session)
     blind = await presence_blind(session)
-    stale_after = timedelta(minutes=runtime.settings.fleet.stale_after_minutes)
-    fresh = (
-        presence.checked_at is not None and datetime.now(UTC) - presence.checked_at <= stale_after
-    )
+    fresh = is_fresh(presence.checked_at, datetime.now(UTC), runtime.settings)
     rows = (
         await session.execute(
             select(Minion.id, Minion.connected)

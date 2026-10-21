@@ -206,7 +206,9 @@ class InventoryDistribution(BaseModel):
     total: int  # accepted minions
     values: list[GrainValue]  # newest version first
     missing: list[str]  # answered without it
-    unknown: list[str]  # never read successfully (no answer yet, or only failed ones)
+    # Never read (no answer yet, or only failed ones), or the last read was cut short and
+    # doesn't list it (it may be past the cut).
+    unknown: list[str]
     oldest_read_at: datetime | None  # of the accepted minions' last good reads
     newest_read_at: datetime | None
     refused: str | None  # why salt-api refuses to ask for this source, if it does
@@ -250,7 +252,12 @@ class AskRequest(BaseModel):
 
 
 class AskResult(BaseModel):
-    asked: list[str]  # the online minions asked; the answers arrive as they come
+    # The online minions asked, or with `queued`, made due for the sweep to ask (BATCH at a
+    # time, every few seconds). The answers arrive as they come.
+    asked: list[str]
+    queued: bool  # the whole fleet: queued for the sweep; one minion is asked straight away
+    failed: dict[str, str] = Field(default_factory=dict)  # source -> why it couldn't be asked
+    reason: str | None = None  # why nobody was asked: "presence is stale", "... isn't online"
 
 
 class PresencePoint(BaseModel):
