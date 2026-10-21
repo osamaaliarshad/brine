@@ -130,6 +130,8 @@ class InventoryChange(Base):
         Index("ix_inventory_changes_source_name_at", "source", "name", "at"),
         Index("ix_inventory_changes_minion_at", "minion_id", "at"),
         Index("ix_inventory_changes_at", "at"),
+        # job_owner finds the changes credited to an orchestration's steps by their jid.
+        Index("ix_inventory_changes_jid", "jid"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)

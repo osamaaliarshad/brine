@@ -39,6 +39,7 @@ def upgrade() -> None:
     )
     with op.batch_alter_table('inventory_changes', schema=None) as batch_op:
         batch_op.create_index('ix_inventory_changes_at', ['at'], unique=False)
+        batch_op.create_index('ix_inventory_changes_jid', ['jid'], unique=False)
         batch_op.create_index('ix_inventory_changes_minion_at', ['minion_id', 'at'], unique=False)
         batch_op.create_index('ix_inventory_changes_source_name_at', ['source', 'name', 'at'], unique=False)
 
@@ -85,6 +86,7 @@ def downgrade() -> None:
     with op.batch_alter_table('inventory_changes', schema=None) as batch_op:
         batch_op.drop_index('ix_inventory_changes_source_name_at')
         batch_op.drop_index('ix_inventory_changes_minion_at')
+        batch_op.drop_index('ix_inventory_changes_jid')
         batch_op.drop_index('ix_inventory_changes_at')
 
     op.drop_table('inventory_changes')
