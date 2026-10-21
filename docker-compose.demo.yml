@@ -52,24 +52,32 @@ services:
       timeout: 3s
       retries: 30
 
+  # The second line of each environment: the rover-agent package installed before Salt
+  # (AGENT_VERSION; demo/states/agent.sls changes it), and a hand-copied rover-cli that no
+  # package manager knows about (CLI_VERSION; brine's rover-cli check reads it).
   rover-01:
     <<: *minion
     hostname: rover-01
-    environment: { MINION_ID: rover-01, SITE: site-a, ROLE: rover, APP_VERSION: "2.4.1", FIRMWARE_VERSION: "1.8.0" }
+    environment: { MINION_ID: rover-01, SITE: site-a, ROLE: rover, APP_VERSION: "2.4.1", FIRMWARE_VERSION: "1.8.0",
+                   AGENT_VERSION: "2.4.1", CLI_VERSION: "1.2.0" }
     volumes: [rover-01-pki:/etc/salt/pki/minion]
 
   rover-02:
     <<: *minion
     hostname: rover-02
-    environment: { MINION_ID: rover-02, SITE: site-a, ROLE: rover, APP_VERSION: "2.4.1", FIRMWARE_VERSION: "1.7.2" }
+    environment: { MINION_ID: rover-02, SITE: site-a, ROLE: rover, APP_VERSION: "2.4.1", FIRMWARE_VERSION: "1.7.2",
+                   AGENT_VERSION: "2.4.1", CLI_VERSION: "1.2.0" }
     volumes: [rover-02-pki:/etc/salt/pki/minion]
 
+  # One rover behind.
   rover-03:
     <<: *minion
     hostname: rover-03
-    environment: { MINION_ID: rover-03, SITE: site-b, ROLE: rover, APP_VERSION: "2.3.0", FIRMWARE_VERSION: "1.7.2" }
+    environment: { MINION_ID: rover-03, SITE: site-b, ROLE: rover, APP_VERSION: "2.3.0", FIRMWARE_VERSION: "1.7.2",
+                   AGENT_VERSION: "2.3.0", CLI_VERSION: "1.1.0" }
     volumes: [rover-03-pki:/etc/salt/pki/minion]
 
+  # Neither: the dock doesn't run them.
   dock-01:
     <<: *minion
     hostname: dock-01
@@ -80,7 +88,8 @@ services:
   rover-04:
     <<: *minion
     hostname: rover-04
-    environment: { MINION_ID: rover-04, SITE: site-b, ROLE: rover, APP_VERSION: "2.4.1", FIRMWARE_VERSION: "1.8.0" }
+    environment: { MINION_ID: rover-04, SITE: site-b, ROLE: rover, APP_VERSION: "2.4.1", FIRMWARE_VERSION: "1.8.0",
+                   AGENT_VERSION: "2.4.1", CLI_VERSION: "1.2.0" }
     volumes: [rover-04-pki:/etc/salt/pki/minion]
 
   brine:

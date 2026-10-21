@@ -24,4 +24,19 @@ RUN set -eux; \
     rm -rf /var/lib/apt/lists/*; \
     salt-call --version
 
+# A tiny versioned package for the Packages demo: rover-agent 2.3.0 and 2.4.1. The master serves
+# them as salt://debs/ (demo/states/agent.sls installs one), and some minions have one installed
+# before Salt starts, like software that was there first.
+RUN set -eux; \
+    mkdir -p /srv/debs/debs; \
+    for v in 2.3.0 2.4.1; do \
+      d="/tmp/rover-agent_$v"; \
+      mkdir -p "$d/DEBIAN" "$d/opt/rover-agent"; \
+      printf 'Package: rover-agent\nVersion: %s\nArchitecture: all\nMaintainer: brine demo <demo@example.com>\nDescription: brine demo agent\n' "$v" \
+        > "$d/DEBIAN/control"; \
+      echo "$v" > "$d/opt/rover-agent/VERSION"; \
+      dpkg-deb --build --root-owner-group "$d" "/srv/debs/debs/rover-agent_${v}_all.deb"; \
+      rm -rf "$d"; \
+    done
+
 COPY --chmod=0755 entrypoint-master.sh entrypoint-minion.sh /usr/local/bin/

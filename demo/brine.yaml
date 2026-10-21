@@ -22,6 +22,13 @@ fleet:
 presence:
   method: auto
 
+# Packages are read from every minion. A check adds software no package manager knows about:
+# this one prints the hand-copied rover-cli's version, and nothing where it isn't there. Each
+# check needs its own line in brine's Salt account (demo/master.d/brine-demo.conf).
+inventory:
+  checks:
+    rover-cli: "/opt/rover/bin/rover-cli --version 2>/dev/null || true"
+
 # The demo runs without sign-in: every visitor is treated as an admin, and brine shows a
 # banner saying so. Real deployments use OIDC (see config.example.yaml).
 auth:
