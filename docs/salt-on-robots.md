@@ -17,27 +17,38 @@ curl -fsSL https://github.com/saltstack/salt-install-guide/releases/latest/downl
   | sudo tee /etc/apt/sources.list.d/salt.sources
 ```
 
-Pin it to the release line your master runs (`3006.*` or `3008.*`). Upgrade the master first: a
-minion newer than its master isn't guaranteed to work.
+Pin it to the release line your master runs (`3006.*`, `3007.*` or `3008.*`). Upgrade the
+master first: a minion newer than its master isn't guaranteed to work.
 
 ```bash
 echo 'Package: salt-*
 Pin: version 3008.*
 Pin-Priority: 1001' | sudo tee /etc/apt/preferences.d/salt-pin-1001
+```
+
+The package starts the minion as soon as it's installed (and enables it at boot), so give it its
+master and ID first. Otherwise it starts with the defaults: a master called `salt`, and an ID
+guessed from the hostname.
+
+```bash
+sudo mkdir -p /etc/salt/minion.d
+echo 'master: salt.example.com' | sudo tee /etc/salt/minion.d/master.conf
+echo 'id: rover-0042' | sudo tee /etc/salt/minion.d/id.conf
 sudo apt update
 sudo apt install salt-minion
 ```
 
-Point it at the master in `/etc/salt/minion.d/master.conf` (`master: salt.example.com`), then
-`sudo systemctl enable --now salt-minion`.
+The minion reads its config when it starts: after changing anything in `/etc/salt/minion.d`
+later, `sudo systemctl restart salt-minion`.
 
 ## 2. Identity
 
-**Give each robot its ID** rather than letting Salt guess one from the hostname: `id: rover-0042`
-in `/etc/salt/minion.d/id.conf`. Pick a scheme that survives reflashing (a serial number, not a
-hostname a new image resets) and globs well: `rover-*`, `dock-*`.
+**Give each robot its own ID** (the `id.conf` above) rather than letting Salt guess one from the
+hostname. Pick a scheme that survives reflashing (a serial number, not a hostname a new image
+resets) and globs well: `rover-*`, `dock-*`.
 
-**Static grains** for what Salt can't find out itself go in `/etc/salt/grains`, as plain YAML:
+**Static grains** for what Salt can't find out itself go in `/etc/salt/grains`, as plain YAML (it
+can be written before installing, too):
 
 ```yaml
 site: site-a
@@ -60,7 +71,7 @@ package question.
 A minion holds two connections to the master, to ports 4505 (jobs) and 4506 (returns). A
 cellular network or NAT can drop an idle connection without telling either side, and the minion
 then waits for jobs that never arrive. These settings, in `/etc/salt/minion.d/links.conf`, make
-it notice and reconnect:
+it notice and reconnect (then `sudo systemctl restart salt-minion`):
 
 ```yaml
 tcp_keepalive: True
@@ -109,10 +120,10 @@ hold-l4t-packages:
 list from `pkg.list_pkgs`. Apply it to the Jetsons (by grain in your top file). Don't add
 `replace: True`: on apt it would lift every other hold.
 
-Upgrade JetPack on purpose instead: lift the hold on one robot (`pkg.unheld`, or
-`apt-mark unhold`), follow NVIDIA's apt steps for the point or minor release, reboot, check it,
-then the rest, and hold again. Major releases go through NVIDIA's image-based OTA update (or a
-reflash), or your own A/B updater, not `state.apply`.
+Upgrade JetPack on purpose instead: lift the hold on one robot (`pkg.unhold`, or
+`apt-mark unhold` on the robot), follow NVIDIA's apt steps for the point or minor release,
+reboot, check it, then the rest, and apply the hold state again. Major releases go through
+NVIDIA's image-based OTA update (or a reflash), or your own A/B updater, not `state.apply`.
 
 ## 5. Where brine helps
 
@@ -129,10 +140,10 @@ reflash), or your own A/B updater, not `state.apply`.
   `# R36 (release), REVISION: 4.3, ...`. Fleet › Grains & packages shows which robots run which
   version; Run on these opens the Run page with just them.
 - **A golden robot:** set one up the way they should all be, then on its Packages tab, "How the
-  fleet differs from" it lists every other robot's different, missing and extra packages and
-  checks. Compare opens one robot's differences side by side.
+  fleet differs from" it counts, for every other robot, the packages and checks that are
+  different, missing or extra. Compare shows one robot's actual differences side by side.
 - **Nothing to maintain on the robots:** brine only talks to salt-api. The robots run the stock
-  minion, and brine changes nothing on them or on the master.
+  minion, and brine installs nothing on them or on the master.
 
 ## 6. Security
 

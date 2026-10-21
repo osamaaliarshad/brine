@@ -41,35 +41,38 @@ external_auth:
   pam:
     brine:
       - '*':
-        - test.ping          # reachability checks
-        - test.version
-        - grains.items       # fleet table, minion pages, grains history
-        - pkg.list_pkgs      # installed packages: Grains & packages, minion › Packages
-        - pillar.obfuscate   # minion › Pillar (values masked; never pillar.items)
-        - beacons.list       # minion › Beacons, Automation › Beacons
-        - schedule.list      # minion › Schedules, Automation › Schedules
-        - mine.valid         # minion › Mine
-        - state.show_top     # States › Top file
-        - saltutil.running
+        - test.ping$          # reachability checks
+        - test.version$
+        - grains.items$       # fleet table, minion pages, grains history
+        - pkg.list_pkgs$      # installed packages: Grains & packages, minion › Packages
+        - pillar.obfuscate$   # minion › Pillar (values masked; never pillar.items)
+        - beacons.list$       # minion › Beacons, Automation › Beacons
+        - schedule.list$      # minion › Schedules, Automation › Schedules
+        - mine.valid$         # minion › Mine
+        - state.show_top$     # States › Top file
+        - saltutil.running$
       - '@runner':
-        - jobs.active        # jobs still running
-        - jobs.list_job      # backfilling job results from the job cache
-        - jobs.list_jobs
-        - jobs.lookup_jid
-        - manage.alived
-        - manage.status      # presence polling (method: ping)
-        - manage.versions
-        - cache.grains       # cached grains, nodegroup membership, presence diagnostics
-        - state.orchestrate_show_sls  # Orchestrations: each one's steps (renders, runs nothing)
+        - jobs.active$        # jobs still running
+        - jobs.list_job$      # backfilling job results from the job cache
+        - jobs.list_jobs$
+        - jobs.lookup_jid$
+        - manage.alived$
+        - manage.status$      # presence polling (method: ping)
+        - manage.versions$
+        - cache.grains$       # cached grains, nodegroup membership, presence diagnostics
+        - state.orchestrate_show_sls$  # Orchestrations: each one's steps (renders, runs nothing)
       - '@wheel':
-        - config.values      # reactors, nodegroups, saltgui_templates (only these are used)
-        - key.finger         # key fingerprints
-        - key.list_all       # key states
-        - minions.connected  # presence polling (method: connected)
-        - file_roots.list_env  # States › Files
-        - file_roots.read
+        - config.values$      # reactors, nodegroups, saltgui_templates (only these are used)
+        - key.finger$         # key fingerprints
+        - key.list_all$       # key states
+        - minions.connected$  # presence polling (method: connected)
+        - file_roots.list_env$  # States › Files
+        - file_roots.read$
       - '@jobs'
 ```
+
+Salt reads each name as a regular expression that only has to match the start of the function's
+name, so each one ends in `$` to allow just that function (section 6 has why it matters).
 
 The demo fleet uses this list plus a check, key management and a command box (below):
 [demo/master.d/brine-demo.conf](../demo/master.d/brine-demo.conf).
@@ -104,13 +107,13 @@ under "Salt permissions brine needs", escaped and quoted. For a check
 
 ```yaml
       - '*':
-        - pkg.list_pkgs
-        - cmd.run_all:
+        - pkg.list_pkgs$
+        - cmd.run_all$:
             args:
               - '^head\ \-1\ /etc/nv_tegra_release\ 2>/dev/null\ \|\|\ true$'
 ```
 
-Paste them under brine's account (`pkg.list_pkgs` listed twice does no harm). Each check gets a
+Paste them under brine's account (`pkg.list_pkgs$` listed twice does no harm). Each check gets a
 rule of its own: two patterns in one `args` list would be the first and second argument of a
 single call. Until its rule is there, brine says it can't read that check, in Settings and on the
 Issues page.
@@ -120,6 +123,12 @@ other options (`shell`, `env`, `runas`, `cwd`), and those are enough to run some
 in practice, an account that's allowed checks can run commands on your minions. Leave checks out
 to keep brine's account read-only: packages alone need only `pkg.list_pkgs`.
 
+That goes for brine's Run page too. Once a check's rule is there, anyone brine lets run
+`cmd.run_all` can run it with the check's command and those other options: admins, as
+`commands.admin` defaults to `["*"]`, and operators whose list matches it (`cmd.*`). If that
+matters, list what admins and operators may run under `commands:` (section 6) instead of `*`,
+without `cmd.run_all`.
+
 ## 5. Optional: key management
 
 Lets admins accept, reject and delete minion keys on the Keys page and minion pages. Add to the
@@ -128,9 +137,9 @@ Lets admins accept, reject and delete minion keys on the Keys page and minion pa
 ```yaml
       - '@wheel':
         # ...the read-only entries above, then:
-        - key.accept_dict
-        - key.reject_dict
-        - key.delete_dict
+        - key.accept_dict$
+        - key.reject_dict$
+        - key.delete_dict$
 ```
 
 Leave them out and brine stays read-only for keys: the buttons don't appear, and the Keys page
@@ -151,17 +160,19 @@ team should be able to run through brine, for example:
 ```yaml
       - '*':
         - test.*
-        - state.apply
-        - service.restart
+        - state.apply$
+        - service.restart$
         - cmd.run$               # just cmd.run, not cmd.run_all or cmd.run_stdout
       - '@runner':
         - manage.*
-        - state.orchestrate      # Orchestrations › Run (and Test)
+        - state.orchestrate$     # Orchestrations › Run (and Test)
 ```
 
 Salt reads each name as a regular expression that only has to match the start: `cmd.run` also
 allows `cmd.run_all`, `cmd.run_stdout` and the rest, with any command, and so gets round the
-pinned rules of your checks. End a name with `$` to allow just that function.
+pinned rules of your checks; `state.orchestrate` also allows `state.orchestrate_single` and
+`state.orchestrate_high`. End a name with `$` to allow just that function. Patterns like `test.*`
+work as they read.
 
 Then decide who in brine may run which of them, under `commands:` in brine's config:
 

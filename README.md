@@ -34,8 +34,8 @@ the fleet, and a safe way to act on it:
 - **Any grain as a column** (`app_version`, `firmware_version`, ...) in the fleet table, no code
   changes.
 - **What's installed where.** Packages from each minion's own package manager, plus your own
-  checks for anything else, kept over time, with the job and person behind each change when
-  brine can tell. Compare any minion with a golden one.
+  checks for anything else, kept over time, with the job a change was found after when brine can
+  tell. Compare any minion with a golden one.
 - **Everything [SaltGUI](https://github.com/erwindon/SaltGUI) does,** and your
   `saltgui_templates` keep working ([coming from SaltGUI](docs/saltgui-parity.md)).
 - **Least privilege.** brine needs a read-only Salt account, plus a few functions for keys,
@@ -140,9 +140,10 @@ team default). Updates live as minions come and go.
 
 **Grains & packages** shows how any grain, package or check is spread across the fleet: which
 machines run which version, which don't have it at all, and which haven't answered yet. Open a
-version to see its minions, and **Run on these** to open the Run page with just them (nothing
-runs until you click Run). Add any of them as a column in one click. Each change is listed with
-the job it was found after, or the time between two reads when brine can't tell.
+version to see its minions; if you may run commands, **Run on these** opens the Run page with
+just them (nothing runs until you click Run). Add any of them as a column in one click. Each
+change is listed with the job it was found after, or the time between two reads when brine
+can't tell.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/grains-dark.png">
@@ -174,7 +175,7 @@ how the whole fleet differs from it:
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/packages-dark.png">
-  <img alt="rover-01's Packages tab compared with rover-03: rover-agent 2.4.1 against 2.3.0, and the rover-cli check 1.2.0 against 1.1.0" src="docs/assets/screenshots/packages-light.png">
+  <img alt="rover-01's Packages tab compared with rover-03: rover-agent 2.4.1 against 2.3.0, and the rover-cli check, rover-cli 1.2.0 against rover-cli 1.1.0" src="docs/assets/screenshots/packages-light.png">
 </picture>
 
 ### Jobs

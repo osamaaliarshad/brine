@@ -64,12 +64,13 @@ inventory:                         # packages and checks: what's installed where
   # Packages come from each minion's package manager. Checks are optional: one-line commands for
   # what the package manager doesn't know about, run with cmd.run_all.
   # checks:
-  #   containers: "podman ps --format '{{.Names}}={{.Image}}'"
+  #   containers: "podman ps --format '{{.Names}}={{.Image}}' 2>/dev/null || true"
   #   jetson: "head -1 /etc/nv_tegra_release 2>/dev/null || true"
   #
   # When every line a check prints is name=value, each line is an entry (web=nginx:1.27); any
   # other output is one value. Print nothing when the thing isn't there (2>/dev/null || true),
-  # rather than fail. Commands are taken literally: no ${VAR} is filled in. Everyone signed in
+  # rather than fail. Commands are taken literally: unlike the rest of this file, brine fills in
+  # no ${VAR} here, so $VAR and ${VAR} reach the minion's shell as written. Everyone signed in
   # sees the commands and their output, so keep secrets out of them. Each check needs its own
   # rule in brine's Salt account: Settings › Packages and checks prints it.
 

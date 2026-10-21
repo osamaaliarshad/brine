@@ -198,19 +198,23 @@ brine only sees a change when it reads the minion again, so a change is "found a
 never "made by" it: the read also catches anything else since the one before. The rules:
 
 - A change is credited to a job only when brine's own read finds it, asked at least 30 seconds
-  after the job finished and within about 13 minutes of it. Otherwise it shows the time between
-  the two reads it fell between.
+  after the job finished and within about 13 minutes of it (time enough to ask again once if an
+  answer is lost). Otherwise it shows the time between the two reads it fell between.
 - After several jobs before the read, none gets the credit ("found after jobs by alice" if one
   person ran them all).
-- Anything uncertain (an ask that may have gone out before the job, a lost answer, someone
-  else's `pkg.list_pkgs`) costs a credit, never gives a wrong one.
+- Anything uncertain (an ask that may have gone out before the job, someone else's
+  `pkg.list_pkgs` finding the change first, answers lost until the window closes) costs a
+  credit, never gives a wrong one.
 - The first read records what's there, without changes. A minion that hasn't answered, or whose
-  last answer was cut short (checks are capped at 500 entries and 64 KB), shows as "No answer yet"
-  or `?`, never as "Not installed". Comparisons only use what both sides read in full.
+  last answer was cut short (checks are capped at 500 entries and 64K characters), shows as
+  "No answer yet" or `?`, never as "Not installed". Comparisons only use what both sides read in
+  full.
 
 "Never a wrong one" rests on one assumption: brine times its asks by its own clock and jobs by
-the master's, so it assumes the two agree within 30 seconds, as NTP keeps them. Further apart, a
-change found by a read sent just before a job can be credited to that job.
+the master's, so it assumes the two agree within 30 seconds, as NTP keeps them. Only brine's
+clock running more than that ahead of the master's can give a wrong credit: a read sent just
+before a job can then look sent after it, and what it found is credited to the job. Running
+behind costs at most a credit.
 
 Two gaps to know about. Minions presence can't see (decision 12) are never read, as brine only
 asks minions a fresh presence check calls connected; any answer they gave before stays, shown
