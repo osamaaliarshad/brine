@@ -27,18 +27,24 @@ CHECK_FUN = "cmd.run_all"
 ANSWER_WAIT = timedelta(minutes=10)
 # Read again this long after a person's job that could change software finishes.
 AFTER_JOB = timedelta(seconds=60)
-# What brine's read finds is credited to the job before it only if brine asked within this long
-# of the job: the wait after it, one lost answer asked again, and slack for the sweep and for the
-# two clocks (asks are timed by brine's, jobs by the master's). Later, too much else may have
-# changed.
+# What brine's read finds is credited to the job before it only if brine asked at or after the
+# job, and within this long of it: the wait after it, one lost answer asked again, and slack for
+# the sweep and for the two clocks (asks are timed by brine's, jobs by the master's). Later, too
+# much else may have changed.
 CREDIT_WINDOW = AFTER_JOB + ANSWER_WAIT + timedelta(minutes=2)
+# Kept as an ask's job when no minion matched (salt-api started none), so brine waits
+# ANSWER_WAIT as for any ask rather than asking again on every sweep. Salt's jids are digits,
+# so no answer can match it.
+NO_JOB = "none"
 
-# Caps on what one answer can add. Past them the answer is kept but marked truncated.
+# Caps on how much of a check's answer is read. Past them the answer is kept but marked
+# truncated: cut short, so some entries may be missing (and none are taken as gone).
 MAX_ENTRIES = 500  # entries from one check
 MAX_TEXT = 64 * 1024  # characters of a check's output that are read
-# Names longer than the database column are skipped: one would fail the whole write.
+# Longer names are ignored: one wouldn't fit the database column, and would fail the whole
+# write. As such a name can never be stored, leaving it out doesn't make an answer truncated.
 MAX_NAME = 255
-# Longer values are cut, so history rows stay small.
+# Longer values are cut, so history rows stay small. The entry is still there: not truncated.
 MAX_VALUE = 4096
 
 # Jobs in these modules can install, remove or change software.
@@ -95,13 +101,12 @@ def _unexpected(data: object) -> str:
     return f"unexpected answer: {_clean(str(data))[:200]}"
 
 
-def _put(entries: dict[str, str], name: str, value: str) -> bool:
-    """Add one entry within the caps, without control characters. True if skipped or cut."""
+def _put(entries: dict[str, str], name: str, value: str) -> None:
+    """Add one entry without control characters: ignored if its name is longer than MAX_NAME,
+    its value cut to MAX_VALUE."""
     name, value = _clean(name), _clean(value)
-    if len(name) > MAX_NAME:
-        return True
-    entries[name] = value[:MAX_VALUE]
-    return len(value) > MAX_VALUE
+    if len(name) <= MAX_NAME:
+        entries[name] = value[:MAX_VALUE]
 
 
 def parse_packages(data: object) -> tuple[dict[str, str], str | None, bool]:
@@ -109,22 +114,22 @@ def parse_packages(data: object) -> tuple[dict[str, str], str | None, bool]:
 
     The answer maps each package to its version, or to a list when several are installed. An
     empty list is an error, not "nothing installed": a locked or broken package database gives
-    one, and a real system always has packages.
+    one, and a real system always has packages. The list is read whole, so it's never
+    truncated.
     """
     if not isinstance(data, dict):
         return {}, _unexpected(data), False
     if not data:
         return {}, "the package list was empty", False
     entries: dict[str, str] = {}
-    truncated = False
     for name, version in data.items():
         # As in checks, a name with nothing in it is skipped.
         if not _clean(str(name)).strip():
             continue
         # Several versions are joined the way Salt writes them (pkg_resource.stringify).
         value = ",".join(map(str, version)) if isinstance(version, list) else str(version)
-        truncated |= _put(entries, str(name), value)
-    return entries, None, truncated
+        _put(entries, str(name), value)
+    return entries, None, False
 
 
 def parse_check(data: object) -> tuple[dict[str, str], str | None, bool]:
@@ -132,7 +137,8 @@ def parse_check(data: object) -> tuple[dict[str, str], str | None, bool]:
 
     Output where every line is ``name=value`` is one entry per line. Any other output is one
     entry named "". No output means the thing isn't there. A failing command is an error, so it
-    isn't mistaken for an empty answer.
+    isn't mistaken for an empty answer. ``truncated``: the output was cut short (past MAX_TEXT
+    or MAX_ENTRIES), so some entries may be missing.
     """
     if not isinstance(data, dict):
         return {}, _unexpected(data), False
@@ -165,10 +171,10 @@ def parse_check(data: object) -> tuple[dict[str, str], str | None, bool]:
             name, _, value = line.partition("=")
             # An empty name would collide with the single value's name "".
             if name.strip():
-                truncated |= _put(entries, name.strip(), value.strip())
+                _put(entries, name.strip(), value.strip())
         return entries, None, truncated
 
-    truncated |= _put(entries, "", "\n".join(lines))
+    _put(entries, "", "\n".join(lines))
     return entries, None, truncated
 
 
@@ -208,7 +214,7 @@ class ReadState:
     asked_jid: str | None  # brine's ask still out, if any
     asked_at: datetime | None  # by brine's clock
     answered_at: datetime | None  # the last answer, by the master's clock
-    wanted_at: datetime | None  # read again from then (a start, a job, Ask now)
+    wanted_at: datetime | None  # read again from then (a start, a job)
 
 
 def is_due(

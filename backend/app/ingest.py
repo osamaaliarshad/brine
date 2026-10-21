@@ -13,13 +13,13 @@ import hashlib
 import json
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.inventory import AFTER_JOB, CREDIT_WINDOW
+from app.inventory import AFTER_JOB, CREDIT_WINDOW, NO_JOB
 from app.models import (
     AuditEntry,
     GrainsSnapshot,
@@ -253,26 +253,32 @@ class Ingest:
     #
     # brine keeps one InventoryRead per minion and source (packages, or a check):
     #
-    # * brine's answer comes from the job of its ask still out (`asked_jid`). Any other answer
-    #   (a person's own pkg.list_pkgs, an older ask, one that beat `inventory_asked` to the
-    #   database) still updates the entries, but settles nothing.
+    # * brine's answer comes from the job of its ask still out (`asked_jid`; NO_JOB when no
+    #   minion matched, which no answer matches). Any other answer (a person's own
+    #   pkg.list_pkgs, an older ask, one that beat `inventory_asked` to the database) still
+    #   updates the entries, but settles nothing.
     # * A start, or a person's job that may change software, wants the source read again (for
     #   a job, AFTER_JOB after it), and forgets brine's ask still out: that answer may predate
     #   it. The want stays until brine's answer, good or failed, clears it, so a lost answer is
     #   asked again.
     # * Credit: the job waits in `after_*` for brine's answer. A good one credits what changed
-    #   to the job if brine asked within CREDIT_WINDOW of it; later, too much else may have
-    #   changed. brine's answer uses the credit up either way, good or failed.
+    #   to the job if brine asked at or after it, and within CREDIT_WINDOW of it; later, too
+    #   much else may have changed. "At or after" closes a race: the sweep times its ask before
+    #   sending it, so an ask sent just before the job finished, but recorded after the job was,
+    #   is still timed before it (its answer may predate the job). Asks made for a job's want
+    #   wait until AFTER_JOB after it, so they pass. brine's answer uses the credit up either
+    #   way, good or failed.
     # * Several jobs before brine's answer credit none of them: `after_jid` is None,
     #   `after_user` the person if it was the same one each time, `after_at` the latest job.
     # * Late answers (no newer than the last good read, or for a failure the last answer)
     #   change no entries or times; brine's still settles its ask.
-    # * Repeats change nothing: brine's answer, once in, isn't brine's any more, and a start or
-    #   job is skipped for a source answered since it (good or failed), or already waiting on
-    #   it. So a person's failed call can swallow a job reported late: a credit lost, never
-    #   a wrong one.
-    # * A source's first read records what's there without changes. A truncated read adds and
-    #   updates entries but removes none: what's missing may only have been cut off.
+    # * Repeats: brine's answer, once in, isn't brine's any more, and a start or job is skipped
+    #   for a source answered since it (good or failed), or already waiting on it. So a
+    #   person's failed call can swallow a job reported late: a credit lost, never a wrong one.
+    #   A job repeated after several jobs isn't recognised: it forgets brine's ask still out,
+    #   which costs one more ask, never a wrong credit.
+    # * A source's first read records what's there without changes. A truncated answer (cut
+    #   short, so some entries may be missing) adds and updates entries but removes none.
     # * Clocks: answers, jobs and starts are timed by the master, asks by brine. Only coarse
     #   rules (refreshes, the credit window) compare the two.
 
@@ -293,9 +299,11 @@ class Ingest:
     async def inventory_asked(
         self, mids: Iterable[str], source: str, *, at: datetime, jid: str | None
     ) -> None:
-        """brine asked these minions at `at` (its own clock), in job `jid`: None if no minion
-        matched, so no answer will come."""
+        """brine asked these minions at `at` (its own clock, read before sending), in job `jid`.
+        None means no minion matched, so no answer will come: it's kept as NO_JOB, and waited
+        for like any ask."""
         asked = set(mids)
+        out = NO_JOB if jid is None else jid
         if not asked:
             return
         async with self._lock, self._sessions() as s, s.begin():
@@ -321,7 +329,7 @@ class Ingest:
                 if read is None:
                     read = InventoryRead(minion_id=mid, source=source)
                     s.add(read)
-                read.asked_at, read.asked_jid = at, jid
+                read.asked_at, read.asked_jid = at, out
 
     async def inventory_wanted(self, mid: str, *, at: datetime) -> None:
         """The minion started at `at`: read each source again. A minion never read has no rows,
@@ -378,7 +386,7 @@ class Ingest:
                 brines_answer
                 and read.after_at is not None
                 and read.asked_at is not None
-                and read.asked_at - read.after_at <= CREDIT_WINDOW
+                and timedelta(0) <= read.asked_at - read.after_at <= CREDIT_WINDOW
             )
             credit_jid, credit_user = (read.after_jid, read.after_user) if credit else (None, None)
             current = {

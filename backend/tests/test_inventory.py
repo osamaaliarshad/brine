@@ -64,9 +64,11 @@ def test_an_empty_package_list_is_an_error() -> None:
 
 
 def test_packages_skip_long_names_and_cut_long_values() -> None:
+    # Neither makes the answer truncated: a name too long to store can never be stored, so
+    # nothing stored goes missing, and a cut value is still there.
     longest = "b" * inv.MAX_NAME
     data = {"a" * (inv.MAX_NAME + 1): "1", longest: "2", "big": "v" * (inv.MAX_VALUE + 1)}
-    assert inv.parse_packages(data) == ({longest: "2", "big": "v" * inv.MAX_VALUE}, None, True)
+    assert inv.parse_packages(data) == ({longest: "2", "big": "v" * inv.MAX_VALUE}, None, False)
 
 
 def test_control_characters_are_dropped() -> None:
@@ -180,12 +182,13 @@ def test_lines_are_split_on_newlines_only() -> None:
 
 
 def test_check_entries_skip_long_names_and_cut_long_values() -> None:
+    # Not truncated: only MAX_ENTRIES and MAX_TEXT cut an answer short.
     stdout = "a" * (inv.MAX_NAME + 1) + "=1\nweb=x\n"
-    assert inv.parse_check(ok(stdout)) == ({"web": "x"}, None, True)
+    assert inv.parse_check(ok(stdout)) == ({"web": "x"}, None, False)
     stdout = "web=" + "v" * (inv.MAX_VALUE + 1)
-    assert inv.parse_check(ok(stdout)) == ({"web": "v" * inv.MAX_VALUE}, None, True)
+    assert inv.parse_check(ok(stdout)) == ({"web": "v" * inv.MAX_VALUE}, None, False)
     stdout = "y" * (inv.MAX_VALUE + 1)
-    assert inv.parse_check(ok(stdout)) == ({"": "y" * inv.MAX_VALUE}, None, True)
+    assert inv.parse_check(ok(stdout)) == ({"": "y" * inv.MAX_VALUE}, None, False)
 
 
 def test_check_named_matches_the_configured_command() -> None:
@@ -297,7 +300,7 @@ def test_due_rules() -> None:
     back = T0 + 5 * minute
     assert inv.is_due(read, now=T0 + timedelta(hours=1), every=every, back_at=back)
     assert not inv.is_due(read, now=T0 + timedelta(hours=1), every=every, back_at=T0)
-    # Wanted again (a start, a job, Ask now), once that time comes.
+    # Wanted again (a start, a job), once that time comes.
     wanted = _state(answered_at=T0, wanted_at=T0 + 2 * minute)
     assert not inv.is_due(wanted, now=T0 + minute, every=every, back_at=None)
     assert inv.is_due(wanted, now=T0 + 2 * minute, every=every, back_at=None)
@@ -340,6 +343,17 @@ def test_a_want_is_asked_again_when_its_answer_is_lost() -> None:
     lost = _state(asked_jid="A1", asked_at=t3, answered_at=T0, wanted_at=t1)
     assert not inv.is_due(lost, now=t3 + timedelta(minutes=1), every=every, back_at=None)
     assert inv.is_due(lost, now=t3 + inv.ANSWER_WAIT, every=every, back_at=None)
+
+
+def test_an_ask_that_matched_no_minion_is_waited_for_too() -> None:
+    every = timedelta(hours=6)
+    # No minion matched, so salt-api started no job: brine still waits before asking again,
+    # rather than asking on every sweep.
+    nothing = _state(asked_jid=inv.NO_JOB, asked_at=T0, answered_at=T0 - every)
+    assert not inv.is_due(nothing, now=T0 + timedelta(seconds=15), every=every, back_at=None)
+    assert inv.is_due(nothing, now=T0 + inv.ANSWER_WAIT, every=every, back_at=None)
+    # Salt's jids are digits, so no answer can be taken for it.
+    assert not inv.NO_JOB.isdigit()
 
 
 def test_the_credit_window_covers_the_wait_and_one_lost_answer() -> None:

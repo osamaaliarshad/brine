@@ -93,6 +93,7 @@ class InventoryRead(Base):
     read_at: Mapped[datetime | None]  # last good answer: entries are as of this
     first_read_at: Mapped[datetime | None]
     error: Mapped[str | None] = mapped_column(Text)  # the last answer's error, if it failed
+    # The last good answer was cut short, so some entries may be missing.
     truncated: Mapped[bool] = mapped_column(default=False)
     # Read again at or after this (a minion start, a person's job finishing), until brine's
     # answer comes.

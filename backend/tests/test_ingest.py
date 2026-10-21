@@ -4,7 +4,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.ingest import PRESENCE_STATE, Changes, Ingest
-from app.inventory import AFTER_JOB, ANSWER_WAIT, CREDIT_WINDOW, ReadState, is_due
+from app.inventory import AFTER_JOB, ANSWER_WAIT, CREDIT_WINDOW, NO_JOB, ReadState, is_due
 from app.models import (
     GrainsSnapshot,
     InventoryChange,
@@ -493,12 +493,24 @@ async def test_asks_are_recorded_for_each_minion(ingest: Ingest, sessions: Sessi
         assert (await minion(sessions, mid)).key_state == "accepted"
     assert (await read_row(sessions, "a")).read_at == T0
     assert (await read_row(sessions, "b")).read_at is None
-    # No minion matched: no job, so nothing is out.
-    await ingest.inventory_asked(["a"], "packages", at=T0 + 2 * HOUR, jid=None)
-    read = await read_row(sessions, "a")
-    assert read.asked_at == T0 + 2 * HOUR and read.asked_jid is None
     await ingest.inventory_asked([], "packages", at=T0 + 3 * HOUR, jid="A2")
     assert await count(sessions, InventoryRead) == 3
+
+
+async def test_an_ask_that_matched_no_minion(ingest: Ingest, sessions: Sessions) -> None:
+    await ingest.inventory_read("a", "packages", {"agent": "2.3.0"}, at=T0 - EVERY, jid=None)
+    # salt-api started no job: kept as NO_JOB, so brine waits as for any ask instead of asking
+    # again on every sweep.
+    await ingest.inventory_asked(["a"], "packages", at=T0, jid=None)
+    read = await read_row(sessions, "a")
+    assert read.asked_at == T0 and read.asked_jid == NO_JOB
+    assert not await due(sessions, now=T0 + 15 * SECOND)
+    assert await due(sessions, now=T0 + ANSWER_WAIT)
+    # No answer is brine's answer to it.
+    await ingest.inventory_wanted("a", at=T0 + MINUTE)
+    await ingest.inventory_asked(["a"], "packages", at=T0 + 2 * MINUTE, jid=None)
+    await ingest.inventory_read("a", "packages", {"agent": "2.3.0"}, at=T0 + 3 * MINUTE, jid=None)
+    assert (await read_row(sessions, "a")).wanted_at == T0 + MINUTE
 
 
 # Credit: brine's answer after a person's job.
@@ -547,6 +559,23 @@ async def test_the_credit_window(ingest: Ingest, sessions: Sessions) -> None:
     assert (await last_change(sessions, "b")).jid is None
     read = await read_row(sessions, "b")
     assert read.after_at is None and read.wanted_at is None
+
+
+async def test_an_ask_sent_just_before_the_job_isnt_credited(
+    ingest: Ingest, sessions: Sessions
+) -> None:
+    await ingest.inventory_read("a", "packages", {"agent": "2.3.0", "curl": "7"}, at=T0, jid=None)
+    # The sweep sends A1, then the job's return is processed, then A1 is recorded: it looks
+    # like an ask after the job, but it was timed (before sending) ahead of it.
+    sent = T0 + 6 * HOUR
+    await ingest.inventory_job_done("a", jid="J1", user="alice", at=sent + SECOND)
+    await ingest.inventory_asked(["a"], "packages", at=sent, jid="A1")
+    # A1 ran before the job's change; curl was changed by hand hours ago.
+    await ingest.inventory_read(
+        "a", "packages", {"agent": "2.3.0", "curl": "8"}, at=sent + 2 * SECOND, jid="A1"
+    )
+    last = await last_change(sessions)
+    assert (last.name, last.jid, last.user) == ("curl", None, None)
 
 
 async def test_a_failed_answer_uses_the_credit_up(ingest: Ingest, sessions: Sessions) -> None:
