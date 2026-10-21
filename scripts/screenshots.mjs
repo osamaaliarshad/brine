@@ -43,10 +43,19 @@ export const PAGES = [
   ['automation', '/automation'],
   ['events', '/events'],
   ['issues', '/issues'],
-  // With sign-in off there are no sign-ins to show; looking at pillar is audited either way.
+  // With sign-in off there are no sign-ins to show; runs and looks at pillar are audited either way.
   [
     'audit',
     async (base) => {
+      const post = (path, body) =>
+        fetch(`${base}${path}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'brine' },
+          body: JSON.stringify(body),
+        }).then((r) => r.json())
+      const ping = { target: 'rover-*', command: 'test.ping' }
+      const { minions } = await post('/api/commands/preview', ping)
+      await post('/api/commands/run', { ...ping, expect: minions })
       for (const id of ['rover-01', 'dock-01']) await fetch(`${base}/api/minions/${id}/live/pillar`)
       return '/audit'
     },

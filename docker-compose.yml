@@ -1,0 +1,27 @@
+# brine for a real Salt fleet. It doesn't need to run on the master: anywhere that can reach
+# salt-api will do.
+#
+#   cp config.example.yaml config.yaml   # point it at your salt-api, set up sign-in
+#   cp .env.example .env                 # secrets the config refers to as ${VAR}
+#   docker compose up -d                 # then open http://localhost:8080
+#
+# Put a TLS-terminating reverse proxy in front of it for anything beyond your own machine, and
+# set public_url in config.yaml to the address people use.
+
+services:
+  brine:
+    image: ghcr.io/osamaaliarshad/brine:latest
+    restart: unless-stopped
+    ports:
+      - "${BRINE_PORT:-8080}:8000"     # 8080, so it doesn't clash with salt-api's usual 8000
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # salt-api on this same machine
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - ./config.yaml:/config/config.yaml:ro
+      - brine-data:/data
+
+volumes:
+  brine-data:

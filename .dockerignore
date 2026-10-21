@@ -1,0 +1,25 @@
+# Only what the image needs. Secrets, local config and data must never reach the build.
+**/.git
+**/.env
+**/.env.*
+**/config.yaml
+**/data
+**/*.db
+**/*.db-*
+**/node_modules
+**/.venv
+**/__pycache__
+**/.mypy_cache
+**/.pytest_cache
+**/.ruff_cache
+**/dist
+**/coverage
+*.png
+*.md
+!frontend/**/*.md
+docs
+demo
+scripts
+.claude
+private
+.github

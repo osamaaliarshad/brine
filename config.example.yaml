@@ -5,7 +5,7 @@
 
 salt_api:
   url: https://salt.internal:8000
-  username: brine-service          # dedicated, least-privilege eauth user
+  username: brine                  # dedicated, least-privilege eauth user
   password: ${SALT_API_PASSWORD}
   eauth: pam
   verify_tls: true

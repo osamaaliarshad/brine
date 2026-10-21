@@ -53,7 +53,7 @@ Real fleets often have minions on an older release than the master. Most of what
 comes through the master (keys, job returns, cached grains, presence), so the master's version is
 what matters most. The minion page's live tabs (pillar, beacons, schedules, mine) call functions
 on the minion itself; those exist in every supported release. Testing a master with older minions
-in CI is on the [backlog](backlog.md).
+in CI is planned.
 
 ## Trying a version locally
 

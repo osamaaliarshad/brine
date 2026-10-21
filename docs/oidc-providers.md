@@ -4,7 +4,7 @@ brine signs people in with OpenID Connect, so your team uses the accounts they a
 Each brine deployment registers **its own** client with its own provider: nothing is shared
 between installs, and no client ID or secret ships with brine.
 
-The [demo](../README.md#demo-salt-fleet) runs with sign-in off (`auth.provider: none`), so you
+The [demo](../README.md#try-it) runs with sign-in off (`auth.provider: none`), so you
 don't need any of this to try brine.
 
 ## What every provider needs

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from importlib.metadata import PackageNotFoundError, version
@@ -25,6 +26,9 @@ FRONTEND_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
 
 
 def _app_version() -> str:
+    """The release this is: set in the Docker image (from the git tag), or "dev"."""
+    if release := os.environ.get("BRINE_VERSION", "").removeprefix("v"):
+        return release
     try:
         return version("brine")
     except PackageNotFoundError:

@@ -1,74 +1,57 @@
-# SaltGUI parity
+# Coming from SaltGUI
 
-brine aims to cover everything [SaltGUI](https://github.com/erwindon/SaltGUI) does, then add its own
-features. This maps each SaltGUI page to where it lives in brine and in which phase it lands.
-Inventory taken from SaltGUI `master` @ `c76b1fd` (v1.35.0-SNAPSHOT, October 2026).
+brine covers what [SaltGUI](https://github.com/erwindon/SaltGUI) does and adds its own features
+on top. This maps each SaltGUI page to where it lives in brine. Inventory taken from SaltGUI
+`master` @ `c76b1fd` (v1.35.0-SNAPSHOT, October 2026).
 
-SaltGUI is MIT licensed (© 2016–2026 Oliver Dunk, Martijn Jacobs, Erwin Dondorp). brine uses it as a
-reference for salt-api calls. If any code is ever copied, its copyright notice goes in
-`THIRD_PARTY_NOTICES.md`.
+SaltGUI is MIT licensed (© 2016–2026 Oliver Dunk, Martijn Jacobs, Erwin Dondorp). brine uses it
+as a reference for salt-api calls and contains none of its code.
 
-**Status (October 2026):** every read-only view below that's marked phase 3 is built. Write
-actions (phase 5) and sign-in (phase 2) are next.
+## The big difference
 
-## How SaltGUI works, in short
+SaltGUI runs in the browser and talks to salt-api directly, with each person's own Salt eauth
+login. brine has a backend: people sign in with your identity provider, the backend talks to
+salt-api with one least-privilege service account, records what happens in its own database, and
+decides who may do what with its own roles. That's what makes job history, presence, the audit
+log and catch-up runs possible.
 
-- The browser talks to salt-api directly, using the user's own Salt eauth credentials.
-- Every row or panel action only **pre-fills the command box**; nothing runs until "Run command".
-- Pages read from: `wheel key.list_all`, `wheel minions.connected`, `local grains.items` (or
-  `runner cache.grains`), `runner manage.versions`, `runner jobs.list_jobs` / `jobs.active` /
-  `jobs.list_job`, `local pillar.obfuscate` / `pillar.items`, `local beacons.list`,
-  `local schedule.list`, `local mine.valid` / `mine.get`, `wheel config.values`, `/events`.
-- Online/offline = "in `minions.connected`" and "answered `grains.items`". There is no last-seen
-  time and no presence tracking. The event stream doesn't reconnect after an error.
+Your `saltgui_templates` keep working: brine reads them from the master config as they are.
 
-## Page mapping
+## Page by page
 
-| SaltGUI | brine | Phase | Notes |
-|---|---|---|---|
-| Login (eauth user/password) | OIDC single sign-on | 2 | Users never see Salt credentials; the backend uses one service account |
-| Session expiry countdown | Cookie session + re-auth | 2 | |
-| `saltgui_pages` (per-user menus) | Roles (viewer / operator / admin) | 2 | Enforced server-side, unlike SaltGUI's cosmetic filter |
-| Minions | Fleet table | 3 | Adds stat cards, live/stale/offline, last seen, grain columns, pagination |
-| Minions: version / CVE warnings | Fleet + Issues | 3 | From `manage.versions` |
-| Grains (+ `saltgui_preview_grains`) | Fleet columns + Fleet › Grains explorer | 3 ✅ | Columns customisable per browser; explorer shows each grain's distribution |
-| Grains per minion | Minion › Grains | 3 | Adds "as of" timestamp and history diff |
-| Pillars (masked, `saltgui_public_pillars`) | Minion › Pillar | 3 | Masked by default; unmasking is audited |
-| Mine | Minion › Mine | 3 | |
-| Beacons | Minion › Beacons + Automation › Beacons (fleet-wide) | 3 ✅ | |
-| Schedules | Minion › Schedules + Automation › Schedules (fleet-wide) | 3 ✅ | |
-| Nodegroups | Fleet › Nodegroups | 3 ✅ | Members from the master cache, so offline members count |
-| Keys | Keys page (+ minion page) | 3 / 5 ✅ | Accept / reject / delete: admins, fingerprint check, typed name, audited |
-| Jobs | Jobs page | 3 | From brine's own DB, so history outlives the master's job cache |
-| Job detail | Job page | 3 / 5 ✅ | Run again; Stop (term_job) / Kill (kill_job) on minions still running it; all through the Run page |
-| Highstate | Jobs › Highstate | 3 | Latest state run per minion, one dot per state |
-| Events | Events page | 3 | Auto-reconnecting SSE |
-| Reactors | Events › Reactors | 3 | Read-only |
-| Issues | Issues page | 3 | SaltGUI's detectors (below) plus stale / never-reported minions |
-| Options + `/stats` | Settings | 3 | Active config, presence method, salt-api health |
-| Command box | Run (sidebar), Run command on Fleet and minion pages | 5 ✅ | Exact target preview, then a click to run; per-role allowlist; audited; results on the job page |
-| Grains / beacons / schedules / mine actions | Minion page actions | 5 | |
-| Templates (`saltgui_templates`) | Run › Templates | 5 ✅ | Reads SaltGUI's own `saltgui_templates` from the master, plus `templates:` in brine's config; categories; one click fills in and previews |
-| Orchestrations | Orchestrations page | 5 ✅ | Steps in run order (target, what, requisites); Test / Run go through the Run page; the run and every step's job are recorded under the person |
-| Search (regex / invert / case), sort, row selection | Tables | 3 | |
-| Dark mode (system only) | Light / dark with manual toggle | 3 | |
-| Keyboard shortcuts | | Later | |
-| MOTD banners | | Later | |
-| Popup / new-tab mode | Not needed | — | Every brine view has its own URL |
+| SaltGUI | brine | Notes |
+|---|---|---|
+| Login (eauth user and password) | OIDC sign-in | People never see Salt credentials |
+| `saltgui_pages` (menus per user) | Roles: viewer, operator, admin | Enforced by the server, not just hidden in the menu |
+| Minions | Fleet | Online / stale / offline with last seen, your choice of grain columns |
+| Grains (+ `saltgui_preview_grains`) | Fleet columns, Fleet › Grains | Each grain's spread across the fleet; add it as a column in one click |
+| Grains of one minion | Minion › Grains | When they were collected, and their history as diffs |
+| Pillars (masked) | Minion › Pillar | Values masked; showing them isn't built yet |
+| Mine | Minion › Mine | |
+| Beacons, Schedules | Minion tabs, plus Automation for the whole fleet | Read-only for now; enable / disable isn't built yet |
+| Nodegroups | Fleet › Nodegroups | Members from the master's cache, so offline members count |
+| Keys | Keys (and each minion page) | Accept / reject / delete: admins, fingerprint check, typed name, audited |
+| Jobs | Jobs | History kept in brine's database, longer than the master's job cache |
+| Job | Job | Run again; stop or kill it on minions still running it |
+| Highstate | Jobs › State runs | Each minion's latest state run, one square per state |
+| Events | Events | Reconnects by itself; a Reactors tab shows the master's reactor config |
+| Issues | Issues | Plus stale and never-seen minions, and minions presence can't see |
+| Options, `/stats` | Settings | |
+| Command box | Run | Shows the exact minions before anything runs; per-role allowlist; audited |
+| Templates (`saltgui_templates`) | Run › Templates | Plus `templates:` in brine's config, with fill-in fields |
+| Orchestrations | Orchestrations | Steps in run order; ones that take pillar at run time ask for it |
+| Search, sort | Every table | |
+| Row selection | Not built yet | Use a list target on the Run page |
+| Keyboard shortcuts, MOTD | Not built yet | |
+| Popup / new-tab mode | Not needed | Every view has its own URL |
 
-### SaltGUI Issues detectors to match
+## Only in brine
 
-Unaccepted keys · minions not connected · jobs running > 60 s · disabled beacons · disabled
-schedulers / schedule jobs · failed states in recent state runs · minion/master version mismatch
-and known CVEs · `full_return` not enabled.
-
-## brine-only features
-
-- OIDC SSO with role mapping and a server-side permission layer on top of Salt's eauth ACL
-- Presence tracking (`presence_events`, with a `manage.status` fallback): online, stale, offline, last seen
-- Live vs. cached vs. unknown shown explicitly everywhere
-- Grains snapshots with timestamps and history diffs
-- Job history kept in brine's database
-- Audit log
-- Live updates without refresh, and a phone-friendly layout
-- Demo mode with no real infrastructure
+- Single sign-on with roles, checked on every request
+- Presence: online, stale, offline and last seen, using `presence_events` with a polling fallback
+- What's live and what's cached, said everywhere
+- Grains history with timestamps
+- Job history that outlives the master's job cache, with each job under the person who ran it
+- An audit log
+- Catch-up runs: offline minions get a command when they're back
+- Live updates without refreshing, and a layout that works on a phone

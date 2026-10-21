@@ -2,6 +2,9 @@
 #
 #   docker compose -f docker-compose.demo.yml up -d --build
 #
+# Add `--profile brine` to also run brine itself, built from this checkout, on
+# http://localhost:8080 (sign-in off: everyone is an admin; BRINE_PORT=8090 for another port).
+#
 # salt-api is published on http://127.0.0.1:8001 (localhost only) with user `brine`,
 # eauth `pam`, password $SALT_API_PASSWORD (default: brine-demo).
 # Stop a minion to watch it go offline:  docker compose -f docker-compose.demo.yml stop rover-03
@@ -80,6 +83,25 @@ services:
     environment: { MINION_ID: rover-04, SITE: site-b, ROLE: rover, APP_VERSION: "2.4.1", FIRMWARE_VERSION: "1.8.0" }
     volumes: [rover-04-pki:/etc/salt/pki/minion]
 
+  brine:
+    profiles: [brine]
+    build:
+      context: .
+      args:
+        BRINE_VERSION: ${BRINE_VERSION:-demo}
+    image: brine:demo
+    restart: unless-stopped
+    depends_on:
+      salt-master:
+        condition: service_healthy
+    environment:
+      SALT_API_URL: http://salt-master:8000
+    volumes:
+      - ./demo/brine.yaml:/config/config.yaml:ro
+      - brine-data:/data
+    ports:
+      - "127.0.0.1:${BRINE_PORT:-8080}:8000"
+
 # Keys are kept in volumes so recreating one container doesn't break its trust with the others.
 volumes:
   master-pki:
@@ -89,3 +111,4 @@ volumes:
   rover-03-pki:
   dock-01-pki:
   rover-04-pki:
+  brine-data:                      # brine's database, with --profile brine

@@ -7,36 +7,124 @@
 
 <p align="center"><b>A modern, self-hosted web UI for Salt fleets.</b></p>
 
+<p align="center">
+  <a href="https://github.com/osamaaliarshad/brine/releases/latest">Latest release</a> ·
+  <a href="#try-it">Try it</a> ·
+  <a href="#install">Install</a> ·
+  <a href="#pages">Pages</a> ·
+  <a href="docs/saltgui-parity.md">Coming from SaltGUI</a>
+</p>
+
 ---
 
-> **Status: early development.** Every SaltGUI view has a brine page, and commands, templates, orchestrations and key management work, all behind OIDC sign-in and roles. Still to come: packaging (a Docker image and a quickstart). Follow [docs/backlog.md](docs/backlog.md) for progress.
+brine plugs into an existing **salt-master + salt-api** and gives your team a clean, fast view of
+the fleet, and a safe way to act on it:
 
-brine plugs into an existing **salt-master + salt-api** and gives your team a clean, fast view of the fleet:
-
-- **Single sign-on** through any OIDC provider: Google, Okta, Microsoft Entra, Keycloak, or GitHub via Dex ([setup](docs/oidc-providers.md)). Viewer, operator and admin roles by email pattern. No Salt credentials for end users.
-- **Live vs. cached, clearly separated.** Online now, or last seen *X* ago, with grains marked "as of" when they were collected.
-- **Per-minion pages** with grains (current and history), recent jobs, and a presence timeline.
-- **Job history that outlives Salt's job cache.**
-- **Run commands safely.** See exactly which minions a command reaches before it runs; a per-role allowlist decides who may run what.
-- **Catch-up runs.** Tick a box and minions that are offline get the command when they come back, without highstate, `startup_states` or reactors. Something Salt itself can't do per command.
+- **Single sign-on** through any OIDC provider: Google, Okta, Microsoft Entra, Keycloak, or GitHub
+  via Dex ([setup](docs/oidc-providers.md)). Viewer, operator and admin roles by email pattern.
+  Nobody needs Salt credentials.
+- **Live and cached, clearly told apart.** Online now, or last seen *X* ago, with grains marked
+  with when they were collected.
+- **Job history that outlives Salt's job cache,** each job under the person who ran it.
+- **Run commands safely.** See exactly which minions a command reaches before it runs; a per-role
+  allowlist decides who may run what.
+- **Catch-up runs.** Tick a box, and minions that are offline get the command when they come
+  back, without highstate, `startup_states` or reactors.
 - **An audit log** of who did what, on which minions, and when.
-- **Configurable columns.** Show any grain (`app_version`, `firmware_version`, ...) in the fleet table, no code changes.
-- **Parity with [SaltGUI](https://github.com/erwindon/SaltGUI)** as the baseline; see [docs/saltgui-parity.md](docs/saltgui-parity.md).
-- **Least privilege.** brine needs only a read-only Salt account (plus three functions if you want key management); the exact ACL is in [docs/permissions-and-salt-acl.md](docs/permissions-and-salt-acl.md).
-- **Every supported Salt release**, tested end to end in CI against a real master: [docs/salt-versions.md](docs/salt-versions.md).
+- **Any grain as a column** (`app_version`, `firmware_version`, ...) in the fleet table, no code
+  changes.
+- **Everything [SaltGUI](https://github.com/erwindon/SaltGUI) does,** and your
+  `saltgui_templates` keep working ([coming from SaltGUI](docs/saltgui-parity.md)).
+- **Least privilege.** brine needs a read-only Salt account, plus a few functions for keys and
+  commands if you want them ([the exact ACL](docs/permissions-and-salt-acl.md)).
+- **Every supported Salt release** (3006, 3007, 3008), tested end to end in CI against a real
+  master ([salt-versions](docs/salt-versions.md)).
 
-Commands run from the Run page, behind roles, an exact target preview and a confirmation click.
+Nothing is installed on the master or the minions, and brine doesn't have to run on the master:
+it's one container that talks to salt-api like any other client.
+
+## Try it
+
+A demo Salt fleet (a master with salt-api and five minions) and brine, on your machine, with
+nothing to configure. You need Docker and git:
+
+```bash
+git clone https://github.com/osamaaliarshad/brine.git
+cd brine
+docker compose -f docker-compose.demo.yml --profile brine up -d --build --wait
+```
+
+Open <http://localhost:8080> (port taken? Start it with `BRINE_PORT=8090` in front). Sign-in
+is off in the demo, so you're an admin. Stop a minion to watch it go offline
+(`docker compose -f docker-compose.demo.yml stop rover-03`), and remove it all with
+`docker compose -f docker-compose.demo.yml --profile brine down -v`.
+
+## Install
+
+You need a salt-master with salt-api (`rest_cherrypy`), Docker on a machine that can reach
+salt-api (the master itself is fine), and an OIDC provider for sign-in.
+
+**1. Give brine a Salt account.** On the master, create the account, enable the salt-api clients
+brine uses, and paste in its ACL: [docs/permissions-and-salt-acl.md](docs/permissions-and-salt-acl.md).
+The read-only ACL is enough to start; keys and commands are optional extras.
+
+**2. Register brine with your sign-in provider.** One "web application" client with the redirect
+URI `<where people open brine>/api/auth/callback`: [docs/oidc-providers.md](docs/oidc-providers.md)
+has Google, Okta, Entra, Keycloak and GitHub.
+
+**3. Get the compose file and the example config** from the
+[latest release](https://github.com/osamaaliarshad/brine/releases/latest):
+
+```bash
+mkdir brine && cd brine
+curl -fsSLO https://github.com/osamaaliarshad/brine/releases/latest/download/docker-compose.yml
+curl -fsSL -o config.yaml https://github.com/osamaaliarshad/brine/releases/latest/download/config.example.yaml
+```
+
+**4. Fill in `config.yaml`:** `salt_api.url`, `public_url`, `auth.issuer` and `roles` at least.
+Every setting is explained in the file. Secrets stay out of it, as `${VAR}` placeholders, in a
+`.env` file next to it:
+
+```bash
+SALT_API_PASSWORD=...
+OIDC_CLIENT_ID=...
+OIDC_CLIENT_SECRET=...
+```
+
+**5. Start it:**
+
+```bash
+docker compose up -d
+```
+
+brine listens on port 8080 (`BRINE_PORT` in `.env` changes it). Settings shows what it's
+connected to; Issues says if something's off.
+
+### Good to know
+
+- **On the master itself,** point `salt_api.url` at `https://host.docker.internal:8000` (the
+  compose file maps that name to the host). salt-api has to listen on more than `127.0.0.1` for
+  a container to reach it.
+- **salt-api with a self-signed certificate:** set `salt_api.verify_tls: false`, or give salt-api
+  a certificate the container trusts.
+- **For your team,** put brine behind a reverse proxy with HTTPS, and set `public_url` to the
+  address people use, so session cookies are marked Secure.
+- **Data** lives in the `brine-data` volume (SQLite). For PostgreSQL, set
+  `database: postgresql://user:pass@host/brine`. History is pruned after 90 days (`retention`).
+- **Upgrading:** `docker compose pull && docker compose up -d`. brine updates its database by
+  itself on start. Pin a version with `image: ghcr.io/osamaaliarshad/brine:0.1.0`.
+- **Without Docker:** brine is a Python app with a built frontend; [CONTRIBUTING.md](CONTRIBUTING.md)
+  runs it from source.
 
 ## Pages
 
-Screenshots follow your light/dark preference and come from the [demo fleet](#demo-salt-fleet),
-regenerated with `node scripts/screenshots.mjs --stop-minion rover-03`.
+Screenshots follow your light/dark preference and come from the demo fleet.
 
 ### Fleet
 
 Every minion at a glance: online now or last seen when, OS and Salt version, and any grains you
-choose as columns. Search, filter by status or site, sort, and pick columns (add any grain the
-fleet reports, reorder, remove; saved per browser, with the config's `fleet.columns` as the team
+choose as columns. Search, filter by status, sort, and pick columns (add any grain the fleet
+reports, reorder, remove; saved per browser, with the config's `fleet.columns` as the team
 default). Updates live as minions come and go.
 
 <picture>
@@ -44,8 +132,8 @@ default). Updates live as minions come and go.
   <img alt="The Fleet page: three minions online, one offline, with site, app version and firmware columns" src="docs/assets/screenshots/fleet-light.png">
 </picture>
 
-**Grains** shows how any grain is spread across the fleet (which robots run which app or firmware
-version) and adds it as a column in one click:
+**Grains** shows how any grain is spread across the fleet (which machines run which app or
+firmware version) and adds it as a column in one click:
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/grains-dark.png">
@@ -73,8 +161,8 @@ it was collected, grains history as diffs, recent jobs, and an online/offline ti
 ### Jobs
 
 Every job the master runs, recorded as it happens and kept after the master's job cache forgets
-it (plus a backfill of whatever the cache still holds when brine connects). Search by function,
-target, user or job ID; filter minion jobs and runners.
+it (plus whatever the cache still holds when brine first connects). Search by function, target,
+user or job ID; filter minion jobs and runners.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/jobs-dark.png">
@@ -93,7 +181,7 @@ SaltGUI's Highstate page:
 
 One job in full: the command, who ran it, how long it took, which minions never answered, and each
 minion's result. State runs are broken down state by state; anything else is shown as a tree.
-Run it again, or stop it on the minions still running it, from here (through the Run page).
+Run it again, or stop it on the minions still running it.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/job-dark.png">
@@ -105,12 +193,12 @@ Run it again, or stop it on the minions still running it, from here (through the
 SaltGUI's command box, with a safety catch. Type a target and a command the way you would after
 `salt` on the master (`state.apply motd test=True`), or `runners.` / `wheel.` ones for the master
 itself. brine first shows exactly which minions it reaches, and which of those are offline;
-running is a separate click, and the results land on the job page as they arrive. Who may run
-what is a per-role allowlist in brine's config, every run is in the audit log, and links like
-`/run?target=rover-*&command=test.ping` open already previewed. Templates (brine's own, or
-SaltGUI's `saltgui_templates` from the master config, unchanged) fill it in with one click, and
-`{{ name }}` anywhere in a template becomes a field to fill in first: "Deploy branch
-`{{ branch }}` to `{{ minion }}`" is one click and two answers.
+running is a separate click, it runs on exactly those minions, and the results land on the job
+page as they arrive. Who may run what is a per-role allowlist in brine's config, every run is in
+the audit log, and links like `/run?target=rover-*&command=test.ping` open already previewed.
+Templates (brine's own, or SaltGUI's `saltgui_templates` from the master config, unchanged) fill
+it in with one click, and `{{ name }}` anywhere in a template becomes a field to fill in first:
+"Deploy branch `{{ branch }}` to `{{ minion }}`" is one click and two answers.
 
 When some targeted minions are offline, you can have them **catch up**: tick "Also run it on the
 offline minions when they're back" and brine remembers the command and runs it on each one as it
@@ -139,12 +227,13 @@ without them brine stays read-only for keys and says so.
 
 ### States
 
-What the master tells each minion to be: which states the top file assigns to which minions
-(asked live, skipping minions that are offline), and the state files themselves.
+What the master tells each minion to be: the top file, grouped by folder and foldable, with the
+minions each state applies to (asked live, skipping minions that are offline), and the state
+files themselves in a folder tree.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/states-dark.png">
-  <img alt="States: motd and dock states with the minions they apply to" src="docs/assets/screenshots/states-light.png">
+  <img alt="States: the dock and motd states with the minions they apply to, rover-03 offline and not asked" src="docs/assets/screenshots/states-light.png">
 </picture>
 
 ### Orchestrations
@@ -195,21 +284,21 @@ to the minion or job. The count also appears on the Fleet page and in the sideba
 
 ### Audit log
 
-Admins only. Every sign-in (and every refused one, with the reason), sign-out, and look at
-sensitive data such as a minion's pillar, with who, when and from where. Commands will land here
-too.
+Admins only. Every sign-in (and every refused one, with the reason), sign-out, command run, key
+change, catch-up and look at sensitive data such as a minion's pillar, with who, when and from
+where.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/audit-dark.png">
-  <img alt="The Audit log page: sign-ins, refused sign-ins and pillar views" src="docs/assets/screenshots/audit-light.png">
+  <img alt="The Audit log page: a test.ping run on rover-* and pillar views, with filters for sign-ins, commands, keys and data access" src="docs/assets/screenshots/audit-light.png">
 </picture>
 
 ### Settings
 
 What this brine is running with: the salt-api connection and service account, which presence
-method is active, fleet defaults, database, and how sign-in and roles are set up (pattern
-counts, not who holds them). Secrets never leave the server. Plus
-per-browser choices: theme (light, dark or follow the system) and resetting custom columns.
+method is active, fleet defaults, retention, database, and how sign-in and roles are set up
+(pattern counts, not who holds them). Secrets never leave the server. Plus per-browser choices:
+theme (light, dark or follow the system) and resetting custom columns.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/settings-dark.png">
@@ -222,7 +311,7 @@ per-browser choices: theme (light, dark or follow the system) and resetting cust
 YOUR EXISTING SETUP                 BRINE (docker compose up)
 ┌──────────────────────┐            ┌────────────────────────────────┐
 │ salt-master          │            │ backend (FastAPI)              │
-│ salt-api  ◀──────────┼── HTTPS ───┤  ├─ OIDC login + sessions      │
+│ salt-api  ◀──────────┼── HTTPS ───┤  ├─ OIDC sign-in + sessions    │
 │ minions (untouched)  │            │  ├─ salt-api client            │
 └──────────────────────┘            │  ├─ event listener → database  │
                                     │  ├─ roles + audit log          │
@@ -231,61 +320,26 @@ YOUR EXISTING SETUP                 BRINE (docker compose up)
 └──────────────────────┘            └────────────────────────────────┘
 ```
 
-- **Nothing to install on minions**, and brine doesn't need to run on the master host. It's just another salt-api client.
-- **salt-api is never exposed to browsers.** Only the backend talks to it, with a dedicated least-privilege service account.
+- **salt-api is never exposed to browsers.** Only the backend talks to it, with one
+  least-privilege service account.
+- **People who use the salt CLI on the master aren't affected.** brine reads the same event bus
+  and job cache; it never changes the master's config, and never repeats their commands.
+- **Roles are checked on every request,** so removing someone from the config takes effect on
+  their next click.
 
-## Quickstart
+[SECURITY.md](SECURITY.md) has what brine protects, the limits worth knowing, and how to report a
+problem privately. [docs/decisions.md](docs/decisions.md) explains the design choices.
 
-*Coming with v0.1.0:* a 10-minute guide to connect brine to your own Salt setup, plus a demo mode that runs with no real infrastructure.
+## What's next
 
-## Development
+Enabling and disabling schedules and beacons, revealing pillar values to admins, selecting minions
+in the fleet table to run something on them, and testing older minions under a newer master in
+CI. Ideas and issues are welcome.
 
-Requirements: Python 3.12+ with [uv](https://docs.astral.sh/uv/), Node 22+, and Docker (for the demo Salt stack).
+## Contributing
 
-### Demo Salt fleet
-
-A salt-master with salt-api, four minions with custom grains, and one minion waiting for key
-approval. Nothing to configure:
-
-```bash
-docker compose -f docker-compose.demo.yml up -d --build --wait
-uv run --project backend python demo/smoke_test.py --presence   # checks salt-api end to end
-```
-
-salt-api listens on `http://127.0.0.1:8001` (user `brine`, password `brine-demo`, eauth `pam`).
-Use `SALT_VERSION=3007` or `3008` to run a newer Salt ([docs/salt-versions.md](docs/salt-versions.md)). Stop a minion to watch it go offline:
-`docker compose -f docker-compose.demo.yml stop rover-03`.
-
-### brine
-
-```bash
-# backend: http://localhost:8000 (against the demo fleet; use your own config.yaml for real ones)
-cd backend
-uv sync
-BRINE_CONFIG=../demo/brine.yaml uv run uvicorn app.main:create_app --factory --reload
-
-# frontend: http://localhost:5173 (proxies /api to the backend)
-cd frontend
-npm install
-npm run dev
-```
-
-The demo config runs with sign-in off: everyone is an admin, and a banner says so. To try real
-sign-in, register an OIDC client ([docs/oidc-providers.md](docs/oidc-providers.md)), put its ID
-and secret in a git-ignored `.env` (see `.env.example`), and point a git-ignored `config.yaml` at
-it:
-
-```bash
-BRINE_CONFIG=../config.yaml uv run --env-file ../.env uvicorn app.main:create_app --factory --reload
-```
-
-Checks (the same ones CI runs):
-
-```bash
-cd backend && uv run ruff check . && uv run ruff format --check . && uv run mypy && uv run pytest
-BRINE_DEMO_SALT_API=http://127.0.0.1:8001 uv run pytest tests/test_demo_integration.py  # needs the demo fleet
-cd frontend && npm run lint && npm run typecheck && npm test && npm run build
-```
+[CONTRIBUTING.md](CONTRIBUTING.md) has the development setup (backend, frontend and the demo
+fleet), the checks CI runs, and how releases are made.
 
 ## License
 

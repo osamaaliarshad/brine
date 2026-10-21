@@ -1,6 +1,6 @@
 [project]
 name = "brine"
-version = "0.1.0.dev0"
+version = "0.1.0"
 description = "A modern, self-hosted web UI for Salt fleets."
 readme = "../README.md"
 license = "MIT"

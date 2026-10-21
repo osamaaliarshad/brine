@@ -70,3 +70,24 @@ jobs:
         run: uv run pytest tests/test_demo_integration.py -v
       - if: failure()
         run: docker compose -f docker-compose.demo.yml logs --no-color --tail 100
+
+  # The release image: it builds, starts against the demo fleet the way the README's demo runs it,
+  # and serves the UI and API.
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: docker compose -f docker-compose.demo.yml --profile brine up -d --build --wait
+        env:
+          BRINE_VERSION: ci
+      - name: UI, API, and a connection to salt-api
+        run: |
+          curl -fsS http://127.0.0.1:8080/ | grep -q '<div id="root">'
+          curl -fsS http://127.0.0.1:8080/api/healthz | grep -q '"version":"ci"'
+          for i in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:8080/api/status | grep -q '"connected":true' && exit 0
+            sleep 2
+          done
+          exit 1
+      - if: failure()
+        run: docker compose -f docker-compose.demo.yml --profile brine logs --no-color --tail 100
