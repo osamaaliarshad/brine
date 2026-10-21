@@ -118,6 +118,9 @@ connected to; Issues says if something's off.
   itself on start. Pin a version with `image: ghcr.io/osamaaliarshad/brine:0.1.0`.
 - **Without Docker:** brine is a Python app with a built frontend; [CONTRIBUTING.md](CONTRIBUTING.md)
   runs it from source.
+- **Robots and other machines on flaky links:** [docs/salt-on-robots.md](docs/salt-on-robots.md)
+  covers installing the minion on Jetson boards, settings that help it reconnect, holding JetPack
+  packages, and keeping the master safe.
 
 ## Pages
 
