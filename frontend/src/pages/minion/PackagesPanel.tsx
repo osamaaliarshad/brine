@@ -24,12 +24,16 @@ function sinceFirstRead(entry: InventoryEntry, s: InventorySource): boolean {
   return !!s.first_read_at && Date.parse(entry.since) === Date.parse(s.first_read_at)
 }
 
-/** When it appeared or changed. Nothing to say for what was there at the first read (the
- * heading has that date), so what did change stands out. */
-function Since({ entry, s, minion, now }: { entry: InventoryEntry; s: InventorySource; minion: string; now: number }) {
-  if (sinceFirstRead(entry, s))
-    return <span title={`Already there when brine first read ${minion} on ${formatDay(s.first_read_at!, now)}`}>—</span>
-  return <span title={formatAbsolute(entry.since)}>{formatRelative(entry.since, now)}</span>
+/** When it appeared or changed: "5h ago" under the Since heading, "since 5h ago" on its own.
+ * Only for what changed after the first read; the rest is left blank (the heading has that
+ * date), so what did change stands out. */
+function Since({ entry, now, alone = false }: { entry: InventoryEntry; now: number; alone?: boolean }) {
+  return (
+    <span title={formatAbsolute(entry.since)}>
+      {alone && 'since '}
+      {formatRelative(entry.since, now)}
+    </span>
+  )
 }
 
 function Value({ text }: { text: string }) {
@@ -80,12 +84,15 @@ function Entries({
         </Link>
         {!sinceFirstRead(entry, s) && (
           <span className="text-muted">
-            <Since entry={entry} s={s} minion={minion} now={now} />
+            <Since entry={entry} now={now} alone />
           </span>
         )}
       </div>
     )
   }
+  const firstRead = s.first_read_at
+    ? `Already there when brine first read ${minion} on ${formatDay(s.first_read_at, now)}`
+    : undefined
   return (
     <table className="w-full table-fixed text-sm">
       <thead className="text-left text-xs uppercase tracking-wider text-muted">
@@ -111,15 +118,20 @@ function Entries({
               <Value text={entry.value} />
               {!wide && !sinceFirstRead(entry, s) && (
                 <div className="mt-0.5 font-sans text-xs break-normal text-muted">
-                  <Since entry={entry} s={s} minion={minion} now={now} />
+                  <Since entry={entry} now={now} alone />
                 </div>
               )}
             </td>
-            {wide && (
-              <td className="px-4 py-2 text-muted sm:pr-6">
-                <Since entry={entry} s={s} minion={minion} now={now} />
-              </td>
-            )}
+            {wide &&
+              (sinceFirstRead(entry, s) ? (
+                <td className="px-4 py-2 sm:pr-6" title={firstRead}>
+                  <span className="sr-only">Already there at brine's first read</span>
+                </td>
+              ) : (
+                <td className="px-4 py-2 text-muted sm:pr-6">
+                  <Since entry={entry} now={now} />
+                </td>
+              ))}
           </tr>
         ))}
       </tbody>
@@ -169,13 +181,13 @@ function SourceSection({
           <Link to={INVENTORY_SETTINGS} className="text-fg underline underline-offset-2 hover:text-accent">
             Settings › Packages and checks
           </Link>{' '}
-          has the lines to add.
+          has the lines to add to brine's Salt account.
         </p>
       )}
       {s.truncated && <p className={NOTE}>The last answer was cut short; some entries may be missing.</p>}
       {!s.read_at ? (
         !s.error &&
-        !s.refused && <p className={NOTE}>Not read yet. brine reads every online minion within a few minutes.</p>
+        !s.refused && <p className={NOTE}>No answer yet. brine reads every online minion within a few minutes.</p>
       ) : s.entries.length === 0 ? (
         <p className={NOTE} title={s.kind === 'check' ? 'The check printed nothing' : undefined}>
           {s.kind === 'check' ? 'Not reported' : 'No packages reported'}
@@ -219,7 +231,7 @@ export function PackagesPanel({ minion, now }: { minion: MinionDetail; now: numb
 
   return (
     <div>
-      {minion.key_state === 'accepted' && <Compare minionId={minion.id} sources={sources} />}
+      {minion.key_state === 'accepted' && <Compare minionId={minion.id} sources={sources} now={now} />}
       <ReadNowBar
         read={read}
         minion={minion.id}

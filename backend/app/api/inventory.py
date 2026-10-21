@@ -323,9 +323,10 @@ async def compare_fleet(
     from_reference = (
         select(
             shared.c.minion_id,
-            func.count(theirs.name),
-            func.sum(case((theirs.name.is_(None), 1), else_=0)),
-            func.sum(case((theirs.value != ref.value, 1), else_=0)),
+            shared.c.source,
+            func.count(theirs.name).label("both"),
+            func.sum(case((theirs.name.is_(None), 1), else_=0)).label("missing"),
+            func.sum(case((theirs.value != ref.value, 1), else_=0)).label("different"),
         )
         .select_from(shared)
         .join(ref, and_(ref.minion_id == reference, ref.source == shared.c.source))
@@ -337,7 +338,8 @@ async def compare_fleet(
                 theirs.name == ref.name,
             ),
         )
-        .group_by(shared.c.minion_id)
+        .group_by(shared.c.minion_id, shared.c.source)
+        .subquery()
     )
     # How many entries each minion has of each source both read: those the reference doesn't
     # have are the rest. Counted per source by the primary key; joined to the entries instead,
@@ -350,31 +352,69 @@ async def compare_fleet(
         )
         .scalar_subquery()
     )
-    total: dict[str, int] = {}
-    for mid, n in await session.execute(select(shared.c.minion_id, entries)):
-        total[mid] = total.get(mid, 0) + int(n)
-    counted = {
-        mid: (int(both), int(missing), int(different))
-        for mid, both, missing, different in await session.execute(from_reference)
-    }
+    # One statement, so a read stored in between can't put the two counts out of step.
+    counted = await session.execute(
+        select(
+            shared.c.minion_id,
+            shared.c.source,
+            entries.label("total"),
+            func.coalesce(from_reference.c.both, 0).label("both"),
+            func.coalesce(from_reference.c.missing, 0).label("missing"),
+            func.coalesce(from_reference.c.different, 0).label("different"),
+        )
+        .select_from(shared)
+        .outerjoin(
+            from_reference,
+            and_(
+                from_reference.c.minion_id == shared.c.minion_id,
+                from_reference.c.source == shared.c.source,
+            ),
+        )
+    )
+    order = inventory.sources(runtime.settings)
+    found: dict[str, ComparedMinion] = {}
+    for row in counted.mappings():
+        mid = row["minion_id"]
+        m = found.setdefault(
+            mid,
+            ComparedMinion(
+                minion_id=mid,
+                read=True,
+                sources_compared=[],
+                different=0,
+                only_reference=0,
+                only_minion=0,
+            ),
+        )
+        m.sources_compared.append(row["source"])
+        m.different += int(row["different"])
+        m.only_reference += int(row["missing"])
+        m.only_minion += max(0, int(row["total"]) - int(row["both"]))
+    for m in found.values():
+        m.sources_compared.sort(key=order.index)
     others = await session.scalars(
         select(Minion.id)
         .where(Minion.key_state == "accepted", Minion.id != reference)
         .order_by(Minion.id)
     )
-    rows = []
-    for mid in others:
-        both, missing, different = counted.get(mid, (0, 0, 0))
-        rows.append(
-            ComparedMinion(
-                minion_id=mid,
-                read=mid in total,
-                different=different,
-                only_reference=missing,
-                only_minion=total.get(mid, 0) - both,
-            )
+    rows = [
+        found.get(mid)
+        or ComparedMinion(
+            minion_id=mid,
+            read=False,
+            sources_compared=[],
+            different=0,
+            only_reference=0,
+            only_minion=0,
         )
-    return FleetComparison(reference=reference, minions=rows)
+        for mid in others
+    ]
+    ref_sources = set(await session.scalars(ref_reads.with_only_columns(InventoryRead.source)))
+    return FleetComparison(
+        reference=reference,
+        reference_sources=[s for s in order if s in ref_sources],
+        minions=rows,
+    )
 
 
 @router.get("/inventory/compare/{minion_id}", response_model=MinionComparison)

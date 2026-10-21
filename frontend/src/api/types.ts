@@ -447,6 +447,8 @@ export type ComparedMinion = {
   minion_id: string
   /** It and the reference both have a whole read of at least one source (else the counts are 0). */
   read: boolean
+  /** Those sources, which the counts are over: packages, then each check. */
+  sources_compared: string[]
   /** The same name, another value. */
   different: number
   /** The reference has it, this minion doesn't ("missing"). */
@@ -456,7 +458,12 @@ export type ComparedMinion = {
 }
 
 /** How every other accepted minion differs from the reference, by ID. */
-export type FleetComparison = { reference: string; minions: ComparedMinion[] }
+export type FleetComparison = {
+  reference: string
+  /** The reference's whole reads: what the others can be compared on. */
+  reference_sources: string[]
+  minions: ComparedMinion[]
+}
 
 export type InventoryDifference = {
   source: string

@@ -79,9 +79,9 @@ function Change({ label, tone, children }: { label: string; tone: string; childr
   )
 }
 
-/** "1 changed · 2 added". */
+/** "1 changed · 2 new", as the rows say "(new)". */
 function counts(changed: number, added: number, removed: number): string {
-  return [changed && `${changed} changed`, added && `${added} added`, removed && `${removed} removed`]
+  return [changed && `${changed} changed`, added && `${added} new`, removed && `${removed} removed`]
     .filter(Boolean)
     .join(' · ')
 }
@@ -125,7 +125,7 @@ function GrainsEntry({ entry, first }: { entry: GrainsChange; first: boolean }) 
   )
 }
 
-/** "Packages: 1 changed · 1 added", "rover-cli check: changed", or with `partial` (the list
+/** "Packages: 1 changed · 1 new", "rover-cli check: changed", or with `partial` (the list
  * stopped partway through this read) "Packages: 500 or more changed". */
 function readTitle(source: string, changes: InventoryChange[], partial: boolean): string {
   const what = source === 'packages' ? 'Packages' : `${source} check`
@@ -133,7 +133,7 @@ function readTitle(source: string, changes: InventoryChange[], partial: boolean)
   const added = changes.filter((c) => c.old === null).length
   const removed = changes.filter((c) => c.new === null).length
   if (changes.length === 1 && changes[0]!.name === '')
-    return `${what}: ${added ? 'added' : removed ? 'removed' : 'changed'}`
+    return `${what}: ${added ? 'new' : removed ? 'removed' : 'changed'}`
   return `${what}: ${counts(changes.length - added - removed, added, removed)}`
 }
 

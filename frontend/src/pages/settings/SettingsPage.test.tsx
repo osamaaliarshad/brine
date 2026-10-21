@@ -122,7 +122,8 @@ describe('SettingsPage', () => {
         inventory: {
           ...INVENTORY,
           refused: {
-            packages: "brine's Salt account isn't allowed to run pkg.list_pkgs",
+            // A reason's own full stop isn't doubled up or left dangling.
+            packages: "brine's Salt account isn't allowed to run pkg.list_pkgs.",
             containers: "brine's Salt account isn't allowed to run cmd.run_all",
           },
         },
@@ -140,6 +141,12 @@ describe('SettingsPage', () => {
         "brine can't read the containers check: brine's Salt account isn't allowed to run cmd.run_all",
       ),
     ).toBeInTheDocument()
+  })
+
+  it('shows the page whatever follows the # in a link', async () => {
+    mockApi({ '/api/settings': SETTINGS, '/api/status': systemStatus() })
+    renderApp('/settings#%E0%A4%A') // not valid percent-encoding
+    expect(await screen.findByRole('region', { name: 'Packages and checks' })).toBeInTheDocument()
   })
 
   it('says how to add checks when there are none', async () => {

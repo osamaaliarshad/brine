@@ -46,7 +46,7 @@ function Refused({ source, why }: { source: string; why: string }) {
 
 /** "Read 2h ago", or "Read between 3h and 20m ago" when the minions were read far apart. */
 function ReadSummary({ oldest, newest, now }: { oldest: string | null; newest: string | null; now: number }) {
-  if (!newest) return <span>Not read yet</span>
+  if (!newest) return <span>{NO_ANSWER}</span>
   const range = oldest && Date.parse(newest) - Date.parse(oldest) > HOUR ? relativeRange(oldest, newest, now) : null
   if (!range) return <span title={formatAbsolute(newest)}>Read {formatRelative(newest, now)}</span>
   return (

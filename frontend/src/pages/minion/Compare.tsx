@@ -1,4 +1,4 @@
-import { ChevronRight, X } from 'lucide-react'
+import { ChevronRight, RefreshCw, X } from 'lucide-react'
 import { useState } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import { ApiError } from '@/api/client'
@@ -6,10 +6,13 @@ import { useComparison, useFleet, useFleetComparison } from '@/api/queries'
 import type { ComparedMinion, InventorySource, MinionStatus } from '@/api/types'
 import { MinionChip } from '@/components/MinionChip'
 import { cn } from '@/lib/cn'
-import { explorerPath, keyDescription, keyKind, keyLabel, keyOf } from '@/lib/inventoryKey'
+import { explorerPath, keyDescription, keyKind, keyLabel, keyOf, missingLabel } from '@/lib/inventoryKey'
+import { formatAbsolute, formatRelative } from '@/lib/time'
 
 const NOTE = 'px-4 py-3 text-sm text-muted sm:px-6'
-const BUTTON = 'flex h-9 items-center gap-1.5 rounded-lg border px-3 text-sm hover:bg-surface-2'
+// Grows rather than spills when a long minion ID wraps on a phone.
+const BUTTON =
+  'flex min-h-9 items-center gap-1.5 rounded-lg border px-3 py-1.5 text-left text-sm wrap-anywhere hover:bg-surface-2'
 
 /** "a", "a and b", "a, b and c". */
 function listed(items: string[]): string {
@@ -27,13 +30,9 @@ function sourcesPhrase(sources: string[]): string {
     .join(' and ')
 }
 
-function Value({ value }: { value: string | null }) {
-  if (value === null)
-    return (
-      <span className="text-muted" title="Not there">
-        —
-      </span>
-    )
+/** One side's value; not there reads as in the explorer ("Not installed", "Not reported"). */
+function Value({ value, itemKey }: { value: string | null; itemKey: string }) {
+  if (value === null) return <span className="font-sans break-normal text-muted">{missingLabel(itemKey)}</span>
   return value === '' ? <span className="text-muted">(empty)</span> : <>{value}</>
 }
 
@@ -95,10 +94,10 @@ function Differences({ reference, other, sources }: { reference: string; other: 
                     </div>
                   </td>
                   <td className="px-4 py-2 font-mono text-[13px] break-all">
-                    <Value value={d.reference} />
+                    <Value value={d.reference} itemKey={key} />
                   </td>
                   <td className="px-4 py-2 font-mono text-[13px] break-all sm:pr-6">
-                    <Value value={d.minion} />
+                    <Value value={d.minion} itemKey={key} />
                   </td>
                 </tr>
               )
@@ -110,15 +109,19 @@ function Differences({ reference, other, sources }: { reference: string; other: 
   )
 }
 
-/** "3 different · 1 missing · 2 extra", "Same as rover-01", "Not read yet". */
-function differs(m: ComparedMinion, reference: string): string {
-  if (!m.read) return 'Not read yet'
+/** "3 different · 1 missing · 2 extra", "Same as rover-01 · packages not compared",
+ * "Nothing to compare yet". */
+function differs(m: ComparedMinion, reference: string, referenceSources: string[]): string {
+  if (!m.read) return 'Nothing to compare yet'
   const counts = [
     m.different && `${m.different} different`,
     m.only_reference && `${m.only_reference} missing`,
     m.only_minion && `${m.only_minion} extra`,
   ].filter(Boolean)
-  return counts.length ? counts.join(' · ') : `Same as ${reference}`
+  const left = referenceSources.filter((s) => !m.sources_compared.includes(s))
+  return [counts.length ? counts.join(' · ') : `Same as ${reference}`, left.length && `${sourcesPhrase(left)} not compared`]
+    .filter(Boolean)
+    .join(' · ')
 }
 
 const total = (m: ComparedMinion) => m.different + m.only_reference + m.only_minion
@@ -129,25 +132,45 @@ function FleetDifferences({
   statusOf,
   compareLink,
   onPick,
+  now,
 }: {
   reference: string
   statusOf: Record<string, MinionStatus>
   compareLink: (id: string) => string
   onPick: () => void
+  now: number
 }) {
   const comparison = useFleetComparison(reference, true)
-  if (comparison.isPending) return <p className={NOTE}>Comparing the fleet with {reference}…</p>
-  if (comparison.isError) return <p className={NOTE}>Couldn't compare the fleet: {comparison.error.message}</p>
-  const rows = [...comparison.data.minions].sort(
+  if (comparison.isPending) return <p className={cn(NOTE, 'border-t')}>Comparing the fleet with {reference}…</p>
+  if (comparison.isError)
+    return <p className={cn(NOTE, 'border-t')}>Couldn't compare the fleet: {comparison.error.message}</p>
+  const { minions, reference_sources: referenceSources } = comparison.data
+  if (referenceSources.length === 0)
+    return <p className={cn(NOTE, 'border-t')}>Nothing to compare until {reference} has been read in full.</p>
+  const rows = [...minions].sort(
     (a, b) => Number(b.read) - Number(a.read) || total(b) - total(a) || a.minion_id.localeCompare(b.minion_id),
   )
-  const label = `How the fleet differs from ${reference}`
+  const at = new Date(comparison.dataUpdatedAt).toISOString()
   return (
     <div className="border-t">
-      <p className={NOTE}>
-        Missing: {reference} has it, they don't. Extra: they have it, {reference} doesn't.
-      </p>
-      <ul aria-label={label}>
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-4 py-3 text-sm text-muted sm:px-6">
+        <p>
+          Missing: {reference} has it, they don't. Extra: they have it, {reference} doesn't.
+        </p>
+        <span className="flex items-center gap-1.5">
+          <span title={formatAbsolute(at)}>Compared {formatRelative(at, now)}</span>·
+          <button
+            type="button"
+            onClick={() => void comparison.refetch()}
+            disabled={comparison.isFetching}
+            className="flex items-center gap-1 text-fg hover:text-accent disabled:opacity-50"
+          >
+            <RefreshCw className={cn('size-3.5', comparison.isFetching && 'animate-spin')} aria-hidden />
+            Refresh
+          </button>
+        </span>
+      </div>
+      <ul aria-label={`How the fleet differs from ${reference}`}>
         {rows.map((m) => (
           <li key={m.minion_id} className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t px-4 py-2 sm:px-6">
             <MinionChip id={m.minion_id} status={statusOf[m.minion_id]} />
@@ -155,7 +178,7 @@ function FleetDifferences({
               className={cn('min-w-0 flex-1 text-sm', !m.read && 'text-muted')}
               title={m.read ? undefined : `brine hasn't read the same packages or checks in full on both yet`}
             >
-              {differs(m, reference)}
+              {differs(m, reference, referenceSources)}
             </span>
             {m.read && (
               <Link
@@ -176,9 +199,11 @@ function FleetDifferences({
 }
 
 /** Compare this minion's packages and checks with another's, or see how the whole fleet differs from it. */
-export function Compare({ minionId, sources }: { minionId: string; sources: InventorySource[] }) {
+export function Compare({ minionId, sources, now }: { minionId: string; sources: InventorySource[]; now: number }) {
   const [params, setParams] = useSearchParams()
-  const other = params.get('compare')
+  // Compared with itself: nothing to say.
+  const asked = params.get('compare')
+  const other = asked && asked !== minionId ? asked : null
   const fleet = useFleet()
   const [open, setOpen] = useState(false)
   const minions = fleet.data?.minions ?? []
@@ -212,12 +237,15 @@ export function Compare({ minionId, sources }: { minionId: string; sources: Inve
         </select>
         {other && (
           <button type="button" onClick={() => setParams(withCompare(null), { replace: true })} className={BUTTON}>
-            <X className="size-4 text-muted" aria-hidden />
+            <X className="size-4 shrink-0 text-muted" aria-hidden />
             Stop comparing
           </button>
         )}
-        <button type="button" aria-expanded={open} onClick={() => setOpen((o) => !o)} className={BUTTON}>
-          <ChevronRight className={cn('size-4 text-muted transition-transform', open && 'rotate-90')} aria-hidden />
+        <button type="button" aria-expanded={open} onClick={() => setOpen((o) => !o)} className={cn(BUTTON, 'min-w-0')}>
+          <ChevronRight
+            className={cn('size-4 shrink-0 text-muted transition-transform', open && 'rotate-90')}
+            aria-hidden
+          />
           How the fleet differs from {minionId}
         </button>
       </div>
@@ -228,6 +256,7 @@ export function Compare({ minionId, sources }: { minionId: string; sources: Inve
           statusOf={statusOf}
           compareLink={(id) => `?${withCompare(id)}`}
           onPick={() => setOpen(false)}
+          now={now}
         />
       )}
     </div>

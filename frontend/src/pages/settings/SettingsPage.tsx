@@ -197,7 +197,7 @@ function PackagesAndChecks({ inventory, saltApi }: { inventory: Settings['invent
           <ul className="mb-2 flex flex-col gap-1 text-warn">
             {refused.map(([source, why]) => (
               <li key={source}>
-                brine can't read {describeSource(source)}: {why}
+                brine can't read {describeSource(source)}: {why.replace(/\.$/, '')}
               </li>
             ))}
           </ul>
@@ -226,7 +226,14 @@ export function SettingsPage() {
   const { hash } = useLocation()
   const loaded = !!s
   useEffect(() => {
-    if (loaded && hash) document.getElementById(decodeURIComponent(hash.slice(1)))?.scrollIntoView?.({ block: 'start' })
+    if (!loaded || !hash) return
+    let id: string
+    try {
+      id = decodeURIComponent(hash.slice(1))
+    } catch {
+      return // not a section's name, whatever it is
+    }
+    document.getElementById(id)?.scrollIntoView?.({ block: 'start' })
   }, [loaded, hash])
 
   return (

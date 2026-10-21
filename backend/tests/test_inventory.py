@@ -1134,14 +1134,25 @@ def test_ask_now_when_presence_is_stale_or_nobody_is_online(admin: tuple[Api, Fa
 # --- comparing with a reference minion ---------------------------------------------------------
 
 
-def compared(api: Api, reference: str) -> dict[str, tuple[bool, int, int, int]]:
-    """Each minion's (read, different, only_reference, only_minion) against `reference`."""
+def compared(api: Api, reference: str) -> dict[str, tuple[Any, ...]]:
+    """Each minion's (read, different, only_reference, only_minion, sources_compared) against
+    `reference`."""
     body = api.get("/api/inventory/compare", reference=reference)
     assert body["reference"] == reference
     return {
-        r["minion_id"]: (r["read"], r["different"], r["only_reference"], r["only_minion"])
+        r["minion_id"]: (
+            r["read"],
+            r["different"],
+            r["only_reference"],
+            r["only_minion"],
+            r["sources_compared"],
+        )
         for r in body["minions"]
     }
+
+
+def reference_sources(api: Api, reference: str) -> Any:
+    return api.get("/api/inventory/compare", reference=reference)["reference_sources"]
 
 
 def differences(api: Api, minion: str, reference: str) -> Any:
@@ -1164,13 +1175,14 @@ def test_the_fleet_against_a_reference(admin: tuple[Api, FakeSalt]) -> None:
     read(api, "rover-04", {"agent": "1.0"}, now)  # pending: not listed
     # Every other accepted minion, by ID: not the reference itself.
     assert compared(api, "rover-01") == {
-        "dock-01": (True, 0, 1, 0),
-        "rover-02": (True, 0, 0, 0),
-        "rover-03": (True, 1, 0, 1),
+        "dock-01": (True, 0, 1, 0, ["packages"]),
+        "rover-02": (True, 0, 0, 0, ["packages"]),
+        "rover-03": (True, 1, 0, 1, ["packages"]),
     }
+    assert reference_sources(api, "rover-01") == ["packages"]
     # The other way round, missing and extra swap.
-    assert compared(api, "rover-03")["dock-01"] == (True, 0, 2, 0)
-    assert compared(api, "dock-01")["rover-03"] == (True, 0, 0, 2)
+    assert compared(api, "rover-03")["dock-01"] == (True, 0, 2, 0, ["packages"])
+    assert compared(api, "dock-01")["rover-03"] == (True, 0, 0, 2, ["packages"])
 
 
 def test_one_minion_against_a_reference(admin: tuple[Api, FakeSalt]) -> None:
@@ -1214,10 +1226,11 @@ def test_only_sources_both_have_read_whole_are_compared(
     read(api, "dock-01", {"web": "web:1.4", "db": "postgres:16"}, now, source="containers")
     # rover-03: never read at all.
     assert compared(api, "rover-01") == {
-        "dock-01": (True, 0, 0, 1),
-        "rover-02": (True, 2, 0, 0),
-        "rover-03": (False, 0, 0, 0),
+        "dock-01": (True, 0, 0, 1, ["containers"]),
+        "rover-02": (True, 2, 0, 0, ["packages", "rover-cli"]),
+        "rover-03": (False, 0, 0, 0, []),
     }
+    assert reference_sources(api, "rover-01") == ["packages", "rover-cli", "containers"]
     pair = differences(api, "rover-02", "rover-01")
     assert pair["sources_compared"] == ["packages", "rover-cli"]
     # By source, packages first, then the checks in the config's order.
@@ -1241,7 +1254,34 @@ def test_only_sources_both_have_read_whole_are_compared(
     api.seed(
         api.ingest.inventory_read, "rover-01", "containers", {}, at=later, jid=None, truncated=True
     )
-    assert compared(api, "rover-01")["dock-01"] == (False, 0, 0, 0)
+    assert compared(api, "rover-01")["dock-01"] == (False, 0, 0, 0, [])
+    assert reference_sources(api, "rover-01") == ["packages", "rover-cli"]
+
+
+def test_a_reference_check_that_printed_nothing_is_compared(
+    with_checks: tuple[Api, FakeSalt],
+) -> None:
+    api, _ = with_checks
+    now = datetime.now(UTC)
+    # A whole answer with no entries: the reference doesn't have it, so others' entries are extra.
+    read(api, "rover-01", {}, now, source="rover-cli")
+    read(api, "rover-02", {"": "rover-cli 1.1.0"}, now, source="rover-cli")
+    read(api, "dock-01", {}, now, source="rover-cli")
+    rows = compared(api, "rover-01")
+    assert rows["rover-02"] == (True, 0, 0, 1, ["rover-cli"])
+    assert rows["dock-01"] == (True, 0, 0, 0, ["rover-cli"])
+    assert differences(api, "rover-02", "rover-01")["differences"] == [
+        {"source": "rover-cli", "name": "", "reference": None, "minion": "rover-cli 1.1.0"}
+    ]
+
+
+def test_a_reference_never_read_is_compared_with_nobody(admin: tuple[Api, FakeSalt]) -> None:
+    api, _ = admin
+    read(api, "rover-02", {"bash": "5.2"}, datetime.now(UTC))
+    assert reference_sources(api, "rover-01") == []
+    rows = compared(api, "rover-01")
+    assert sorted(rows) == ["dock-01", "rover-02", "rover-03"]
+    assert all(row == (False, 0, 0, 0, []) for row in rows.values())
 
 
 @pytest.mark.parametrize(

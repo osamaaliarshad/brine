@@ -269,6 +269,7 @@ class ComparedMinion(BaseModel):
     # It and the reference both have a whole read (good, not cut short) of at least one
     # source; the counts are over those sources. False: nothing to compare yet, counts 0.
     read: bool
+    sources_compared: list[str]  # those sources: packages, then each check
     different: int  # the same name, another value
     only_reference: int  # the reference has it, this minion doesn't ("missing")
     only_minion: int  # this minion has it, the reference doesn't ("extra")
@@ -276,6 +277,7 @@ class ComparedMinion(BaseModel):
 
 class FleetComparison(BaseModel):
     reference: str
+    reference_sources: list[str]  # the reference's whole reads: what others can be compared on
     minions: list[ComparedMinion]  # every other accepted minion, by ID
 
 

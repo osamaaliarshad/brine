@@ -57,7 +57,7 @@ const INVENTORY: MinionInventory = {
       source: 'rover-cli',
       answered_at: ago(600),
       error: 'exit 127: sh: rover-cli: not found',
-      entries: [{ name: '', value: 'rover-cli 1.2.0', since: ago(DAY) }],
+      entries: [{ name: '', value: 'rover-cli 1.2.0', since: ago(3600) }], // changed at its last good read
     }),
     source({
       source: 'containers',
@@ -121,16 +121,17 @@ describe('MinionPage', () => {
     expect(packages).toHaveTextContent(`Read 2h ago · first read ${day(ago(17 * DAY))}`)
     expect(within(packages).getByText('Read 2h ago')).toHaveAttribute('title', expect.stringContaining('UTC'))
     expect(within(packages).getByRole('columnheader', { name: 'Version' })).toBeInTheDocument()
-    // Only what appeared or changed since brine first looked has a date, so it stands out.
-    expect(within(packages).getAllByRole('row').slice(1).map((r) => r.textContent)).toEqual([
-      'bash5.2—',
+    // Only what appeared or changed since brine first looked has a time, so it stands out; the
+    // rest is blank but for screen readers.
+    const rows = within(packages).getAllByRole('row').slice(1)
+    expect(rows.map((r) => r.textContent)).toEqual([
+      "bash5.2Already there at brine's first read",
       'rover-agent2.4.15h ago',
       'vim9.03d ago',
     ])
-    expect(within(packages).getByText('—')).toHaveAttribute(
-      'title',
-      `Already there when brine first read rover-01 on ${day(ago(17 * DAY))}`,
-    )
+    const [, , since] = within(rows[0]!).getAllByRole('cell')
+    expect(within(since!).getByText("Already there at brine's first read")).toHaveClass('sr-only')
+    expect(since).toHaveAttribute('title', `Already there when brine first read rover-01 on ${day(ago(17 * DAY))}`)
     expect(within(packages).getByText('5h ago')).toHaveAttribute('title', expect.stringContaining('UTC'))
     // One click to who else has it.
     expect(within(packages).getByRole('link', { name: 'rover-agent' })).toHaveAttribute(
@@ -143,19 +144,43 @@ describe('MinionPage', () => {
     expect(cli).toHaveTextContent('check')
     expect(cli).toHaveTextContent(`Last good read 1h ago · first read ${day(ago(DAY))}`)
     expect(within(cli).getByText("Couldn't read: exit 127: sh: rover-cli: not found")).toBeInTheDocument()
-    // A check's single value is shown as it is.
+    // A check's single value is shown as it is, with when it changed.
     expect(within(cli).queryByRole('table')).toBeNull()
     expect(within(cli).getByRole('link', { name: 'rover-cli 1.2.0' })).toHaveAttribute('href', '/?tab=grains&grain=%40rover-cli')
+    expect(within(cli).getByText('since 1h ago')).toHaveAttribute('title', expect.stringContaining('UTC'))
 
     const containers = region('containers')
     expect(containers).toHaveTextContent('The last answer was cut short; some entries may be missing.')
     expect(within(containers).getByRole('columnheader', { name: 'Value' })).toBeInTheDocument()
     const db = within(containers).getByRole('row', { name: /^db/ })
-    expect(db).toHaveTextContent('db(empty)—')
+    expect(db).toHaveTextContent("db(empty)Already there at brine's first read")
     expect(within(db).getByText('(empty)')).toBeInTheDocument()
 
     expect(region('ports')).toHaveTextContent('Not reported')
-    expect(region('gpu')).toHaveTextContent('Not read yet. brine reads every online minion within a few minutes.')
+    expect(region('gpu')).toHaveTextContent('No answer yet. brine reads every online minion within a few minutes.')
+  })
+
+  it('on a phone, puts since under the value, and only where something changed', async () => {
+    window.matchMedia = ((query: string) => ({
+      matches: false,
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    })) as unknown as typeof window.matchMedia
+    try {
+      api({ '/api/minions/rover-01/inventory': INVENTORY })
+      renderApp('/minions/rover-01?tab=packages')
+      const packages = await screen.findByRole('region', { name: 'Packages' })
+      expect(within(packages).getAllByRole('columnheader').map((h) => h.textContent)).toEqual(['Name', 'Version'])
+      expect(within(packages).getAllByRole('row').slice(1).map((r) => r.textContent)).toEqual([
+        'bash5.2',
+        'rover-agent2.4.1since 5h ago',
+        'vim9.0since 3d ago',
+      ])
+    } finally {
+      // @ts-expect-error -- jsdom doesn't define it; take the phone stub away again.
+      delete window.matchMedia
+    }
   })
 
   it("says when Salt won't let brine read a source, and where to fix it", async () => {
@@ -167,12 +192,15 @@ describe('MinionPage', () => {
     })
     renderApp('/minions/rover-01?tab=packages')
     const gpu = await screen.findByRole('region', { name: 'gpu' })
-    expect(gpu).toHaveTextContent(`brine can't read the gpu check: ${why}. Settings › Packages and checks has the lines to add.`)
+    // In the explorer's words.
+    expect(gpu).toHaveTextContent(
+      `brine can't read the gpu check: ${why}. Settings › Packages and checks has the lines to add to brine's Salt account.`,
+    )
     expect(within(gpu).getByRole('link', { name: 'Settings › Packages and checks' })).toHaveAttribute(
       'href',
       '/settings#packages-and-checks',
     )
-    expect(gpu).not.toHaveTextContent('Not read yet')
+    expect(gpu).not.toHaveTextContent('No answer yet')
   })
 
   it('filters every package and check with one search box', async () => {
@@ -256,6 +284,7 @@ describe('MinionPage', () => {
             { source: 'packages', name: 'rover-agent', reference: '2.4.1', minion: '2.3.0' },
             { source: 'packages', name: 'vim', reference: null, minion: '9.0' },
             { source: 'rover-cli', name: '', reference: 'rover-cli 1.2.0', minion: '' },
+            { source: 'rover-cli', name: 'channel', reference: 'stable', minion: null },
           ],
         }),
         '/api/inventory/compare/dock-01': comparison('dock-01'),
@@ -268,13 +297,15 @@ describe('MinionPage', () => {
       'rover-01',
       'rover-03',
     ])
+    // Not there reads as it does in the explorer: a package isn't installed, a check's entry isn't reported.
     expect(within(table).getAllByRole('row').slice(1).map((r) => r.textContent)).toEqual([
       'rover-agentpackage2.4.12.3.0',
-      'vimpackage—9.0',
+      'vimpackageNot installed9.0',
       'rover-clicheckrover-cli 1.2.0(empty)',
+      'channelcheckstableNot reported',
     ])
     expect(within(table).getByRole('link', { name: 'vim' })).toHaveAttribute('href', '/?tab=grains&grain=%40packages%3Avim')
-    expect(screen.getByText('3 differences')).toBeInTheDocument()
+    expect(screen.getByText('4 differences')).toBeInTheDocument()
     // Sources only one of them has read in full aren't compared, and it says which.
     expect(screen.getByText(/Not compared: the containers, ports and gpu checks/)).toBeInTheDocument()
     const pick = screen.getByRole('combobox', { name: 'Compare with' })
@@ -298,16 +329,37 @@ describe('MinionPage', () => {
     expect(await screen.findByText('rover-01 and dock-01 have the same packages and checks.')).toBeInTheDocument()
   })
 
+  it('ignores a comparison with itself', async () => {
+    const fetchMock = renderWith({}, '/minions/rover-01?tab=packages&compare=rover-01').fetchMock
+    const pick = await screen.findByRole('combobox', { name: 'Compare with' })
+    await waitFor(() => expect(within(pick).getAllByRole('option')).toHaveLength(4))
+    expect(pick).toHaveValue('')
+    expect(within(pick).queryByRole('option', { name: 'rover-01' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Stop comparing' })).toBeNull()
+    expect(fetchMock.mock.calls.some(([u]) => String(u).includes('/api/inventory/compare'))).toBe(false)
+  })
+
   it('shows how the fleet differs from this minion, most different first', async () => {
     const user = userEvent.setup()
+    const compares = () => fetchMock.mock.calls.filter(([u]) => String(u).includes('/api/inventory/compare?')).length
+    const fleets = () => fetchMock.mock.calls.filter(([u]) => String(u).startsWith('/api/fleet')).length
+    const row = (id: string, read: boolean, sources: string[], counts: number[]) => ({
+      minion_id: id,
+      read,
+      sources_compared: sources,
+      different: counts[0],
+      only_reference: counts[1],
+      only_minion: counts[2],
+    })
     const fetchMock = renderWith({
       '/api/inventory/compare': (url: URL) => ({
         reference: url.searchParams.get('reference'),
+        reference_sources: ['packages', 'rover-cli'],
         minions: [
-          { minion_id: 'dock-01', read: true, different: 0, only_reference: 1, only_minion: 0 },
-          { minion_id: 'rover-02', read: true, different: 0, only_reference: 0, only_minion: 0 },
-          { minion_id: 'rover-03', read: true, different: 3, only_reference: 1, only_minion: 2 },
-          { minion_id: 'rover-05', read: false, different: 0, only_reference: 0, only_minion: 0 },
+          row('dock-01', true, ['packages'], [0, 1, 0]),
+          row('rover-02', true, ['rover-cli'], [0, 0, 0]),
+          row('rover-03', true, ['packages', 'rover-cli'], [3, 1, 2]),
+          row('rover-05', false, [], [0, 0, 0]),
         ],
       }),
       '/api/inventory/compare/rover-03': {
@@ -318,22 +370,48 @@ describe('MinionPage', () => {
       },
     }).fetchMock
     const open = await screen.findByRole('button', { name: 'How the fleet differs from rover-01' })
-    expect(fetchMock.mock.calls.some(([u]) => String(u).includes('/api/inventory/compare'))).toBe(false)
+    expect(compares()).toBe(0)
 
     await user.click(open)
     expect(open).toHaveAttribute('aria-expanded', 'true')
     const list = await screen.findByRole('list', { name: 'How the fleet differs from rover-01' })
+    // What one of them hasn't read in full isn't compared, and the row says so.
     expect(within(list).getAllByRole('listitem').map((r) => r.textContent)).toEqual([
       'rover-033 different · 1 missing · 2 extraCompare',
-      'dock-011 missingCompare',
-      'rover-02Same as rover-01Compare',
-      'rover-05Not read yet',
+      'dock-011 missing · the rover-cli check not comparedCompare',
+      'rover-02Same as rover-01 · packages not comparedCompare',
+      'rover-05Nothing to compare yet',
     ])
     expect(screen.getByText("Missing: rover-01 has it, they don't. Extra: they have it, rover-01 doesn't.")).toBeInTheDocument()
+
+    // Heavy across a big fleet: kept for a minute, not redone on every live update, and redone on Refresh.
+    expect(screen.getByText('Compared just now')).toBeInTheDocument()
+    const before = fleets()
+    FakeEventSource.instances[0]!.emit({ type: 'fleet' })
+    await waitFor(() => expect(fleets()).toBeGreaterThan(before))
+    expect(compares()).toBe(1)
+    await user.click(screen.getByRole('button', { name: 'Refresh' }))
+    await waitFor(() => expect(compares()).toBe(2))
 
     await user.click(within(list).getByRole('link', { name: 'Compare with rover-03' }))
     expect(await screen.findByRole('table', { name: 'Where rover-01 and rover-03 differ' })).toBeInTheDocument()
     expect(screen.getByRole('combobox', { name: 'Compare with' })).toHaveValue('rover-03')
+  })
+
+  it('says there is nothing to compare until this minion is read in full', async () => {
+    const user = userEvent.setup()
+    renderWith({
+      '/api/inventory/compare': {
+        reference: 'rover-01',
+        reference_sources: [],
+        minions: [
+          { minion_id: 'rover-02', read: false, sources_compared: [], different: 0, only_reference: 0, only_minion: 0 },
+        ],
+      },
+    })
+    await user.click(await screen.findByRole('button', { name: 'How the fleet differs from rover-01' }))
+    expect(await screen.findByText('Nothing to compare until rover-01 has been read in full.')).toBeInTheDocument()
+    expect(screen.queryByRole('list', { name: 'How the fleet differs from rover-01' })).toBeNull()
   })
 
   it('shows grains, package and check changes in one history, newest first', async () => {
@@ -370,11 +448,12 @@ describe('MinionPage', () => {
     expect(history.children).toHaveLength(4)
 
     expect(grains).toHaveTextContent('1m ago')
-    expect(within(grains!).getByText('Grains: 1 changed · 1 added')).toBeInTheDocument()
+    expect(within(grains!).getByText('Grains: 1 changed · 1 new')).toBeInTheDocument()
     expect(within(grains!).getByText('"2.4.0"')).toHaveClass('line-through')
 
     expect(packages).toHaveTextContent('10m ago')
-    expect(packages).toHaveTextContent('Packages: 1 changed · 1 added')
+    // "new", as its row says "(new)".
+    expect(packages).toHaveTextContent('Packages: 1 changed · 1 new')
     expect(packages).toHaveTextContent('found after job 20261020114000000001 by alice@example.com')
     expect(within(packages!).getByRole('link', { name: '20261020114000000001' })).toHaveAttribute(
       'href',
