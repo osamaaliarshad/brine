@@ -388,6 +388,7 @@ class Orchestrations(BaseModel):
     orchestrations: list[Orchestration]
     truncated: bool  # more .sls files than brine reads in one listing
     can_run: bool  # whether the signed-in person may run runners.state.orchestrate
+    listed_at: datetime  # when brine last read the master's .sls files for this listing
 
 
 class CommandTemplate(BaseModel):

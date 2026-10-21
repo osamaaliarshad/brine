@@ -173,6 +173,15 @@ export function useOrchestrations() {
   })
 }
 
+/** Have brine read the master's .sls files again now, instead of its kept copy. */
+export function useRefreshOrchestrations() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: () => fetchJson<Orchestrations>('/api/orchestrations?refresh=true'),
+    onSuccess: (fresh) => client.setQueryData(['orchestrations'], fresh),
+  })
+}
+
 export function useCommandPreview() {
   return useMutation({
     mutationFn: (request: CommandRequest) => postJson<CommandPreview>('/api/commands/preview', request),

@@ -8,14 +8,17 @@ and includes work. Running one goes through the Run page like any other command.
 Many orchestrations read their inputs from pillar given at run time (a reactor's
 `pillar: {minion_id: ...}`). brine finds the keys they read, renders them with placeholders such
 as `<minion_id>` so their steps still show, and the Run page asks for the real values.
-The listing is kept for a minute: reading every .sls file through salt-api takes a while.
+Reading every .sls file through salt-api takes a while on a big states tree, so brine reads
+the listing in the background (shortly after it starts, then every few minutes) and the page
+shows that copy, saying how old it is. Operators can ask for a fresh read.
 """
 
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
-import time
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
@@ -35,6 +38,7 @@ from app.runtime import Runtime
 from app.salt.client import SaltApiError
 
 router = APIRouter()
+log = logging.getLogger(__name__)
 
 ORCHESTRATION_STEP = re.compile(
     r"^\s*-?\s*salt\.(state|function|runner|wheel|parallel_runners)\s*:", re.MULTILINE
@@ -49,7 +53,8 @@ REQUIRED_PILLAR = re.compile(r"""\bpillar\s*\[\s*['"]([A-Za-z_][\w-]*)['"]\s*\]"
 OPTIONAL_PILLAR = re.compile(
     r"""(?:\bpillar\.get|\bsalt\s*\[\s*['"]pillar\.get['"]\s*\])\s*\(\s*['"]([A-Za-z_][\w-]*)"""
 )
-LISTING_SECONDS = 60
+WARM_AFTER_SECONDS = 10  # after brine starts: let the collector connect first
+WARM_EVERY_SECONDS = 300
 SALTENV = re.compile(r"[\w.-]{1,64}")
 
 
@@ -159,25 +164,48 @@ async def _discover(runtime: Runtime, saltenv: str) -> tuple[list[Orchestration]
     return found, len(sls) > MAX_FILES
 
 
+def _key(saltenv: str) -> str:
+    return f"orchestrations:{saltenv}"
+
+
+async def read_listing(
+    runtime: Runtime, saltenv: str
+) -> tuple[list[Orchestration], bool, datetime]:
+    """Read the master again and keep the result as this saltenv's listing."""
+    found, truncated = await _discover(runtime, saltenv)
+    listing = (found, truncated, datetime.now(UTC))
+    runtime.memo[_key(saltenv)] = (0.0, listing)
+    return listing
+
+
+async def keep_warm(runtime: Runtime) -> None:
+    """Keep the base saltenv's listing ready, so the page opens without waiting."""
+    await asyncio.sleep(WARM_AFTER_SECONDS)
+    while True:
+        try:
+            await read_listing(runtime, "base")
+        except Exception as exc:  # salt-api down, say: the page reads on demand instead
+            log.info("couldn't read orchestrations in the background: %s", exc)
+        await asyncio.sleep(WARM_EVERY_SECONDS)
+
+
 @router.get("/orchestrations", response_model=Orchestrations)
 async def orchestrations(
     runtime: RuntimeDep,
     user: CurrentUser,
     saltenv: str = Query("base"),
-    refresh: bool = Query(False, description="read the master again, not the last minute's"),
+    refresh: bool = Query(False, description="read the master again instead of the kept copy"),
 ) -> Orchestrations:
     if refresh and user.role == "viewer":
         raise HTTPException(403, "Reading the master again needs the operator role.")
     if not SALTENV.fullmatch(saltenv):
         raise HTTPException(422, "That isn't a saltenv name.")
-    key = f"orchestrations:{saltenv}"
-    cached = runtime.memo.get(key)
+    cached = runtime.memo.get(_key(saltenv))
     try:
-        if cached and not refresh and time.monotonic() - cached[0] < LISTING_SECONDS:
-            found, truncated = cached[1]
+        if cached and not refresh:
+            found, truncated, listed_at = cached[1]
         else:
-            found, truncated = await _discover(runtime, saltenv)
-            runtime.memo[key] = (time.monotonic(), (found, truncated))
+            found, truncated, listed_at = await read_listing(runtime, saltenv)
     except SaltApiError as exc:
         raise salt_http_error(exc) from exc
 
@@ -187,5 +215,9 @@ async def orchestrations(
     except CommandError:
         can_run = False
     return Orchestrations(
-        saltenv=saltenv, orchestrations=found, truncated=truncated, can_run=can_run
+        saltenv=saltenv,
+        orchestrations=found,
+        truncated=truncated,
+        can_run=can_run,
+        listed_at=listed_at,
     )

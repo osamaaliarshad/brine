@@ -130,6 +130,41 @@ describe('States page', () => {
     expect(await screen.findByText('/srv/salt/motd.sls')).toBeInTheDocument()
     expect(screen.getByText('file.managed', { exact: false })).toBeInTheDocument()
   })
+
+  it('groups states by folder, with who each group reaches', async () => {
+    const user = userEvent.setup()
+    const web = ['web.nginx', 'web.certs', 'web.logs', 'web.app', 'web.cache', 'web.cdn', 'web.waf', 'web.php']
+    const common = ['common.users', 'common.ssh', 'common.ntp', 'common.motd', 'common.audit']
+    mockApi({
+      '/api/fleet': FLEET,
+      '/api/status': systemStatus(),
+      '/api/states/top': {
+        fetched_at: '2026-10-20T12:00:00Z',
+        minions: {
+          'rover-01': { base: ['motd', ...common] },
+          'dock-01': { base: ['motd', ...common, ...web] },
+        },
+        missing: [],
+        skipped: [],
+      },
+      '/api/states/files': [],
+    })
+    renderApp('/states')
+    // 14 states: groups start folded, as an overview.
+    const group = await screen.findByRole('button', { name: /^web/ })
+    expect(group).toHaveAttribute('aria-expanded', 'false')
+    expect(group).toHaveTextContent('web8 states')
+    expect(within(group.closest('tr')!).getAllByRole('link').map((l) => l.textContent)).toEqual(['dock-01'])
+    expect(screen.getByText('motd')).toBeInTheDocument() // no folder: always shown
+    expect(screen.queryByText('nginx')).toBeNull()
+
+    await user.click(group)
+    expect(screen.getByText('nginx')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Expand all' }))
+    expect(screen.getByText('ntp')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Collapse all' }))
+    expect(screen.queryByText('nginx')).toBeNull()
+  })
 })
 
 describe('Automation page', () => {

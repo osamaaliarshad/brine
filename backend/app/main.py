@@ -16,7 +16,7 @@ from starlette.responses import Response
 from starlette.types import Scope
 
 from app import catchup, retention
-from app.api import api_router
+from app.api import api_router, orchestrations
 from app.auth.session import LazySessionMiddleware
 from app.config import Settings, load_config
 from app.runtime import Runtime
@@ -72,6 +72,7 @@ def create_app(
         if run_collector:
             runtime.background(catchup.run_forever(runtime), "catch-up")
             runtime.background(retention.run_forever(runtime), "retention")
+            runtime.background(orchestrations.keep_warm(runtime), "orchestrations")
         app.state.runtime = runtime
         try:
             yield

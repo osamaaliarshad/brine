@@ -1,10 +1,12 @@
-import { FlaskConical, Play } from 'lucide-react'
+import { FlaskConical, Play, RefreshCw } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { Link } from 'react-router'
-import { useOrchestrations } from '@/api/queries'
+import { useMe, useOrchestrations, useRefreshOrchestrations } from '@/api/queries'
 import type { Orchestration, OrchestrationStep } from '@/api/types'
 import { PageHeader } from '@/components/PageHeader'
 import { Card } from '@/components/ui'
+import { cn } from '@/lib/cn'
+import { formatAbsolute, formatRelative, useNow } from '@/lib/time'
 import { CONTROL } from '@/pages/fleet/FleetToolbar'
 
 const DOES: Record<string, string> = {
@@ -140,14 +142,40 @@ function OrchestrationCard({ orchestration: o, canRun }: { orchestration: Orches
 }
 
 export function OrchestrationsPage() {
+  const now = useNow()
   const query = useOrchestrations()
+  const refresh = useRefreshOrchestrations()
+  const role = useMe().data?.role
   const data = query.data
   return (
     <>
       <PageHeader
         title="Orchestrations"
         subtitle="Runs the master drives step by step: each step targets minions, or runs on the master."
+        actions={
+          data && (
+            <div className="flex items-center gap-3 text-sm text-muted">
+              <span title={formatAbsolute(data.listed_at)}>Read from the master {formatRelative(data.listed_at, now)}</span>
+              {role && role !== 'viewer' && (
+                <button
+                  type="button"
+                  onClick={() => refresh.mutate()}
+                  disabled={refresh.isPending}
+                  className={CONTROL}
+                >
+                  <RefreshCw className={cn('size-4', refresh.isPending && 'animate-spin')} aria-hidden />
+                  {refresh.isPending ? 'Reading…' : 'Refresh'}
+                </button>
+              )}
+            </div>
+          )
+        }
       />
+      {refresh.isError && (
+        <p role="alert" className="mb-4 text-sm text-danger">
+          Couldn't read the master again: {refresh.error.message}
+        </p>
+      )}
       {query.isPending ? (
         <Card className="px-6 py-12 text-center text-muted">Loading orchestrations from the master…</Card>
       ) : query.isError ? (

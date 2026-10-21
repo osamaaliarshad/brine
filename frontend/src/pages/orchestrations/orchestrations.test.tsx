@@ -10,6 +10,7 @@ const ORCHESTRATIONS: Orchestrations = {
   saltenv: 'base',
   truncated: false,
   can_run: true,
+  listed_at: '2026-10-20T12:00:00Z',
   orchestrations: [
     {
       sls: 'orch.rollout',

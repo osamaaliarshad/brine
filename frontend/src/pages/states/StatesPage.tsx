@@ -1,4 +1,5 @@
-import { RefreshCw } from 'lucide-react'
+import { ChevronRight, Folder, RefreshCw } from 'lucide-react'
+import { Fragment, useState } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import { useFleet, useStateFile, useStateFiles, useStateTop } from '@/api/queries'
 import type { MinionStatus } from '@/api/types'
@@ -21,9 +22,18 @@ function Empty({ children }: { children: React.ReactNode }) {
   return <div className="border-t px-6 py-12 text-center text-muted">{children}</div>
 }
 
+/** "common.install_auditd" -> "common"; "dev:web.nginx" -> "dev:web"; "motd" -> null. */
+function groupOf(sls: string): string | null {
+  const dot = sls.indexOf('.')
+  return dot > 0 ? sls.slice(0, dot) : null
+}
+
+const FOLD_OVER = 12 // states: more than this and groups start folded
+
 function TopTab({ now, statusOf }: { now: number; statusOf: Record<string, MinionStatus> }) {
   const top = useStateTop(true)
   const files = useStateFiles(true)
+  const [open, setOpen] = useState<Set<string> | 'all' | null>(null)
   const bySls = new Map<string, string[]>()
   for (const [minion, envs] of Object.entries(top.data?.minions ?? {})) {
     for (const [env, states] of Object.entries(envs)) {
@@ -34,12 +44,63 @@ function TopTab({ now, statusOf }: { now: number; statusOf: Record<string, Minio
     }
   }
   const rows = [...bySls.entries()].sort(([a], [b]) => a.localeCompare(b))
+  const loose = rows.filter(([sls]) => groupOf(sls) === null)
+  const groups = new Map<string, [string, string[]][]>()
+  for (const row of rows) {
+    const group = groupOf(row[0])
+    if (group !== null) groups.set(group, [...(groups.get(group) ?? []), row])
+  }
+  // Small top files start unfolded; big ones start as an overview of groups.
+  const isOpen = (group: string) => (open === null ? rows.length <= FOLD_OVER : open === 'all' || open.has(group))
+  const toggle = (group: string) =>
+    setOpen((was) => {
+      const next = new Set(was === null || was === 'all' ? [...groups.keys()].filter(isOpen) : was)
+      if (next.has(group)) next.delete(group)
+      else next.add(group)
+      return next
+    })
+  const allOpen = groups.size > 0 && [...groups.keys()].every(isOpen)
+
+  const stateRow = ([sls, minions]: [string, string[]], nested: boolean) => {
+    const path = files.data ? slsToPath(sls, files.data) : null
+    return (
+      <tr key={sls} className="border-t align-top">
+        <td className={cn('px-4 py-3 font-mono sm:pl-6', nested && 'pl-10 sm:pl-12')}>
+          {path ? (
+            <Link to={`/states?tab=files&file=${encodeURIComponent(path)}`} className="hover:text-accent">
+              {nested ? sls.slice(sls.indexOf('.') + 1) : sls}
+            </Link>
+          ) : nested ? (
+            sls.slice(sls.indexOf('.') + 1)
+          ) : (
+            sls
+          )}
+        </td>
+        <td className="px-4 py-3">
+          <div className="flex flex-wrap gap-2">
+            {[...minions].sort().map((m) => (
+              <MinionChip key={m} id={m} status={statusOf[m]} />
+            ))}
+          </div>
+        </td>
+      </tr>
+    )
+  }
 
   return (
     <>
       <div className="flex flex-wrap items-center justify-between gap-3 border-t px-4 py-3 sm:px-6">
         <p className="text-sm text-muted">Which states each minion gets, from the top file (state.show_top, asked live).</p>
         <div className="flex items-center gap-3 text-sm text-muted">
+          {groups.size > 1 && (
+            <button
+              type="button"
+              onClick={() => setOpen(allOpen ? new Set() : 'all')}
+              className="flex h-8 items-center rounded-lg border px-2.5 hover:bg-surface-2"
+            >
+              {allOpen ? 'Collapse all' : 'Expand all'}
+            </button>
+          )}
           {top.data && (
             <span title={formatAbsolute(top.data.fetched_at)}>Asked {formatRelative(top.data.fetched_at, now)}</span>
           )}
@@ -68,27 +129,41 @@ function TopTab({ now, statusOf }: { now: number; statusOf: Record<string, Minio
             </tr>
           </thead>
           <tbody>
-            {rows.map(([sls, minions]) => {
-              const path = files.data ? slsToPath(sls, files.data) : null
+            {loose.map((row) => stateRow(row, false))}
+            {[...groups.entries()].map(([group, states]) => {
+              const expanded = isOpen(group)
+              const reached = [...new Set(states.flatMap(([, minions]) => minions))].sort()
               return (
-                <tr key={sls} className="border-t align-top">
-                  <td className="px-4 py-3 font-mono sm:pl-6">
-                    {path ? (
-                      <Link to={`/states?tab=files&file=${encodeURIComponent(path)}`} className="hover:text-accent">
-                        {sls}
-                      </Link>
-                    ) : (
-                      sls
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex flex-wrap gap-2">
-                      {minions.sort().map((m) => (
-                        <MinionChip key={m} id={m} status={statusOf[m]} />
-                      ))}
-                    </div>
-                  </td>
-                </tr>
+                <Fragment key={group}>
+                  <tr className="border-t bg-surface-2/30 align-top">
+                    <td className="px-4 py-2.5 sm:pl-6">
+                      <button
+                        type="button"
+                        onClick={() => toggle(group)}
+                        aria-expanded={expanded}
+                        className="flex items-center gap-1.5 font-mono font-medium hover:text-accent"
+                      >
+                        <ChevronRight
+                          className={cn('size-4 text-muted transition-transform', expanded && 'rotate-90')}
+                          aria-hidden
+                        />
+                        <Folder className="size-4 text-muted" aria-hidden />
+                        {group}
+                        <span className="ml-1 font-sans text-xs font-normal text-muted">
+                          {states.length} state{states.length === 1 ? '' : 's'}
+                        </span>
+                      </button>
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <div className="flex flex-wrap gap-2">
+                        {reached.map((m) => (
+                          <MinionChip key={m} id={m} status={statusOf[m]} />
+                        ))}
+                      </div>
+                    </td>
+                  </tr>
+                  {expanded && states.map((row) => stateRow(row, true))}
+                </Fragment>
               )
             })}
           </tbody>

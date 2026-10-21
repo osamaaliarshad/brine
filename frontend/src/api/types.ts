@@ -282,6 +282,8 @@ export type Orchestrations = {
   orchestrations: Orchestration[]
   truncated: boolean
   can_run: boolean
+  /** When brine last read the master's .sls files (it keeps the listing ready in the background). */
+  listed_at: string
 }
 
 export type CommandResult = {
