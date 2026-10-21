@@ -5,6 +5,9 @@ What brine remembers about the fleet, independently of the master's own (short-l
 * ``Minion``: one row per minion key, with its latest grains and presence.
 * ``PresenceChange``: online/offline transitions, for the status timeline.
 * ``GrainsSnapshot``: every distinct set of grains a minion reported, for history and diffs.
+* ``InventoryRead``: when each minion's packages and checks were last asked for and read.
+* ``InventoryItem``: each minion's current packages and check entries.
+* ``InventoryChange``: every package or check entry that appeared, changed or went away.
 * ``Job`` / ``JobReturn``: jobs and per-minion results, kept after the master forgets them.
 * ``AuditEntry``: who did what.
 * ``SystemState``: small key/value facts, such as when presence was last observed.
@@ -72,6 +75,64 @@ class GrainsSnapshot(Base):
     collected_at: Mapped[datetime]
     sha256: Mapped[str] = mapped_column(String(64))
     grains: Mapped[dict[str, Any]] = mapped_column(JSON)
+
+
+class InventoryRead(Base):
+    """One minion's latest read of one source ("packages" or a check's name)."""
+
+    __tablename__ = "inventory_reads"
+
+    minion_id: Mapped[str] = mapped_column(
+        ForeignKey("minions.id", ondelete="CASCADE"), primary_key=True
+    )
+    source: Mapped[str] = mapped_column(String(64), primary_key=True)
+    asked_at: Mapped[datetime | None]  # brine last asked
+    answered_at: Mapped[datetime | None]  # last answer, good or failed
+    read_at: Mapped[datetime | None]  # last good answer: entries are as of this
+    first_read_at: Mapped[datetime | None]
+    error: Mapped[str | None] = mapped_column(Text)  # the last answer's error, if it failed
+    truncated: Mapped[bool] = mapped_column(default=False)
+    # Read again at/after this (a minion start, a person's job finishing).
+    wanted_at: Mapped[datetime | None]
+    # The person's job that finished before the next read: changes found then are credited to it.
+    after_jid: Mapped[str | None] = mapped_column(String(32))
+    after_user: Mapped[str | None] = mapped_column(String(255))
+    after_at: Mapped[datetime | None]
+
+
+class InventoryItem(Base):
+    """What a minion said it has: a package and its version, or a check's entry."""
+
+    __tablename__ = "inventory_items"
+    __table_args__ = (Index("ix_inventory_items_source_name", "source", "name"),)
+
+    minion_id: Mapped[str] = mapped_column(
+        ForeignKey("minions.id", ondelete="CASCADE"), primary_key=True
+    )
+    source: Mapped[str] = mapped_column(String(64), primary_key=True)
+    # "" for a check that prints a single value.
+    name: Mapped[str] = mapped_column(String(255), primary_key=True)
+    value: Mapped[str] = mapped_column(Text)
+    since: Mapped[datetime]  # first read with this value
+
+
+class InventoryChange(Base):
+    __tablename__ = "inventory_changes"
+    __table_args__ = (
+        Index("ix_inventory_changes_source_name_at", "source", "name", "at"),
+        Index("ix_inventory_changes_minion_at", "minion_id", "at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    minion_id: Mapped[str] = mapped_column(ForeignKey("minions.id", ondelete="CASCADE"))
+    source: Mapped[str] = mapped_column(String(64))
+    name: Mapped[str] = mapped_column(String(255))
+    old: Mapped[str | None] = mapped_column(Text)  # None: wasn't there
+    new: Mapped[str | None] = mapped_column(Text)  # None: gone
+    at: Mapped[datetime]  # the read that found it
+    since: Mapped[datetime | None]  # the read before: it changed between the two
+    jid: Mapped[str | None] = mapped_column(String(32))  # credited job, if any
+    user: Mapped[str | None] = mapped_column(String(255))
 
 
 class Job(Base):
