@@ -74,10 +74,12 @@ describe('FleetPage', () => {
     await user.type(screen.getByRole('searchbox', { name: 'Search minions' }), '10.0.0.11')
     expect(rows()).toEqual(['rover-0110.0.0.11'])
 
+    // Grain values are searchable too (there's no separate filter per grain).
     await user.clear(screen.getByRole('searchbox', { name: 'Search minions' }))
-    await user.selectOptions(screen.getByRole('combobox', { name: 'Filter by Site' }), 'site-b')
+    await user.type(screen.getByRole('searchbox', { name: 'Search minions' }), 'site-b')
     expect(rows()).toEqual(['dock-0110.0.0.1', 'rover-0210.0.0.1'])
     expect(screen.getByText('Showing 1–2 of 2 minions')).toBeInTheDocument()
+    expect(screen.queryByRole('combobox')).toBeNull()
   })
 
   it('restores filters from the URL', async () => {

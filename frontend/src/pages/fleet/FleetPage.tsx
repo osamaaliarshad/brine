@@ -24,7 +24,6 @@ import { baseColumns, grainColumn } from '@/pages/fleet/columns'
 import { FleetTable } from '@/pages/fleet/FleetTable'
 import { CONTROL, FleetToolbar } from '@/pages/fleet/FleetToolbar'
 import {
-  distinctValues,
   filterMinions,
   type FleetView,
   latestGrainsAt,
@@ -89,10 +88,6 @@ export function FleetPage() {
     setParams(paramsFromView(next), { replace: true })
   }
 
-  const groupColumn = fleet?.columns[0]
-  // Plain recomputation on each render: fleets are at most a few thousand rows, and renders
-  // are rare (data changes, plus a 15s clock tick).
-  const groupValues = fleet && groupColumn ? distinctValues(fleet.minions, groupColumn.grain) : []
   const allColumns = [
     ...baseColumns(),
     ...(fleet?.columns ?? []).map((c) => grainColumn(c.grain, c.label)),
@@ -101,7 +96,7 @@ export function FleetPage() {
   const columns = allColumns.filter((c) => !hidden.has(c.key))
 
   const shown = sortMinions(
-    filterMinions(fleet?.minions ?? [], view, groupColumn?.grain),
+    filterMinions(fleet?.minions ?? [], view),
     view.sort,
     view.dir,
   )
@@ -171,8 +166,6 @@ export function FleetPage() {
             <FleetToolbar
               view={view}
               fleet={fleet}
-              groupColumn={groupColumn}
-              groupValues={groupValues}
               columnsMenu={
                 <ColumnsMenu
                   grainColumns={fleet?.columns ?? []}

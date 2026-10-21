@@ -1,6 +1,6 @@
 import { RefreshCw, Search } from 'lucide-react'
 import type { ReactNode } from 'react'
-import type { Column, Fleet, MinionStatus } from '@/api/types'
+import type { Fleet, MinionStatus } from '@/api/types'
 import { StatusDot } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import type { FleetView, StatusFilter } from '@/pages/fleet/model'
@@ -57,8 +57,6 @@ function StatusTabs({ view, summary, onChange }: {
 export function FleetToolbar({
   view,
   fleet,
-  groupColumn,
-  groupValues,
   columnsMenu,
   onChange,
   onRefresh,
@@ -66,8 +64,6 @@ export function FleetToolbar({
 }: {
   view: FleetView
   fleet: Fleet | undefined
-  groupColumn: Column | undefined
-  groupValues: string[]
   columnsMenu: ReactNode
   onChange: (patch: Partial<FleetView>) => void
   onRefresh: () => void
@@ -88,22 +84,6 @@ export function FleetToolbar({
           className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-muted"
         />
       </label>
-
-      {groupColumn && groupValues.length > 0 && (
-        <select
-          aria-label={`Filter by ${groupColumn.label}`}
-          className={cn(CONTROL, 'cursor-pointer pr-2')}
-          value={view.group ?? ''}
-          onChange={(e) => onChange({ group: e.target.value || null })}
-        >
-          <option value="">All {groupColumn.label.toLowerCase()}s</option>
-          {groupValues.map((value) => (
-            <option key={value} value={value}>
-              {value}
-            </option>
-          ))}
-        </select>
-      )}
 
       {columnsMenu}
 

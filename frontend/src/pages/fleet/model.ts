@@ -8,8 +8,6 @@ export type SortKey = string
 export type FleetView = {
   status: StatusFilter
   q: string
-  /** Value of the first configured column to filter on (e.g. one site), or null for all. */
-  group: string | null
   sort: SortKey
   dir: SortDir
   page: number
@@ -20,7 +18,6 @@ export const PAGE_SIZE = 25
 export const DEFAULT_VIEW: FleetView = {
   status: 'all',
   q: '',
-  group: null,
   sort: 'id',
   dir: 'asc',
   page: 1,
@@ -47,17 +44,8 @@ export function matchesSearch(minion: MinionSummary, query: string): boolean {
   return haystack.some((value) => value?.toLowerCase().includes(q))
 }
 
-export function filterMinions(
-  minions: MinionSummary[],
-  view: Pick<FleetView, 'status' | 'q' | 'group'>,
-  groupGrain: string | undefined,
-): MinionSummary[] {
-  return minions.filter(
-    (m) =>
-      (view.status === 'all' || m.status === view.status) &&
-      (view.group === null || !groupGrain || cellText(m.columns[groupGrain]) === view.group) &&
-      matchesSearch(m, view.q),
-  )
+export function filterMinions(minions: MinionSummary[], view: Pick<FleetView, 'status' | 'q'>): MinionSummary[] {
+  return minions.filter((m) => (view.status === 'all' || m.status === view.status) && matchesSearch(m, view.q))
 }
 
 // Online first, then the ones that need a look, then offline.
@@ -95,16 +83,6 @@ export function paginate<T>(items: T[], page: number, size = PAGE_SIZE) {
   return { items: items.slice((current - 1) * size, current * size), page: current, pages }
 }
 
-/** Distinct values of a grain across the fleet, for the group filter. */
-export function distinctValues(minions: MinionSummary[], grain: string): string[] {
-  const values = new Set<string>()
-  for (const m of minions) {
-    const text = cellText(m.columns[grain])
-    if (text !== null) values.add(text)
-  }
-  return [...values].sort((a, b) => compareText(a, b))
-}
-
 /** Most recent grains collection across the fleet ("Grains updated 4m ago"). */
 export function latestGrainsAt(minions: MinionSummary[]): string | null {
   let latest: string | null = null
@@ -121,7 +99,6 @@ export function viewFromParams(params: URLSearchParams): FleetView {
   return {
     status: (['online', 'offline', 'stale', 'unknown'] as const).find((s) => s === status) ?? 'all',
     q: params.get('q') ?? '',
-    group: params.get('group'),
     sort: params.get('sort') ?? DEFAULT_VIEW.sort,
     dir: dir === 'desc' ? 'desc' : 'asc',
     page: Number.isInteger(page) && page > 0 ? page : 1,
@@ -133,7 +110,6 @@ export function paramsFromView(view: FleetView): URLSearchParams {
   const params = new URLSearchParams()
   if (view.status !== DEFAULT_VIEW.status) params.set('status', view.status)
   if (view.q) params.set('q', view.q)
-  if (view.group !== null) params.set('group', view.group)
   if (view.sort !== DEFAULT_VIEW.sort) params.set('sort', view.sort)
   if (view.dir !== DEFAULT_VIEW.dir) params.set('dir', view.dir)
   if (view.page !== 1) params.set('page', String(view.page))

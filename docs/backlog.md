@@ -42,7 +42,7 @@ Follow-ups found along the way:
 
 ## Phase 3 — Frontend v1 (SaltGUI read-only parity + brine extras)
 
-- [x] Fleet table (per the mockup): stat cards, status dot, last seen + cached/stale badges, OS/Salt, grain columns (show/hide), search, status tabs, site filter, sort, pagination; view state in the URL
+- [x] Fleet table (per the mockup): stat cards, status dot, last seen + cached/stale badges, OS/Salt, grain columns (show/hide), search (ids, IPs, grain values), status tabs, sort, pagination; view state in the URL
 - [x] Fleet columns are customisable: add any grain the fleet reports (autocomplete), reorder, remove, reset; saved per browser; `fleet.columns` is the team default
 - [ ] Admins save a column layout as the team default from the UI (needs roles, Phase 2)
 - [x] Fleet: "Run command" button

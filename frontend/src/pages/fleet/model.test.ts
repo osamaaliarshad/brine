@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 import {
   cellText,
   DEFAULT_VIEW,
-  distinctValues,
   filterMinions,
   latestGrainsAt,
   matchesSearch,
@@ -46,22 +45,17 @@ describe('search and filters', () => {
     expect(matchesSearch(fleet[0]!, '   ')).toBe(true)
   })
 
-  it('combines status, group and search', () => {
-    expect(ids(filterMinions(fleet, { status: 'all', q: '', group: 'site-b' }, 'site'))).toEqual([
+  it('combines status and search', () => {
+    expect(ids(filterMinions(fleet, { status: 'all', q: 'site-b' }))).toEqual([
       'rover-02',
       'dock-01',
     ])
-    expect(ids(filterMinions(fleet, { status: 'offline', q: '', group: null }, 'site'))).toEqual([
+    expect(ids(filterMinions(fleet, { status: 'offline', q: '' }))).toEqual([
       'rover-02',
     ])
-    expect(ids(filterMinions(fleet, { status: 'all', q: 'rover', group: 'site-b' }, 'site'))).toEqual([
+    expect(ids(filterMinions(fleet, { status: 'offline', q: 'rover' }))).toEqual([
       'rover-02',
     ])
-  })
-
-  it('lists distinct group values', () => {
-    expect(distinctValues(fleet, 'site')).toEqual(['site-a', 'site-b'])
-    expect(distinctValues(fleet, 'app_version')).toEqual(['2.3.0', '2.4.1'])
   })
 })
 
@@ -106,7 +100,7 @@ describe('paginate', () => {
 describe('URL view state', () => {
   it('round-trips and keeps defaults out of the URL', () => {
     expect(paramsFromView(DEFAULT_VIEW).toString()).toBe('')
-    const view = { status: 'offline', q: 'rover', group: 'site-b', sort: 'col:site', dir: 'desc', page: 2 } as const
+    const view = { status: 'offline', q: 'rover', sort: 'col:site', dir: 'desc', page: 2 } as const
     expect(viewFromParams(paramsFromView(view))).toEqual(view)
   })
 
