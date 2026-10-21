@@ -48,8 +48,8 @@ actions (phase 5) and sign-in (phase 2) are next.
 | Options + `/stats` | Settings | 3 | Active config, presence method, salt-api health |
 | Command box | Run (sidebar), Run command on Fleet and minion pages | 5 ✅ | Exact target preview, then a click to run; per-role allowlist; audited; results on the job page |
 | Grains / beacons / schedules / mine actions | Minion page actions | 5 | |
-| Templates (`saltgui_templates`) | Run command › Templates | 5 | |
-| Orchestrations | Run command › Orchestrations | 5 | |
+| Templates (`saltgui_templates`) | Run › Templates | 5 ✅ | Reads SaltGUI's own `saltgui_templates` from the master, plus `templates:` in brine's config; categories; one click fills in and previews |
+| Orchestrations | Orchestrations page | 5 ✅ | Steps in run order (target, what, requisites); Test / Run go through the Run page; the run and every step's job are recorded under the person |
 | Search (regex / invert / case), sort, row selection | Tables | 3 | |
 | Dark mode (system only) | Light / dark with manual toggle | 3 | |
 | Keyboard shortcuts | | Later | |

@@ -9,7 +9,7 @@
 
 ---
 
-> **Status: early development.** Every SaltGUI view has a brine page, and commands and key management work, all behind OIDC sign-in and roles. Still to come: SaltGUI's templates, orchestrations and job re-run/kill, and packaging (a Docker image and a quickstart). Follow [docs/backlog.md](docs/backlog.md) for progress.
+> **Status: early development.** Every SaltGUI view has a brine page, and commands, templates, orchestrations and key management work, all behind OIDC sign-in and roles. Still to come: job re-run/kill, and packaging (a Docker image and a quickstart). Follow [docs/backlog.md](docs/backlog.md) for progress.
 
 brine plugs into an existing **salt-master + salt-api** and gives your team a clean, fast view of the fleet:
 
@@ -105,7 +105,8 @@ SaltGUI's command box, with a safety catch. Type a target and a command the way 
 itself. brine first shows exactly which minions it reaches, and which of those are offline;
 running is a separate click, and the results land on the job page as they arrive. Who may run
 what is a per-role allowlist in brine's config, every run is in the audit log, and links like
-`/run?target=rover-*&command=test.ping` open already previewed.
+`/run?target=rover-*&command=test.ping` open already previewed. Templates (brine's own, or
+SaltGUI's `saltgui_templates` from the master config, unchanged) fill it in with one click.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/run-dark.png">
@@ -133,6 +134,18 @@ What the master tells each minion to be: which states the top file assigns to wh
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/states-dark.png">
   <img alt="States: motd and dock states with the minions they apply to" src="docs/assets/screenshots/states-light.png">
+</picture>
+
+### Orchestrations
+
+Every orchestration on the master, step by step: what each step does, on which minions, and what
+it waits for. Test and Run go through the Run page, so they're previewed, confirmed and audited
+like any command. The run, and the job each step starts, are recorded under whoever ran it, and
+the orchestration's job page links every step to its minions' results.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/orchestrations-dark.png">
+  <img alt="Orchestrations: orch.health and orch.rollout with their steps, targets and requisites" src="docs/assets/screenshots/orchestrations-light.png">
 </picture>
 
 ### Automation

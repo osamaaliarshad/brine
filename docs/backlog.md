@@ -80,7 +80,12 @@ Follow-ups found along the way:
 - [ ] Function help in the command box (`sys.doc`) and autocomplete
 - [ ] Long runners (orchestrations) as async jobs with live progress (`runner_async`), instead of waiting on the request
 - [ ] Grains, beacons, schedules, mine actions; job re-run / terminate / kill
-- [ ] Templates, orchestrations
+- [x] Templates: SaltGUI's `saltgui_templates` from the master and `templates:` in brine's config, by category, on the Run page
+- [x] Orchestrations page: every orchestration SLS with its steps; Test / Run through the Run page; the runner and each step's job recorded under the person (Salt runs steps as "salt")
+- [x] Runner commands recorded as jobs (`full_return` gives their jid)
+- [x] salt-api returns bare 500s under concurrent requests: at most 4 in flight, safe calls retried
+- [ ] Templates with parameters (fill-in fields), and SaltGUI's single-key template shortcuts
+- [ ] Orchestrations: cache the listing for big file roots; other saltenvs
 
 ## Later
 

@@ -140,3 +140,18 @@ written the job down, or while brine was restarting.
 
 Words after the function are sent as typed, so Salt parses `key=value` and YAML values exactly as
 the salt CLI does, rather than brine guessing.
+
+## 17. salt-api is called a few requests at a time, and safe calls are retried
+
+salt-api (rest_cherrypy) sometimes answers a request with a bare 500, "An unexpected error
+occurred", when several arrive at once: on the demo, about 1 in 30 at four in flight, none at
+two. brine keeps at most four requests in flight and retries a 500 twice for calls that are safe
+to repeat (reads, and key changes, which match exact IDs). Starting a job and a person's runner
+are never retried: the 500 may come after Salt started it, and it mustn't run twice.
+
+## 18. Orchestrations belong to the person who ran them
+
+Salt records a runner by the account that called salt-api (brine's), and the jobs an
+orchestration's steps start as "salt". brine asks for the runner's jid (`full_return`), records
+the run under the person, and imports each step's job from the job cache under them too. The
+orchestration's job page lists its steps like a state run, each linked to the job it started.

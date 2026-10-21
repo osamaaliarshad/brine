@@ -33,6 +33,14 @@ commands:                          # what each role may run from the Run page (f
   admin: ["*"]                     # the default: anything brine's Salt account may run
                                    # viewers never run commands
 
+templates:                         # one-click commands on the Run page (SaltGUI's
+  restart-web:                     # saltgui_templates in the master config work too)
+    description: Restart the web servers
+    target: "G@role:web"
+    target_type: compound
+    command: service.restart nginx
+    category: Web
+
 fleet:
   columns:                         # custom grains shown in the fleet table
     - grain: app_version

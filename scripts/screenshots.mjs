@@ -39,6 +39,7 @@ export const PAGES = [
   ['run', `/run?target=${encodeURIComponent('rover-*')}&command=${encodeURIComponent('state.apply motd test=True')}`],
   ['keys', '/keys'],
   ['states', '/states'],
+  ['orchestrations', '/orchestrations'],
   ['automation', '/automation'],
   ['events', '/events'],
   ['issues', '/issues'],

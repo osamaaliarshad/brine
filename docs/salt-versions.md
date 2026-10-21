@@ -2,8 +2,9 @@
 
 **brine aims to work with every Salt release the Salt Project still supports, and proves it in
 CI.** Each push runs the end-to-end test against a real salt-master, salt-api and minions
-installed from the official packages, once per release: currently **3006, 3007 and 3008**. A new
-major release is added when it ships; one is dropped from CI when Salt stops supporting it.
+installed from the official packages, once per release line (its latest release): currently
+**3006, 3007 and 3008**. A new major release is added when it ships; one is dropped from CI
+when Salt stops supporting it.
 
 Salt 3005 and older aren't tested. brine's read-only views use functions that existed back then,
 so they may well work, but those releases no longer get security fixes, and upgrading is the
@@ -20,6 +21,20 @@ better fix.
   `presence_events` when the master sends them and polls otherwise. Minions the master's presence
   detection can't see are flagged, not called offline. Write actions are offered only when the
   service account's ACL (read at login) allows them.
+
+## What brine does about salt-api's rough edges
+
+- **Sessions that end early.** SaltGUI's docs report Salt 3008.0 and 3008.1 ending its sessions
+  after about a minute. When salt-api stops accepting brine's token, brine logs in again, once,
+  and retries the request, so people don't see it.
+- **The event stream failing.** SaltGUI's docs report the event API broken on 3008.2. brine's
+  backend reconnects the stream with backoff and re-syncs what it may have missed; the browser
+  only ever talks to brine.
+- CI runs the latest release of each line (3008.3 today), not those older 3008 releases, so
+  brine is built for both problems but hasn't been tested against them.
+- **Bare 500s under load.** salt-api now and then fails a request when several arrive together.
+  brine keeps at most four in flight and retries the ones that are safe to repeat
+  ([decision 17](decisions.md)).
 
 ## Version differences worth knowing
 

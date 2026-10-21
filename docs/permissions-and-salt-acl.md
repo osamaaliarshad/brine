@@ -59,8 +59,9 @@ external_auth:
         - manage.status      # presence polling (method: ping)
         - manage.versions
         - cache.grains       # cached grains, nodegroup membership, presence diagnostics
+        - state.orchestrate_show_sls  # Orchestrations: each one's steps (renders, runs nothing)
       - '@wheel':
-        - config.values      # reactors and nodegroups (only those keys leave brine's server)
+        - config.values      # reactors, nodegroups, saltgui_templates (only these are used)
         - key.finger         # key fingerprints
         - key.list_all       # key states
         - minions.connected  # presence polling (method: connected)
@@ -82,8 +83,9 @@ The demo fleet uses this list plus key management (below):
 
 ### Things to know
 
-- `config.values` returns the whole master config to brine's server. brine keeps only
-  `reactor` and `nodegroups` and never sends the rest to browsers or stores it.
+- `config.values` returns the whole master config to brine's server. brine uses only
+  `reactor`, `nodegroups` and `saltgui_templates`, and never sends the rest to browsers or
+  stores it.
 - `file_roots.read` lets brine read files under your `file_roots` (states, templates). Keep
   secrets in pillar, not in state files.
 
@@ -122,6 +124,7 @@ team should be able to run through brine, for example:
         - service.restart
       - '@runner':
         - manage.*
+        - state.orchestrate      # Orchestrations › Run (and Test)
 ```
 
 Then decide who in brine may run which of them, under `commands:` in brine's config:
