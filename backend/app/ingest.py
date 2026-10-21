@@ -95,6 +95,20 @@ def _meet_want(read: InventoryRead, asked: datetime | None) -> None:
         read.wanted_at = None
 
 
+def _credits_job(read: InventoryRead, asked: datetime | None) -> bool:
+    """Whether an answer gets the job's credit: only the answer to brine's latest ask, made after
+    the job. Any other answer may show a change made before the job."""
+    return asked is not None and read.after_at is not None and asked >= read.after_at
+
+
+def _settle_late(read: InventoryRead, asked: datetime | None, *, at: datetime) -> None:
+    """A late answer (from `at`) to brine's latest ask still settles that ask. It meets the want,
+    and once a newer good read has found what the job changed, it uses up the job's credit."""
+    if read.read_at is not None and at <= read.read_at and _credits_job(read, asked):
+        read.after_jid = read.after_user = read.after_at = None
+    _meet_want(read, asked)
+
+
 class Ingest:
     def __init__(
         self,
@@ -312,13 +326,15 @@ class Ingest:
         any ("already there when brine first looked"). `jid` is the job that carried it."""
         async with self._lock, self._sessions() as s, s.begin():
             read = await self._read_row(s, mid, source)
-            if read.read_at is not None and at <= read.read_at:
-                return Changes()  # an older answer arriving late, or a duplicate
-            first, since = read.first_read_at is None, read.read_at
-            # Changes go to the job only in the answer to brine's latest ask, made after the job:
-            # any other answer may show a change made before the job. Then the credit waits.
             asked = _asked_at(read, jid)
-            credited = asked is not None and read.after_at is not None and asked >= read.after_at
+            if read.read_at is not None and at <= read.read_at:
+                # An older answer arriving late, or a duplicate: the newer read stands.
+                _settle_late(read, asked, at=at)
+                return Changes()
+            first, since = read.first_read_at is None, read.read_at
+            # The job gets the changes only in the answer to brine's ask made after it; for any
+            # other answer the credit waits.
+            credited = _credits_job(read, asked)
             job, user = (read.after_jid, read.after_user) if credited else (None, None)
             current = {
                 item.name: item
@@ -374,10 +390,13 @@ class Ingest:
         The last good entries stay, as of when they were read. `jid` is the job that carried it."""
         async with self._lock, self._sessions() as s, s.begin():
             read = await self._read_row(s, mid, source)
+            asked = _asked_at(read, jid)
             if read.answered_at is not None and at <= read.answered_at:
-                return Changes()  # an older answer arriving late, or a duplicate
+                # An older answer arriving late, or a duplicate: the newer answer stands.
+                _settle_late(read, asked, at=at)
+                return Changes()
             read.answered_at, read.error = at, error
-            _meet_want(read, _asked_at(read, jid))
+            _meet_want(read, asked)
         return Changes(minions={mid})
 
     # --- jobs -----------------------------------------------------------------------------

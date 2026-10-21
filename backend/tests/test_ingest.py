@@ -434,6 +434,82 @@ async def test_an_answer_to_someone_elses_call_is_not_credited(
     assert (await read_row(sessions, "a")).after_jid == "J1"
 
 
+async def test_a_late_answer_to_brines_ask_still_settles_it(
+    ingest: Ingest, sessions: Sessions
+) -> None:
+    second = timedelta(seconds=1)
+    await ingest.inventory_read("a", "packages", {"agent": "2.3.0"}, at=T0)
+    job_at = T0 + timedelta(hours=1)
+    await ingest.inventory_job_done("a", jid="J1", user="alice", at=job_at)
+    await ingest.inventory_asked(["a"], "packages", at=job_at + AFTER_JOB, jid="A1")
+    # A person's own read gets in first and finds what the job changed (uncredited).
+    await ingest.inventory_read("a", "packages", {"agent": "2.4.1"}, at=job_at + 120 * second)
+    # Late answers from anyone else settle nothing ...
+    for jid in (None, "OLD"):
+        assert not await ingest.inventory_read(
+            "a", "packages", {"agent": "2.4.1"}, at=job_at + 90 * second, jid=jid
+        )
+    read = await read_row(sessions, "a")
+    assert (read.after_jid, read.wanted_at) == ("J1", job_at + AFTER_JOB)
+    # ... but A1's own late answer does: the want is met and the credit used up. Items and
+    # times stay as the newer read left them.
+    assert not await ingest.inventory_read(
+        "a", "packages", {"agent": "2.4.0"}, at=job_at + 100 * second, jid="A1"
+    )
+    assert await items(sessions, "a") == {"agent": "2.4.1"}
+    read = await read_row(sessions, "a")
+    assert read.read_at == read.answered_at == job_at + 120 * second
+    assert read.after_jid is None and read.after_user is None and read.after_at is None
+    assert read.wanted_at is None
+    # A later change isn't the job's.
+    await ingest.inventory_asked(["a"], "packages", at=T0 + timedelta(hours=7), jid="A2")
+    await ingest.inventory_read(
+        "a", "packages", {"agent": "2.5.0"}, at=T0 + timedelta(hours=8), jid="A2"
+    )
+    assert (await changes_of(sessions, "a"))[-1].jid is None
+
+
+async def test_a_repeated_answer_leaves_a_newer_jobs_credit(
+    ingest: Ingest, sessions: Sessions
+) -> None:
+    await ingest.inventory_read("a", "packages", {"agent": "2.3.0"}, at=T0)
+    await ingest.inventory_asked(["a"], "packages", at=T0 + timedelta(hours=1), jid="A1")
+    answered = T0 + timedelta(hours=1, seconds=5)
+    await ingest.inventory_read("a", "packages", {"agent": "2.3.0"}, at=answered, jid="A1")
+    job_at = T0 + timedelta(hours=2)
+    await ingest.inventory_job_done("a", jid="J2", user="bob", at=job_at)
+    # A1 delivered again: its ask came before J2, so J2's credit and want stay.
+    await ingest.inventory_read("a", "packages", {"agent": "2.3.0"}, at=answered, jid="A1")
+    await ingest.inventory_failed("a", "packages", "locked", at=answered, jid="A1")
+    read = await read_row(sessions, "a")
+    assert (read.after_jid, read.wanted_at) == ("J2", job_at + AFTER_JOB)
+
+
+async def test_a_late_failure_to_brines_ask(ingest: Ingest, sessions: Sessions) -> None:
+    second = timedelta(seconds=1)
+    await ingest.inventory_read("a", "packages", {"agent": "2.3.0"}, at=T0)
+    job_at = T0 + timedelta(hours=1)
+    await ingest.inventory_job_done("a", jid="J1", user="alice", at=job_at)
+    await ingest.inventory_asked(["a"], "packages", at=job_at + AFTER_JOB, jid="A1")
+    # Only a newer failure got in first: nothing has found what the job changed, so the late
+    # failure meets the want but leaves the credit for the next good read.
+    await ingest.inventory_failed("a", "packages", "locked", at=job_at + 120 * second)
+    await ingest.inventory_failed("a", "packages", "busy", at=job_at + 90 * second, jid="A1")
+    read = await read_row(sessions, "a")
+    assert read.error == "locked" and read.answered_at == job_at + 120 * second
+    assert read.wanted_at is None and read.after_jid == "J1"
+
+    # Once a newer good read has found the changes, a late failure to brine's ask uses up the
+    # credit too.
+    await ingest.inventory_job_done("a", jid="J2", user="bob", at=job_at + 180 * second)
+    await ingest.inventory_asked(["a"], "packages", at=job_at + 240 * second, jid="A2")
+    await ingest.inventory_read("a", "packages", {"agent": "2.4.1"}, at=job_at + 300 * second)
+    await ingest.inventory_failed("a", "packages", "busy", at=job_at + 270 * second, jid="A2")
+    read = await read_row(sessions, "a")
+    assert read.error is None and read.read_at == read.answered_at == job_at + 300 * second
+    assert read.after_jid is None and read.wanted_at is None
+
+
 async def test_the_latest_job_wins_the_credit(ingest: Ingest, sessions: Sessions) -> None:
     await ingest.inventory_read("a", "packages", {"agent": "2.3.0"}, at=T0)
     await ingest.inventory_job_done("a", jid="J1", user="alice", at=T0 + timedelta(hours=1))
