@@ -281,8 +281,12 @@ class Ingest:
     #   which costs one more ask, never a wrong credit.
     # * A source's first read records what's there without changes. A truncated answer (cut
     #   short, so some entries may be missing) adds and updates entries but removes none.
-    # * Clocks: answers, jobs and starts are timed by the master, asks by brine. Only coarse
-    #   rules (refreshes, the credit window) compare the two.
+    # * Clocks: answers, jobs and starts are timed by the master, asks by brine. Refreshes and
+    #   the credit window compare the two coarsely. The credit's lower bound and an ask sent
+    #   before the job compare an ask with a job closely: when the two are closer together than
+    #   the clocks are apart, one just after the job can look sent before it (its answer goes
+    #   uncredited, and one more ask is made), or one just before can look sent after it
+    #   (credited, though it may miss the job's changes). Either way, at most a credit is lost.
 
     async def _read_row(self, s: AsyncSession, mid: str, source: str) -> InventoryRead:
         await self._get_or_create(s, mid, "accepted")

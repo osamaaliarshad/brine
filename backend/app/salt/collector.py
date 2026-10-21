@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
 
+from app import inventory
 from app.bus import EventBus
 from app.commands import actor_of
 from app.config import Settings
@@ -326,18 +327,26 @@ class Collector:
         ):
             pass  # wheel/runner calls echoed as salt/job events: master-side, not minion jobs
         elif m := _JOB_RET.match(tag):
+            mid, fun = str(d.get("id") or m["mid"]), str(d.get("fun", ""))
+            # Someone's command run through brine: theirs, not brine's housekeeping.
+            user = actor_of(d.get("metadata")) or d.get("user")
             changes = await self.ingest.job_return(
                 jid=m["jid"],
                 kind="local",
-                minion_id=str(d.get("id") or m["mid"]),
-                fun=str(d.get("fun", "")),
+                minion_id=mid,
+                fun=fun,
                 at=at,
                 data=d.get("return"),
                 success=d.get("success"),
                 retcode=d.get("retcode"),
-                # Someone's command run through brine: theirs, not brine's housekeeping.
-                user=actor_of(d.get("metadata")) or d.get("user"),
+                user=user,
             )
+            # An answer is a read, brine's or a person's: it changes nothing, so there's nothing
+            # to read again after it, or to credit changes to.
+            if source := self._inventory_source(fun, d.get("fun_args") or []):
+                changes.merge(await self._inventory_answer(mid, m["jid"], source, d, at))
+            elif not self.ingest.is_housekeeping(user, fun) and inventory.may_change_software(fun):
+                await self.ingest.inventory_job_done(mid, jid=m["jid"], user=user, at=at)
         elif m := _JOB_NEW.match(tag):
             changes = await self.ingest.job_new(
                 jid=m["jid"],
@@ -380,10 +389,39 @@ class Collector:
         elif m := _MINION_START.match(tag):
             changes = await self.ingest.minion_seen(m["mid"], at=now)
             changes.merge(await self.ingest.presence_visible(m["mid"]))
-            # A (re)started minion may have new grains.
+            # A (re)started minion may have new grains, packages and checks. The want is timed
+            # by the master, like the answers it's compared with.
             await self.client.local_async(m["mid"], "grains.items", tgt_type="list")
+            await self.ingest.inventory_wanted(m["mid"], at=at)
 
         self._publish(changes)
+
+    def _inventory_source(self, fun: str, args: list[Any]) -> str | None:
+        """What a return answers, if anything: the packages, for a plain ``pkg.list_pkgs``
+        (arguments such as ``versions_as_list`` or ``attr`` change its shape), or a check, for
+        ``cmd.run_all`` with its exact command."""
+        if fun == inventory.PACKAGES_FUN:
+            return None if args else inventory.PACKAGES
+        if fun == inventory.CHECK_FUN:
+            return inventory.check_named(self.settings, args)
+        return None
+
+    async def _inventory_answer(
+        self, mid: str, jid: str, source: str, d: dict[str, Any], at: datetime
+    ) -> Changes:
+        """A package list or a configured check's output, from brine or anyone else."""
+        parse = inventory.parse_packages if source == inventory.PACKAGES else inventory.parse_check
+        entries, error, truncated = parse(d.get("return"))
+        # A call Salt says failed is a failed read. Its answer is usually Salt's error text (an
+        # "unexpected answer"), but one that reads well may still be partial: a command inside
+        # it failed, say.
+        if d.get("success") is False and not error:
+            error = "Salt said the call failed"
+        if error:
+            return await self.ingest.inventory_failed(mid, source, error, at=at, jid=jid)
+        return await self.ingest.inventory_read(
+            mid, source, entries, at=at, truncated=truncated, jid=jid
+        )
 
 
 async def import_job(

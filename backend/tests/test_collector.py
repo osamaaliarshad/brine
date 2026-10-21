@@ -1,5 +1,6 @@
 import asyncio
 from collections.abc import AsyncIterator
+from datetime import timedelta
 from typing import Any
 
 import pytest
@@ -9,13 +10,16 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.bus import EventBus
 from app.config import Settings
 from app.ingest import PRESENCE_STATE, Ingest
-from app.models import Job, JobReturn, Minion
+from app.inventory import AFTER_JOB
+from app.models import InventoryItem, InventoryRead, Job, JobReturn, Minion
 from app.salt.client import SaltApiUnavailable
 from app.salt.collector import Collector
 from app.salt.events import SaltEvent
-from tests.conftest import FakeClock
+from tests.conftest import T0, FakeClock
 
 Sessions = async_sessionmaker[AsyncSession]
+
+ROVER_CLI = "rover-cli --version"
 
 
 def settings(**presence: Any) -> Settings:
@@ -24,6 +28,7 @@ def settings(**presence: Any) -> Settings:
             "salt_api": {"url": "https://salt.test", "username": "brine", "password": "x"},
             "auth": {"provider": "none"},
             "presence": presence,
+            "inventory": {"checks": {"rover-cli": ROVER_CLI}},
         }
     )
 
@@ -103,6 +108,23 @@ class FakeSaltApi:
 
 def ev(tag: str, **data: Any) -> SaltEvent:
     return SaltEvent(tag, {"_stamp": "2026-10-20T12:00:05.000000", **data})
+
+
+SECOND = timedelta(seconds=1)
+STAMP = T0 + 5 * SECOND  # ev()'s master stamp; brine's clock says T0
+
+
+def job_ret(
+    jid: str, fun: str, answer: Any, *, args: list[Any] | None = None, **data: Any
+) -> SaltEvent:
+    """rover-01's return for job `jid`: brine's own call unless `data` says otherwise."""
+    fields = {"id": "rover-01", "jid": jid, "fun": fun, "fun_args": args or [], "success": True}
+    fields |= {"retcode": 0, "user": "brine", "return": answer, **data}
+    return ev(f"salt/job/{jid}/ret/rover-01", **fields)
+
+
+def ok(stdout: str) -> dict[str, Any]:
+    return {"retcode": 0, "stdout": stdout, "stderr": ""}
 
 
 LIVE_EVENTS = [
@@ -347,3 +369,147 @@ async def test_a_stream_closing_after_a_while_reconnects_quietly(
         await collector.run()
     assert sessions == 2
     assert collector.status.connected and collector.status.error is None
+
+
+# --- packages and checks -----------------------------------------------------------------
+
+
+async def inventory_of(sessions: Sessions) -> set[tuple[str, str, str]]:
+    async with sessions() as s:
+        return {(i.source, i.name, i.value) for i in await s.scalars(select(InventoryItem))}
+
+
+async def read_of(sessions: Sessions, source: str = "packages") -> InventoryRead:
+    async with sessions() as s:
+        read = await s.get(InventoryRead, ("rover-01", source))
+    assert read is not None
+    return read
+
+
+async def test_package_and_check_answers_are_stored(
+    make_collector: Any, ingest: Ingest, sessions: Sessions
+) -> None:
+    collector = make_collector(FakeSaltApi([]))
+    await ingest.inventory_asked(["rover-01"], "packages", at=T0, jid="101")
+    await ingest.inventory_asked(["rover-01"], "rover-cli", at=T0, jid="102")
+    await collector.handle(job_ret("101", "pkg.list_pkgs", {"rover-agent": "2.4.1"}))
+    await collector.handle(job_ret("102", "cmd.run_all", ok("rover-cli 1.2.0\n"), args=[ROVER_CLI]))
+
+    assert await inventory_of(sessions) == {
+        ("packages", "rover-agent", "2.4.1"),
+        ("rover-cli", "", "rover-cli 1.2.0"),
+    }
+    for source in ("packages", "rover-cli"):
+        read = await read_of(sessions, source)
+        # Read as of the master's stamp, and the return's jid settled brine's ask.
+        assert (read.read_at, read.error, read.asked_jid) == (STAMP, None, None)
+
+
+async def test_a_failing_check_is_a_failed_read_and_keeps_its_entries(
+    make_collector: Any, ingest: Ingest, sessions: Sessions
+) -> None:
+    collector = make_collector(FakeSaltApi([]))
+    await ingest.inventory_read("rover-01", "rover-cli", {"": "rover-cli 1.2.0"}, at=T0, jid=None)
+    # cmd.run_all marks the call failed when the command fails.
+    answer = {"retcode": 127, "stdout": "", "stderr": "sh: rover-cli: not found"}
+    await collector.handle(
+        job_ret("103", "cmd.run_all", answer, args=[ROVER_CLI], success=False, retcode=127)
+    )
+    read = await read_of(sessions, "rover-cli")
+    assert (read.error, read.answered_at, read.read_at) == (
+        "exit 127: sh: rover-cli: not found",
+        STAMP,
+        T0,
+    )
+    assert await inventory_of(sessions) == {("rover-cli", "", "rover-cli 1.2.0")}
+
+
+async def test_a_package_list_salt_says_failed_is_a_failed_read(
+    make_collector: Any, ingest: Ingest, sessions: Sessions
+) -> None:
+    collector = make_collector(FakeSaltApi([]))
+    await ingest.inventory_read("rover-01", "packages", {"bash": "5.2"}, at=T0, jid=None)
+    # The function failed on the minion: Salt answers with its error text.
+    error = "ERROR: Problem encountered getting the package list"
+    await collector.handle(job_ret("104", "pkg.list_pkgs", error, success=False, retcode=1))
+    assert (await read_of(sessions)).error == f"unexpected answer: {error}"
+    # Nor is a list trusted when Salt says the call failed: it may be partial.
+    later = "2026-10-20T12:00:10.000000"
+    await collector.handle(
+        job_ret("105", "pkg.list_pkgs", {"bash": "5.3"}, success=False, retcode=1, _stamp=later)
+    )
+    read = await read_of(sessions)
+    assert (read.error, read.answered_at) == ("Salt said the call failed", T0 + 10 * SECOND)
+    assert await inventory_of(sessions) == {("packages", "bash", "5.2")}
+
+
+async def test_other_calls_are_not_answers(make_collector: Any, sessions: Sessions) -> None:
+    collector = make_collector(FakeSaltApi([]))
+    await collector.handle(job_ret("106", "cmd.run_all", ok("hi"), args=["echo hi"]))
+    # With arguments, a package list isn't the plain one brine reads. Keyword arguments come
+    # as a dict (through salt-api) or as name=value (from the salt CLI).
+    listed = {"rover-agent": ["2.4.1"]}
+    await collector.handle(
+        job_ret("107", "pkg.list_pkgs", listed, args=[{"versions_as_list": True}])
+    )
+    await collector.handle(job_ret("108", "pkg.list_pkgs", listed, args=["versions_as_list=True"]))
+    assert await inventory_of(sessions) == set()
+    async with sessions() as s:
+        assert (await s.scalars(select(InventoryRead))).all() == []
+
+
+@pytest.mark.parametrize(
+    ("data", "person"),
+    [
+        ({"user": "alice"}, "alice"),  # from the salt CLI or salt-api
+        ({"metadata": {"brine": {"actor": "bob@example.com"}}}, "bob@example.com"),  # brine
+    ],
+)
+async def test_a_persons_job_that_may_change_software_wants_a_reread(
+    make_collector: Any, ingest: Ingest, sessions: Sessions, data: dict[str, Any], person: str
+) -> None:
+    collector = make_collector(FakeSaltApi([]))
+    await ingest.inventory_read("rover-01", "packages", {"bash": "5.2"}, at=T0, jid=None)
+    await collector.handle(job_ret("201", "state.apply", {}, **data))
+    read = await read_of(sessions)
+    assert read.wanted_at == STAMP + AFTER_JOB
+    assert (read.after_jid, read.after_user, read.after_at) == ("201", person, STAMP)
+
+
+async def test_brines_own_calls_and_read_only_jobs_dont_want_a_reread(
+    make_collector: Any, ingest: Ingest, sessions: Sessions
+) -> None:
+    collector = make_collector(FakeSaltApi([]))
+    await ingest.inventory_read("rover-01", "packages", {"bash": "5.2"}, at=T0, jid=None)
+    await collector.handle(job_ret("301", "state.apply", {}))  # brine's own, for no one
+    await collector.handle(job_ret("302", "cmd.run_all", ok(""), args=["true"]))
+    await collector.handle(job_ret("303", "test.ping", True, user="alice"))
+    await collector.handle(job_ret("304", "pkg.list_pkgs", {"bash": "5.2"}, user="alice"))
+    read = await read_of(sessions)
+    assert read.wanted_at is None and read.after_at is None
+
+
+async def test_a_person_running_a_checks_command_reads_it_and_changes_nothing(
+    make_collector: Any, ingest: Ingest, sessions: Sessions
+) -> None:
+    collector = make_collector(FakeSaltApi([]))
+    await ingest.inventory_read("rover-01", "packages", {"bash": "5.2"}, at=T0, jid=None)
+    answer = ok("rover-cli 1.2.0")
+    await collector.handle(job_ret("401", "cmd.run_all", answer, args=[ROVER_CLI], user="alice"))
+    assert ("rover-cli", "", "rover-cli 1.2.0") in await inventory_of(sessions)
+    # A check is read-only: nothing to read again, or to credit to the person's run.
+    assert (await read_of(sessions)).wanted_at is None
+    # Any other command could install something.
+    install = ["apt-get install -y rover-cli"]
+    await collector.handle(job_ret("402", "cmd.run_all", ok(""), args=install, user="alice"))
+    assert (await read_of(sessions)).after_jid == "402"
+
+
+async def test_a_minion_start_wants_a_reread(
+    make_collector: Any, ingest: Ingest, sessions: Sessions
+) -> None:
+    collector = make_collector(FakeSaltApi([]))
+    await ingest.inventory_read("rover-01", "packages", {"bash": "5.2"}, at=T0, jid=None)
+    await collector.handle(ev("salt/minion/rover-01/start", id="rover-01"))
+    # As of the master's stamp, like the answers it's compared with.
+    assert (await read_of(sessions)).wanted_at == STAMP
