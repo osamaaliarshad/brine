@@ -51,6 +51,15 @@ describe('job actions', () => {
       'rover-03',
       'list',
     ])
+    const stop = screen.getByRole('link', { name: 'Stop' })
+    expect(new URL(stop.getAttribute('href')!, 'http://x').searchParams.get('command')).toBe(
+      'saltutil.term_job 20261020120000000001',
+    )
+    // What each does, in words a touch screen shows too.
+    const help = screen.getByText(/^Stop asks/)
+    expect(help).toHaveTextContent('Stop asks it to end (saltutil.term_job): it gets a chance to clean up.')
+    expect(help).toHaveTextContent('Kill ends it at once (saltutil.kill_job), like kill -9.')
+    expect(help).toHaveTextContent('Both open Run first; nothing runs until you click Run.')
   })
 
   it('re-runs targets the Run page cannot take on the minions the job reached', async () => {
@@ -60,6 +69,7 @@ describe('job actions', () => {
     const params = new URL(again.getAttribute('href')!, 'http://x').searchParams
     expect([params.get('target'), params.get('type')]).toEqual(['rover-01,rover-02,rover-03', 'list'])
     expect(screen.queryByRole('link', { name: 'Kill' })).toBeNull()
+    expect(screen.queryByText(/^Stop asks/)).toBeNull()
   })
 
   it('shows nothing to people who cannot run commands', async () => {

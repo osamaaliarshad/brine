@@ -140,6 +140,54 @@ describe('JobPage', () => {
     expect(screen.getByText('1.5 s')).toBeInTheDocument()
   })
 
+  it('waits for answers while the job is young, not saying anyone failed to return', async () => {
+    const fresh: JobDetail = {
+      ...DETAIL,
+      started_at: ago(5),
+      finished_at: null,
+      returned: 1,
+      succeeded: 1,
+      failed: 0,
+      missing: ['rover-02', 'rover-03'],
+      results: DETAIL.results.slice(0, 1),
+    }
+    mockApi({ '/api/jobs/20261020120000000001': fresh, '/api/status': systemStatus() })
+    renderApp('/jobs/20261020120000000001')
+    const waiting = await screen.findByRole('status')
+    expect(waiting).toHaveTextContent('Waiting for answers from rover-02, rover-03…')
+    expect(screen.queryByText(/No return from/)).toBeNull()
+  })
+
+  it('waits for the first answer before saying there are no results', async () => {
+    const fresh: JobDetail = {
+      ...DETAIL,
+      started_at: ago(2),
+      finished_at: null,
+      returned: 0,
+      succeeded: 0,
+      failed: 0,
+      missing: ['rover-01', 'rover-02', 'rover-03'],
+      results: [],
+    }
+    mockApi({ '/api/jobs/20261020120000000001': fresh, '/api/status': systemStatus() })
+    renderApp('/jobs/20261020120000000001')
+    expect(await screen.findByRole('status')).toHaveTextContent('Waiting for answers from rover-01, rover-02, rover-03…')
+    expect(screen.queryByText('No results recorded yet.')).toBeNull()
+  })
+
+  it('says who never answered once the job is no longer young', async () => {
+    const old: JobDetail = { ...DETAIL, started_at: ago(5 * 60), finished_at: null, results: [], returned: 0, missing: DETAIL.minions }
+    mockApi({ '/api/jobs/20261020120000000001': old, '/api/status': systemStatus() })
+    renderApp('/jobs/20261020120000000001')
+    expect(
+      await screen.findByText(
+        'No return from rover-01, rover-02, rover-03. They may have been offline, or are still running it.',
+      ),
+    ).toBeInTheDocument()
+    expect(screen.getByText('No results recorded yet.')).toBeInTheDocument()
+    expect(screen.queryByRole('status')).toBeNull()
+  })
+
   it('shows plain returns as a tree', async () => {
     mockApi({
       '/api/jobs/9': { ...DETAIL, jid: '9', fun: 'grains.item', args: ['os'], missing: [], results: [

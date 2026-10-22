@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, RotateCcw, Square } from 'lucide-react'
+import { ChevronLeft, ChevronRight, LoaderCircle, RotateCcw, Square } from 'lucide-react'
 import { type ReactNode, useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { ApiError } from '@/api/client'
@@ -73,6 +73,20 @@ function ResultCard({ result, job, defaultOpen }: { result: JobResult; job: JobD
   )
 }
 
+// Minions usually answer within seconds. Until this long after a job started, the ones still out
+// are waited for; after it, the page says they haven't returned.
+const ANSWER_WAIT_MS = 60_000
+
+/** "Waiting for answers from rover-01, rover-02…", with a spinner. */
+function Waiting({ minions, className }: { minions: string[]; className?: string }) {
+  return (
+    <div role="status" className={cn('flex items-center gap-2 rounded-xl border px-4 py-3 text-sm text-muted', className)}>
+      <LoaderCircle className="size-4 shrink-0 animate-spin" aria-hidden />
+      {minions.length ? `Waiting for answers from ${minions.join(', ')}…` : 'Waiting for an answer…'}
+    </div>
+  )
+}
+
 // Target types the Run page takes; other jobs are re-run on the minions they reached.
 const RUN_TARGET_TYPES = new Set(['glob', 'list', 'compound', 'grain', 'nodegroup', 'pcre'])
 
@@ -83,7 +97,7 @@ function runLink(command: string, target?: string, type?: string) {
   return `/run?${params}`
 }
 
-/** Run it again, or stop minions still running it: both open the Run page, previewed. */
+/** Run it again, or stop minions still running it: all open the Run page, previewed. */
 function JobActions({ job }: { job: JobDetail }) {
   const again =
     job.kind === 'runner'
@@ -93,29 +107,38 @@ function JobActions({ job }: { job: JobDetail }) {
         : runLink(commandLine(job.fun, job.args), job.minions.join(','), 'list')
   const waiting = job.kind === 'local' && job.missing.length > 0
   return (
-    <div className="flex flex-wrap gap-2">
-      <Link to={again} className={CONTROL}>
-        <RotateCcw className="size-4 text-muted" aria-hidden />
-        Run again
-      </Link>
+    <div className="flex flex-col gap-2 sm:items-end">
+      <div className="flex flex-wrap gap-2">
+        <Link to={again} className={CONTROL}>
+          <RotateCcw className="size-4 text-muted" aria-hidden />
+          Run again
+        </Link>
+        {waiting && (
+          <>
+            <Link
+              to={runLink(`saltutil.term_job ${job.jid}`, job.missing.join(','), 'list')}
+              className={CONTROL}
+              title="Ask the minions still running it to end it (SIGTERM)"
+            >
+              <Square className="size-4 text-muted" aria-hidden />
+              Stop
+            </Link>
+            <Link
+              to={runLink(`saltutil.kill_job ${job.jid}`, job.missing.join(','), 'list')}
+              className={CONTROL}
+              title="End it at once on the minions still running it (SIGKILL)"
+            >
+              Kill
+            </Link>
+          </>
+        )}
+      </div>
+      {/* Spelled out, not only in titles: a touch screen has no hover. */}
       {waiting && (
-        <>
-          <Link
-            to={runLink(`saltutil.term_job ${job.jid}`, job.missing.join(','), 'list')}
-            className={CONTROL}
-            title="Ask the minions still running it to stop (SIGTERM)"
-          >
-            <Square className="size-4 text-muted" aria-hidden />
-            Stop
-          </Link>
-          <Link
-            to={runLink(`saltutil.kill_job ${job.jid}`, job.missing.join(','), 'list')}
-            className={CONTROL}
-            title="Kill it on the minions still running it (SIGKILL)"
-          >
-            Kill
-          </Link>
-        </>
+        <p className="max-w-md text-sm text-muted sm:text-right">
+          Stop asks it to end (saltutil.term_job): it gets a chance to clean up. Kill ends it at once
+          (saltutil.kill_job), like kill -9. Both open Run first; nothing runs until you click Run.
+        </p>
       )}
     </div>
   )
@@ -123,9 +146,11 @@ function JobActions({ job }: { job: JobDetail }) {
 
 export function JobPage() {
   const { jid = '' } = useParams()
-  const now = useNow()
+  // Ticks often, so a young job's wait turns into "No return" soon after it ends.
+  const now = useNow(5_000)
   const query = useJob(jid)
   const job = query.data
+  const young = !!job && now - Date.parse(job.started_at) < ANSWER_WAIT_MS
   const role = useMe().data?.role
   const canRun = !!useCapabilities(!!role && role !== 'viewer').data?.commands.length
 
@@ -183,11 +208,14 @@ export function JobPage() {
               </Fact>
             </div>
 
-            {job.missing.length > 0 && (
-              <div className="mt-4 rounded-xl border border-warn/40 bg-warn/10 px-4 py-3 text-sm">
-                No return from {job.missing.join(', ')}. They may have been offline, or are still running it.
-              </div>
-            )}
+            {job.missing.length > 0 &&
+              (young ? (
+                <Waiting minions={job.missing} className="mt-4" />
+              ) : (
+                <div className="mt-4 rounded-xl border border-warn/40 bg-warn/10 px-4 py-3 text-sm">
+                  No return from {job.missing.join(', ')}. They may have been offline, or are still running it.
+                </div>
+              ))}
             {job.catch_up_of && (
               <div className="mt-4 rounded-xl border px-4 py-3 text-sm">
                 A catch-up run: {job.target} was offline when{' '}
@@ -201,7 +229,12 @@ export function JobPage() {
 
             <div className="mt-4 flex flex-col gap-3 sm:mt-6">
               {job.results.length === 0 ? (
-                <Card className="px-6 py-10 text-center text-muted">No results recorded yet.</Card>
+                // While young, the line above already says it's waiting (and for whom).
+                young ? (
+                  job.missing.length === 0 && <Waiting minions={[]} />
+                ) : (
+                  <Card className="px-6 py-10 text-center text-muted">No results recorded yet.</Card>
+                )
               ) : (
                 job.results.map((result) => (
                   <ResultCard
