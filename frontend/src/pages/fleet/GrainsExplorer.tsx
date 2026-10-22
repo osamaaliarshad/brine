@@ -37,32 +37,45 @@ function PackagePicker({ filter, selected, onSelect }: { filter: string; selecte
   const typed = filter.trim()
   const settled = useDebounced(typed, SEARCH_DELAY_MS)
   const short = typed.length < MIN_SEARCH
-  // Back to the checks as soon as the search is cleared, not after the pause.
+  // Back to the checks and the packages that differ as soon as the search is cleared, not after
+  // the pause.
   const keys = useInventoryKeys(short || settled.length < MIN_SEARCH ? '' : settled)
   const needle = typed.toLowerCase()
   const shown = (keys.data ?? []).filter((k) => !needle || matches(k, needle))
+  // Not searching: the checks, then the packages that differ across the fleet, under their own
+  // heading.
+  const differing = short ? shown.filter((k) => k.kind === 'package') : []
+  const listed = short ? shown.filter((k) => k.kind === 'check') : shown
   // What's typed hasn't been searched for yet (still typing, or the answer is on its way).
   const searching = !short && (settled !== typed || keys.isPlaceholderData)
+
+  const pick = (k: InventoryKey) => (
+    <li key={k.key}>
+      <button
+        type="button"
+        onClick={() => onSelect(k.key)}
+        aria-current={k.key === selected ? 'true' : undefined}
+        title={`${keyDescription(k.key)}, on ${k.minions} minion${k.minions === 1 ? '' : 's'}`}
+        className={pickClass(k.key === selected)}
+      >
+        <span className="min-w-0 flex-1 truncate">{keyLabel(k.key)}</span>
+        <span className="font-sans text-xs text-muted">{k.kind}</span>
+        <span className="min-w-5 text-right text-xs text-muted tabular-nums">{k.minions}</span>
+      </button>
+    </li>
+  )
 
   return (
     <div className="border-t pt-3 md:flex md:min-h-0 md:flex-col">
       <div className={HEADING}>Packages and checks</div>
       <ul aria-label="Packages and checks" className={LIST}>
-        {shown.map((k) => (
-          <li key={k.key}>
-            <button
-              type="button"
-              onClick={() => onSelect(k.key)}
-              aria-current={k.key === selected ? 'true' : undefined}
-              title={`${keyDescription(k.key)}, on ${k.minions} minion${k.minions === 1 ? '' : 's'}`}
-              className={pickClass(k.key === selected)}
-            >
-              <span className="min-w-0 flex-1 truncate">{keyLabel(k.key)}</span>
-              <span className="font-sans text-xs text-muted">{k.kind}</span>
-              <span className="min-w-5 text-right text-xs text-muted tabular-nums">{k.minions}</span>
-            </button>
+        {listed.map(pick)}
+        {differing.length > 0 && (
+          <li>
+            <div className="px-4 pt-2 pb-1 text-xs font-medium text-muted">Packages that differ across the fleet</div>
+            <ul aria-label="Packages that differ across the fleet">{differing.map(pick)}</ul>
           </li>
-        ))}
+        )}
         {keys.isError ? (
           <li className={NOTE}>Couldn't load packages and checks: {keys.error.message}</li>
         ) : shown.length === 0 && searching ? (
@@ -70,10 +83,12 @@ function PackagePicker({ filter, selected, onSelect }: { filter: string; selecte
         ) : shown.length === 0 && keys.isSuccess && !short ? (
           <li className={NOTE}>No packages or checks match.</li>
         ) : null}
-        {keys.isSuccess && short && <li className={NOTE}>Type 2 or more letters to find a package.</li>}
         {keys.isSuccess && !searching && keys.data.length >= INVENTORY_KEYS_LIMIT && (
-          <li className={NOTE}>Showing the first {INVENTORY_KEYS_LIMIT}. Type more to narrow them down.</li>
+          <li className={NOTE}>
+            Showing the first {INVENTORY_KEYS_LIMIT}.{!short && ' Type more to narrow them down.'}
+          </li>
         )}
+        {keys.isSuccess && short && <li className={NOTE}>Type 2 or more letters to find any package.</li>}
       </ul>
     </div>
   )

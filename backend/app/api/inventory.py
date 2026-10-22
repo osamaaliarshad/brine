@@ -6,6 +6,7 @@ Keys are `@packages:<name>` for a package, `@<check>:<name>` for a check's entry
 
 from __future__ import annotations
 
+import time
 from collections.abc import Iterable
 from datetime import UTC, datetime
 from typing import Any, Literal
@@ -124,36 +125,80 @@ def _has(column: Any, needle: str) -> Any:
     return func.lower(column).contains(needle, autoescape=True)
 
 
+DIFFERING_SECONDS = 60
+_DIFFERING_MEMO = "inventory-differing"
+
+
+async def differing_packages(runtime: Runtime, session: AsyncSession) -> list[str]:
+    """The packages that differ across the fleet, by name: those the accepted minions with a
+    whole good read of their packages don't all have at one version, or don't all have.
+    Minions without such a read don't count. Worked out in the database, but it goes through
+    every package row (500 robots with 1,500 packages each are 750,000 rows, a third of a second
+    or so), so the list is kept in runtime.memo for a minute."""
+    cached = runtime.memo.get(_DIFFERING_MEMO)
+    if cached and time.monotonic() - cached[0] < DIFFERING_SECONDS:
+        return list(cached[1])
+    whole = (
+        _whole_reads(runtime.settings)
+        .join(Minion, Minion.id == InventoryRead.minion_id)
+        .where(Minion.key_state == "accepted", InventoryRead.source == inventory.PACKAGES)
+        .subquery()
+    )
+    read = await session.scalar(select(func.count()).select_from(whole))
+    names = list(
+        await session.scalars(
+            select(InventoryItem.name)
+            .where(
+                InventoryItem.source == inventory.PACKAGES,
+                InventoryItem.minion_id.in_(select(whole.c.minion_id)),
+            )
+            .group_by(InventoryItem.name)
+            .having(or_(func.count(InventoryItem.value.distinct()) > 1, func.count() < read))
+            .order_by(InventoryItem.name)
+        )
+    )
+    runtime.memo[_DIFFERING_MEMO] = (time.monotonic(), names)
+    return list(names)
+
+
 @router.get("/inventory/keys", response_model=list[InventoryKey])
 async def inventory_keys(
     runtime: RuntimeDep,
     session: SessionDep,
-    q: str = Query("", description="part of a name; packages are only listed for a search"),
+    q: str = Query("", description="part of a name; without it, packages that differ"),
     limit: int = Query(50, ge=1, le=200),
 ) -> list[InventoryKey]:
-    """Packages and check entries the fleet has, with how many minions have each: every
-    configured check's entries, and the packages whose name contains `q`. With `q`, checks
-    are searched too (by entry or check name). Feeds the explorer's picker."""
+    """Packages and check entries the fleet has, with how many minions have each. Without `q`:
+    every configured check's entries, then the packages that differ across the fleet (see
+    differing_packages). With `q`: the packages whose name contains it, and the check entries
+    whose name or check's name does. Feeds the explorer's picker."""
     checks = list(runtime.settings.inventory.checks)
     needle = q.strip().lower()
+    packages = InventoryItem.source == inventory.PACKAGES
     if needle:
         wanted = or_(
-            and_(InventoryItem.source == inventory.PACKAGES, _has(InventoryItem.name, needle)),
+            and_(packages, _has(InventoryItem.name, needle)),
             and_(
                 InventoryItem.source.in_(checks),
                 or_(_has(InventoryItem.name, needle), _has(InventoryItem.source, needle)),
             ),
         )
-    elif checks:
-        wanted = InventoryItem.source.in_(checks)
+        order: list[Any] = [InventoryItem.source, InventoryItem.name]
     else:
-        return []
+        differing = (await differing_packages(runtime, session))[:limit]
+        if not checks and not differing:
+            return []
+        wanted = or_(
+            InventoryItem.source.in_(checks), and_(packages, InventoryItem.name.in_(differing))
+        )
+        # The checks first, as the picker lists them first.
+        order = [case((packages, 1), else_=0), InventoryItem.source, InventoryItem.name]
     rows = await session.execute(
         select(InventoryItem.source, InventoryItem.name, func.count())
         .join(Minion, Minion.id == InventoryItem.minion_id)
         .where(Minion.key_state == "accepted", wanted)
         .group_by(InventoryItem.source, InventoryItem.name)
-        .order_by(InventoryItem.source, InventoryItem.name)
+        .order_by(*order)
         .limit(limit)
     )
     return [

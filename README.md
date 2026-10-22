@@ -143,10 +143,11 @@ any grain the fleet reports, reorder, remove; saved per browser, with the config
 </picture>
 
 **Grains & packages** shows how any grain, package or check is spread across the fleet: which
-machines run which version, which don't have it at all, and which haven't answered yet. Open a
-version to see its minions; if you may run commands, **Run on these** opens the Run page with
-just them (nothing runs until you click Run). Add any of them as a column in one click. Each
-change is listed with the job it was found after, or the time between two reads when brine
+machines run which version, which don't have it at all, and which haven't answered yet. It
+lists the checks and the packages that differ across the fleet; type to find any other package.
+Open a version to see its minions; if you may run commands, **Run on these** opens the Run page
+with just them (nothing runs until you click Run). Add any of them as a column in one click.
+Each change is listed with the job it was found after, or the time between two reads when brine
 can't tell.
 
 <picture>

@@ -13,6 +13,7 @@ import yaml
 
 from app import inventory as inv
 from app import inventory_sweep as sweeper
+from app.api import inventory as inventory_api
 from app.config import Settings, load_config, parse_config
 from app.models import InventoryRead
 from app.salt.client import SaltApiUnavailable
@@ -973,11 +974,13 @@ def test_keys_list_checks_and_find_packages(with_checks: tuple[Api, FakeSalt]) -
     images = {"web": "ghcr.io/acme/web:1.5", "db": "postgres:16"}
     read(api, "rover-02", images, now, source="containers")
     read(api, "rover-01", {"x": "1"}, now, source="old-check")  # no longer configured
-    # Without a search: every check's entries, and no packages.
+    # Without a search: every check's entries, then the packages that differ across the fleet
+    # (bash is 5.2 everywhere).
     assert [(k["key"], k["kind"], k["minions"]) for k in api.get("/api/inventory/keys")] == [
         ("@containers:db", "check", 1),
         ("@containers:web", "check", 2),
         ("@rover-cli", "check", 1),
+        ("@packages:rover-agent", "package", 3),
     ]
     # A search finds packages by part of their name, whatever the case.
     assert api.get("/api/inventory/keys", q="AGENT") == [
@@ -999,10 +1002,52 @@ def test_keys_list_checks_and_find_packages(with_checks: tuple[Api, FakeSalt]) -
 
 def test_keys_without_checks(admin: tuple[Api, FakeSalt]) -> None:
     api, _ = admin
-    seed_agent(api, datetime.now(UTC))
     assert api.get("/api/inventory/keys") == []
+    seed_agent(api, datetime.now(UTC))
+    runtime(api).memo.clear()
+    assert [k["key"] for k in api.get("/api/inventory/keys")] == ["@packages:rover-agent"]
     found = api.get("/api/inventory/keys", q="agent")
     assert [(k["key"], k["minions"]) for k in found] == [("@packages:rover-agent", 3)]
+
+
+def test_packages_that_differ_across_the_fleet(admin: tuple[Api, FakeSalt]) -> None:
+    api, _ = admin
+    now = datetime.now(UTC)
+    same = {"bash": "5.2", "nano": "7.2"}
+    read(api, "rover-01", {**same, "curl": "8.0", "vim": "9.1"}, now)
+    read(api, "rover-02", {**same, "curl": "8.1", "vim": "9.1"}, now)  # another curl
+    read(api, "dock-01", {**same, "curl": "8.0"}, now)  # no vim
+    # Neither a read cut short nor a pending key counts, whatever they list.
+    api.seed(
+        api.ingest.inventory_read,
+        "rover-03",
+        "packages",
+        {"bash": "4.0"},
+        at=now,
+        jid=None,
+        truncated=True,
+    )
+    read(api, "rover-04", {**same, "nano": "6.0"}, now)
+    found = api.get("/api/inventory/keys")
+    assert [(k["key"], k["kind"], k["minions"]) for k in found] == [
+        ("@packages:curl", "package", 3),
+        ("@packages:vim", "package", 2),
+    ]
+    assert [k["key"] for k in api.get("/api/inventory/keys", limit=1)] == ["@packages:curl"]
+
+
+def test_packages_that_differ_are_kept_a_minute(
+    admin: tuple[Api, FakeSalt], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    api, _ = admin
+    now = datetime.now(UTC)
+    for mid in ("rover-01", "rover-02"):
+        read(api, mid, {"bash": "5.2", "curl": "8.0"}, now)
+    assert api.get("/api/inventory/keys") == []
+    read(api, "rover-02", {"bash": "5.2", "curl": "8.1"}, now + HOUR)
+    assert api.get("/api/inventory/keys") == []  # as worked out a moment ago
+    monkeypatch.setattr(inventory_api, "DIFFERING_SECONDS", 0)
+    assert [k["key"] for k in api.get("/api/inventory/keys")] == ["@packages:curl"]
 
 
 def test_changes_newest_first_by_key_and_by_minion(admin: tuple[Api, FakeSalt]) -> None:

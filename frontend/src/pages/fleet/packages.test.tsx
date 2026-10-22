@@ -22,6 +22,8 @@ const AGENT_KEY: InventoryKey = {
   kind: 'package',
   minions: 3,
 }
+// The same version everywhere.
+const BASH_KEY: InventoryKey = { key: '@packages:bash', source: 'packages', name: 'bash', kind: 'package', minions: 5 }
 
 const AGENT: InventoryDistribution = {
   key: '@packages:rover-agent',
@@ -94,10 +96,11 @@ function api(extra: Record<string, unknown> = {}) {
     '/api/capabilities': { manage_keys: { allowed: true, missing: [] }, commands: ['*'] },
     '/api/grains/keys': [{ key: 'app_version', minions: 5 }],
     '/api/grains/values': SITES,
-    // Like the backend: every check's entries, or with q, the packages and checks that match.
+    // Like the backend: every check's entries and the packages that differ across the fleet, or
+    // with q, the packages and checks that match.
     '/api/inventory/keys': (url: URL) => {
       const q = url.searchParams.get('q') ?? ''
-      return q ? [AGENT_KEY, ...CHECKS].filter((k) => k.key.includes(q)) : CHECKS
+      return q ? [AGENT_KEY, BASH_KEY, ...CHECKS].filter((k) => k.key.includes(q)) : [...CHECKS, AGENT_KEY]
     },
     '/api/inventory/values': (url: URL) => (url.searchParams.get('key') === '@containers:web' ? WEB : AGENT),
     '/api/inventory/changes': CHANGES,
@@ -105,7 +108,7 @@ function api(extra: Record<string, unknown> = {}) {
   })
 }
 
-/** What the picker has searched packages for, in order ('' = checks only). */
+/** What the picker has searched packages for, in order ('' = checks and packages that differ). */
 function searched(fetchMock: ReturnType<typeof mockApi>) {
   return fetchMock.mock.calls
     .map(([url]) => new URL(String(url), 'http://brine.test'))
@@ -127,7 +130,7 @@ describe('Fleet › Grains & packages', () => {
     delete (globalThis as { jest?: unknown }).jest
   })
 
-  it('lists every check, finds packages as you type, and opens what you pick', async () => {
+  it('lists every check and the packages that differ, finds any package as you type, and opens what you pick', async () => {
     const user = userEvent.setup()
     api()
     const { router } = renderApp('/?tab=grains')
@@ -135,27 +138,47 @@ describe('Fleet › Grains & packages', () => {
     const list = screen.getByRole('list', { name: 'Packages and checks' })
     expect(await within(list).findByRole('button', { name: /web/ })).toHaveTextContent('check')
     expect(within(list).getByRole('button', { name: /rover-cli/ })).toHaveTextContent('check')
-    expect(within(list).getByText('Type 2 or more letters to find a package.')).toBeInTheDocument()
+    // Under their own heading, after the checks.
+    expect(within(list).getByText('Packages that differ across the fleet')).toBeInTheDocument()
+    const differing = within(list).getByRole('list', { name: 'Packages that differ across the fleet' })
+    expect(within(differing).getAllByRole('button').map((b) => b.textContent)).toEqual(['rover-agentpackage3'])
+    expect(within(list).getByText('Type 2 or more letters to find any package.')).toBeInTheDocument()
 
     const search = screen.getByRole('searchbox', { name: 'Find a grain, package or check' })
-    await user.type(search, 'agent')
-    const agent = await within(list).findByRole('button', { name: /rover-agent/ })
-    expect(agent).toHaveTextContent('package')
-    expect(agent).toHaveTextContent('3')
-    expect(within(list).queryByText('Type 2 or more letters to find a package.')).toBeNull()
+    await user.type(search, 'bash')
+    const bash = await within(list).findByRole('button', { name: /bash/ })
+    expect(bash).toHaveTextContent('package')
+    expect(bash).toHaveTextContent('5')
+    expect(within(list).queryByText('Packages that differ across the fleet')).toBeNull()
+    expect(within(list).queryByText('Type 2 or more letters to find any package.')).toBeNull()
     expect(screen.getByText('No grains match.')).toBeInTheDocument()
 
+    // Cleared: back to the checks and the packages that differ straight away, without the last
+    // search's.
+    await user.clear(search)
+    expect(within(list).queryByRole('button', { name: /bash/ })).toBeNull()
+    expect(within(list).getByRole('button', { name: /rover-cli/ })).toBeInTheDocument()
+    expect(within(list).getByRole('button', { name: /rover-agent/ })).toBeInTheDocument()
+
+    await user.type(search, 'agent')
+    const agent = await within(list).findByRole('button', { name: /rover-agent/ })
+    await waitFor(() => expect(within(list).queryByRole('list', { name: /differ/ })).toBeNull())
     await user.click(agent)
     expect(new URLSearchParams(router.state.location.search).get('grain')).toBe('@packages:rover-agent')
     expect(await screen.findByRole('heading', { name: 'rover-agent' })).toBeInTheDocument()
 
-    // Cleared: back to the checks straight away, without the last search's packages.
     await user.clear(search)
-    expect(within(list).queryByRole('button', { name: /rover-agent/ })).toBeNull()
-    expect(within(list).getByRole('button', { name: /rover-cli/ })).toBeInTheDocument()
-
     await user.type(search, 'zzz')
     expect(await within(list).findByText('No packages or checks match.')).toBeInTheDocument()
+  })
+
+  it('lists only the checks when no package differs', async () => {
+    api({ '/api/inventory/keys': CHECKS })
+    renderApp('/?tab=grains')
+    const list = await screen.findByRole('list', { name: 'Packages and checks' })
+    expect(await within(list).findByRole('button', { name: /rover-cli/ })).toBeInTheDocument()
+    expect(within(list).queryByText('Packages that differ across the fleet')).toBeNull()
+    expect(within(list).getByText('Type 2 or more letters to find any package.')).toBeInTheDocument()
   })
 
   it('searches packages only once typing pauses, and never for one letter', async () => {

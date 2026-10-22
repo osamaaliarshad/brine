@@ -279,7 +279,10 @@ export function useGrainValues(grain: string | null) {
 /** How many packages and checks the explorer's picker lists at once. */
 export const INVENTORY_KEYS_LIMIT = 50
 
-/** Every check's entries, or with `q`, the packages and checks whose name contains it. */
+/**
+ * Every check's entries and the packages that differ across the fleet, or with `q`, the packages
+ * and checks whose name contains it.
+ */
 export function useInventoryKeys(q: string) {
   return useQuery({
     queryKey: [...queryKeys.inventory, 'keys', q],
