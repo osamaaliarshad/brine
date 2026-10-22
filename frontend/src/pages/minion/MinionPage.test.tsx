@@ -480,54 +480,121 @@ describe('MinionPage', () => {
     expect(first).toHaveTextContent('First collection · 2 grains')
   })
 
-  it('stops the history where either list was cut short, and says the read at the cut may have more', async () => {
+  describe('at the limit', () => {
     const base = { minion_id: 'rover-01', since: ago(7200), jid: null, user: null }
     const cli: InventoryChange = { ...base, source: 'rover-cli', name: '', old: '1.1', new: '1.2', at: ago(600) }
-    // A big upgrade, newest first after the check: the list stops partway through it.
-    const upgrade: InventoryChange[] = Array.from({ length: MINION_CHANGES_LIMIT - 1 }, (_, i) => ({
-      ...base,
-      source: 'packages',
-      name: `lib-${i}`,
-      old: i % 2 ? null : '1.0',
-      new: '1.1',
-      at: ago(3600),
-    }))
-    api({
-      '/api/minions/rover-01/grains/history': [
-        { collected_at: ago(60), added: { new: 1 }, removed: {}, changed: {} },
-        // Older than the oldest change listed: other package changes may be missing around it.
-        { collected_at: ago(DAY), added: { os: 'Debian' }, removed: {}, changed: {} },
-      ],
-      '/api/inventory/changes': [cli, ...upgrade],
-    })
-    renderApp('/minions/rover-01?tab=history')
-    const history = await screen.findByRole('list', { name: 'History' })
-    expect(Array.from(history.children).map((e) => e.firstElementChild?.textContent)).toEqual([
-      '1m ago',
-      '10m ago',
-      '1h ago',
-    ])
-    expect(history.children[1]).toHaveTextContent('rover-cli check: changed')
-    expect(history.children[2]).toHaveTextContent(`Packages: ${MINION_CHANGES_LIMIT - 1} or more changed`)
-    expect(screen.getByText("Older history isn't shown.")).toBeInTheDocument()
-  })
-
-  it('does not call the oldest of a cut-short grains history the first collection', async () => {
-    api({
-      '/api/minions/rover-01/grains/history': Array.from({ length: GRAINS_HISTORY_LIMIT }, (_, i) => ({
+    /** A big upgrade of `count` packages, an hour ago: newest first, it comes after the check. */
+    const upgrade = (count: number): InventoryChange[] =>
+      Array.from({ length: count }, (_, i) => ({
+        ...base,
+        source: 'packages',
+        name: `lib-${i}`,
+        old: i % 2 ? null : '1.0',
+        new: '1.1',
+        at: ago(3600),
+      }))
+    const GRAINS = [
+      { collected_at: ago(60), added: { new: 1 }, removed: {}, changed: {} },
+      // Older than the oldest change listed: if that list was cut, changes may be missing around it.
+      { collected_at: ago(DAY), added: { os: 'Debian' }, removed: {}, changed: {} },
+    ]
+    /** Grains history `count` long, a minute apart; the oldest is the first collection when it's all there. */
+    const grainsHistory = (count: number) =>
+      Array.from({ length: count }, (_, i) => ({
         collected_at: ago(60 * (i + 1)),
-        added: {},
+        added: i === count - 1 ? { os: 'Debian' } : {},
         removed: {},
-        changed: { app_version: { from: `2.${i}`, to: `2.${i + 1}` } },
-      })),
-      '/api/inventory/changes': [],
+        changed: i === count - 1 ? {} : { app_version: { from: `2.${i}`, to: `2.${i + 1}` } },
+      }))
+    const asked = (fetchMock: ReturnType<typeof api>, path: string) =>
+      fetchMock.mock.calls
+        .map(([url]) => new URL(String(url), 'http://brine.test'))
+        .filter((url) => url.pathname === path)
+        .map((url) => url.searchParams.get('limit'))
+
+    it('asks for one more than it shows, to tell whether there are more', async () => {
+      const fetchMock = api({ '/api/minions/rover-01/grains/history': GRAINS, '/api/inventory/changes': [] })
+      renderApp('/minions/rover-01?tab=history')
+      await screen.findByRole('list', { name: 'History' })
+      expect(asked(fetchMock, '/api/minions/rover-01/grains/history')).toEqual([String(GRAINS_HISTORY_LIMIT + 1)])
+      expect(asked(fetchMock, '/api/inventory/changes')).toEqual([String(MINION_CHANGES_LIMIT + 1)])
     })
-    renderApp('/minions/rover-01?tab=history')
-    const history = await screen.findByRole('list', { name: 'History' })
-    expect(history.children).toHaveLength(GRAINS_HISTORY_LIMIT)
-    expect(history.lastElementChild).toHaveTextContent('Grains: 1 changed')
-    expect(screen.queryByText(/First collection/)).toBeNull()
-    expect(screen.getByText("Older history isn't shown.")).toBeInTheDocument()
+
+    it('shows everything when the changes are exactly the limit', async () => {
+      api({
+        '/api/minions/rover-01/grains/history': GRAINS,
+        '/api/inventory/changes': [cli, ...upgrade(MINION_CHANGES_LIMIT - 1)],
+      })
+      renderApp('/minions/rover-01?tab=history')
+      const history = await screen.findByRole('list', { name: 'History' })
+      expect(Array.from(history.children).map((e) => e.firstElementChild?.textContent)).toEqual([
+        '1m ago',
+        '10m ago',
+        '1h ago',
+        '1d ago',
+      ])
+      // 250 changed and 249 new: the whole upgrade.
+      expect(history.children[2]).toHaveTextContent('Packages: 250 changed · 249 new')
+      expect(history.children[3]).toHaveTextContent('First collection · 1 grains')
+      expect(screen.queryByText("Older history isn't shown.")).toBeNull()
+    })
+
+    it('stops the history where the changes were cut short, and says the read at the cut may have more', async () => {
+      api({
+        '/api/minions/rover-01/grains/history': GRAINS,
+        // One more than the limit: the last one is the same read's, so it stops partway through it.
+        '/api/inventory/changes': [cli, ...upgrade(MINION_CHANGES_LIMIT)],
+      })
+      renderApp('/minions/rover-01?tab=history')
+      const history = await screen.findByRole('list', { name: 'History' })
+      expect(Array.from(history.children).map((e) => e.firstElementChild?.textContent)).toEqual([
+        '1m ago',
+        '10m ago',
+        '1h ago',
+      ])
+      expect(history.children[1]).toHaveTextContent('rover-cli check: changed')
+      expect(history.children[2]).toHaveTextContent(`Packages: ${MINION_CHANGES_LIMIT - 1} or more changed`)
+      expect(within(history.children[2] as HTMLElement).getAllByRole('listitem')).toHaveLength(MINION_CHANGES_LIMIT - 1)
+      expect(screen.getByText("Older history isn't shown.")).toBeInTheDocument()
+    })
+
+    it('says a read at the cut is whole when the change left out is an older read', async () => {
+      const older: InventoryChange = { ...cli, at: ago(2 * 3600), since: ago(3 * 3600) }
+      api({
+        '/api/minions/rover-01/grains/history': GRAINS,
+        '/api/inventory/changes': [cli, ...upgrade(MINION_CHANGES_LIMIT - 1), older],
+      })
+      renderApp('/minions/rover-01?tab=history')
+      const history = await screen.findByRole('list', { name: 'History' })
+      expect(history.children).toHaveLength(3)
+      expect(history.children[2]).toHaveTextContent('Packages: 250 changed · 249 new')
+      expect(screen.getByText("Older history isn't shown.")).toBeInTheDocument()
+    })
+
+    it('calls the oldest of a grains history exactly the limit long the first collection', async () => {
+      api({
+        '/api/minions/rover-01/grains/history': grainsHistory(GRAINS_HISTORY_LIMIT),
+        '/api/inventory/changes': [],
+      })
+      renderApp('/minions/rover-01?tab=history')
+      const history = await screen.findByRole('list', { name: 'History' })
+      expect(history.children).toHaveLength(GRAINS_HISTORY_LIMIT)
+      expect(history.lastElementChild).toHaveTextContent('First collection · 1 grains')
+      expect(screen.queryByText("Older history isn't shown.")).toBeNull()
+    })
+
+    it('does not call the oldest of a cut-short grains history the first collection', async () => {
+      api({
+        '/api/minions/rover-01/grains/history': grainsHistory(GRAINS_HISTORY_LIMIT + 1),
+        '/api/inventory/changes': [],
+      })
+      renderApp('/minions/rover-01?tab=history')
+      const history = await screen.findByRole('list', { name: 'History' })
+      expect(history.children).toHaveLength(GRAINS_HISTORY_LIMIT)
+      expect(history.lastElementChild).toHaveTextContent('Grains: 1 changed')
+      expect(screen.queryByText(/First collection/)).toBeNull()
+      expect(screen.getByText("Older history isn't shown.")).toBeInTheDocument()
+    })
   })
 
   it('says when there is no history yet', async () => {

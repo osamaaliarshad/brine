@@ -390,7 +390,9 @@ export type InventoryDistribution = {
   values: GrainValue[]
   /** Answered without it. */
   missing: string[]
-  /** No answer yet (or only failed ones), or the last answer was cut short and doesn't list it. */
+  /** The last answer was an error, and no good read says whether it has it. */
+  failed: string[]
+  /** No answer yet, or the last answer was cut short and doesn't list it. */
   unknown: string[]
   /** Of the accepted minions' last good reads. */
   oldest_read_at: string | null

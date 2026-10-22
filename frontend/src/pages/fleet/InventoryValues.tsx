@@ -5,6 +5,8 @@ import { useInventoryChanges, useInventoryValues } from '@/api/queries'
 import type { InventoryDistribution, MinionStatus } from '@/api/types'
 import {
   describeSource,
+  FAILED_ANSWER,
+  FAILED_ANSWER_DETAIL,
   INVENTORY_SETTINGS,
   keyLabel,
   missingLabel,
@@ -104,7 +106,7 @@ function Changes({
   )
 }
 
-/** One package or check entry across the fleet: who has which value, who lacks it, who hasn't answered. */
+/** One package or check entry across the fleet: who has which value, who lacks it, who couldn't say, who hasn't answered. */
 export function InventoryValues({
   itemKey,
   statusOf,
@@ -151,6 +153,17 @@ export function InventoryValues({
               <ValueRow
                 text={missingLabel(itemKey)}
                 minions={dist.data.missing}
+                total={dist.data.total}
+                statusOf={statusOf}
+                muted
+                canRun={canRun}
+              />
+            )}
+            {dist.data.failed.length > 0 && (
+              <ValueRow
+                text={FAILED_ANSWER}
+                title={FAILED_ANSWER_DETAIL}
+                minions={dist.data.failed}
                 total={dist.data.total}
                 statusOf={statusOf}
                 muted

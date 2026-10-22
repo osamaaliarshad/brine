@@ -33,6 +33,7 @@ const AGENT: InventoryDistribution = {
     { value: '2.3.0', text: '2.3.0', minions: ['dock-01'] },
   ],
   missing: ['rover-03'],
+  failed: [],
   unknown: ['rover-04'],
   oldest_read_at: ago(3 * 3600),
   newest_read_at: ago(20 * 60),
@@ -47,6 +48,7 @@ const WEB: InventoryDistribution = {
   total: 5,
   values: [{ value: 'ghcr.io/acme/web:1.4', text: 'ghcr.io/acme/web:1.4', minions: ['rover-01'] }],
   missing: ['dock-01', 'rover-02', 'rover-03', 'rover-04'],
+  failed: [],
   unknown: [],
   oldest_read_at: ago(2 * 3600),
   newest_read_at: ago(2 * 3600),
@@ -224,6 +226,29 @@ describe('Fleet › Grains & packages', () => {
     expect(between).toHaveTextContent('2h ago rover-03 2.3.0 (removed) sometime between 8h and 2h ago')
     expect(appeared).toHaveTextContent('5h ago dock-01 2.3.0 (new) found after job 20261020070000000002')
     expect(appeared).not.toHaveTextContent(/ by /)
+  })
+
+  it("tells a minion that couldn't say apart from one that hasn't answered", async () => {
+    const user = userEvent.setup()
+    api({ '/api/inventory/values': { ...AGENT, missing: [], failed: ['rover-03'], unknown: ['rover-04'] } })
+    renderApp('/?tab=grains&grain=@packages:rover-agent')
+    const versions = await screen.findByRole('list', { name: 'Versions of rover-agent' })
+    expect(within(versions).getAllByRole('button').map((row) => row.textContent)).toEqual([
+      '2.4.12 · 40%',
+      '2.3.01 · 20%',
+      "Couldn't read1 · 20%",
+      'No answer yet1 · 20%',
+    ])
+    expect(within(versions).getByText("Couldn't read")).toHaveAttribute(
+      'title',
+      'The minion answered with an error; its Packages tab shows it',
+    )
+    expect(within(versions).getByText('No answer yet')).toHaveAttribute(
+      'title',
+      'No answer yet, or the last answer was cut short',
+    )
+    await user.click(within(versions).getByRole('button', { name: /Couldn't read/ }))
+    expect(within(versions).getByRole('link', { name: 'rover-03' })).toHaveAttribute('href', '/minions/rover-03')
   })
 
   it('offers Run on these for grain values too, and marks an empty value', async () => {

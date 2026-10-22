@@ -45,8 +45,11 @@ export function missingLabel(key: string): string {
 /** Minions with no good answer for a package or check yet; the rarer reason is in the detail. */
 export const NO_ANSWER = 'No answer yet'
 export const NO_ANSWER_DETAIL = 'No answer yet, or the last answer was cut short'
-/** The same for one minion, on its `?` cell. */
-export const NO_ANSWER_CELL = 'No answer from this minion yet, or its last answer was cut short'
+/** Minions whose last answer for it was an error. */
+export const FAILED_ANSWER = "Couldn't read"
+export const FAILED_ANSWER_DETAIL = 'The minion answered with an error; its Packages tab shows it'
+/** Either, for one minion, on its `?` cell. */
+export const NO_ANSWER_CELL = "No answer yet, couldn't read, or the last answer was cut short"
 
 /** Settings › Packages and checks: what brine reads, and the Salt permissions it needs. */
 export const INVENTORY_SETTINGS_ID = 'packages-and-checks'

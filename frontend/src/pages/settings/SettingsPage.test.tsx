@@ -95,7 +95,7 @@ describe('SettingsPage', () => {
     const section = await screen.findByRole('region', { name: 'Packages and checks' })
     expect(section).toHaveAttribute('id', 'packages-and-checks')
     expect(
-      within(section).getByText("Read every 6 hours, after people's jobs, when a minion comes back, and on Read now"),
+      within(section).getByText('Read every 6 hours, after jobs that may change software, when a minion comes back, and on Read now'),
     ).toBeInTheDocument()
     expect(within(section).getByText('rover-cli: /opt/rover/bin/rover-cli --version')).toHaveClass('font-mono')
     expect(within(section).getByText("containers: podman ps --format '{{.Names}}={{.Image}}'")).toHaveClass('font-mono')

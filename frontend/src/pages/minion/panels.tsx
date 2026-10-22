@@ -141,10 +141,15 @@ type HistoryEntry =
   | { kind: 'grains'; at: string; entry: GrainsChange; first: boolean }
   | { kind: 'read'; at: string; source: string; changes: InventoryChange[]; partial: boolean }
 
-/** Grains entries and package and check reads, newest first, and whether older ones were left out. */
-function timeline(grains: GrainsChange[], changes: InventoryChange[]): { entries: HistoryEntry[]; more: boolean } {
-  const grainsFull = grains.length < GRAINS_HISTORY_LIMIT
-  const changesFull = changes.length < MINION_CHANGES_LIMIT
+/**
+ * Grains entries and package and check reads, newest first, and whether older ones were left out.
+ * Each list may have one more than its limit, to say it was cut there; that one isn't shown.
+ */
+function timeline(allGrains: GrainsChange[], allChanges: InventoryChange[]): { entries: HistoryEntry[]; more: boolean } {
+  const grainsFull = allGrains.length <= GRAINS_HISTORY_LIMIT
+  const changesFull = allChanges.length <= MINION_CHANGES_LIMIT
+  const grains = allGrains.slice(0, GRAINS_HISTORY_LIMIT)
+  const changes = allChanges.slice(0, MINION_CHANGES_LIMIT)
   const entries: HistoryEntry[] = grains.map((entry, i) => ({
     kind: 'grains',
     at: entry.collected_at,
@@ -160,9 +165,9 @@ function timeline(grains: GrainsChange[], changes: InventoryChange[]): { entries
     if (group) group.push(c)
     else reads.set(key, [c])
   }
-  // A cut list may stop partway through its oldest read.
-  const last = changes.at(-1)
-  const cutRead = changesFull || !last ? null : reads.get(`${last.at} ${last.source}`)
+  // A cut list stops partway through its oldest read when the first change left out is that read's.
+  const left = allChanges[MINION_CHANGES_LIMIT]
+  const cutRead = left ? reads.get(`${left.at} ${left.source}`) : undefined
   for (const group of reads.values()) {
     const partial = group === cutRead
     group.sort((a, b) => a.name.localeCompare(b.name))

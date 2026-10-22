@@ -102,7 +102,10 @@ export function useMinion(id: string) {
   })
 }
 
-/** How many grains changes, and package and check changes, a minion's History asks for. */
+/**
+ * How many grains changes, and package and check changes, a minion's History shows. It asks for
+ * one more of each: getting it means the list was cut there.
+ */
 export const GRAINS_HISTORY_LIMIT = 20
 export const MINION_CHANGES_LIMIT = 500
 
@@ -110,7 +113,7 @@ export function useGrainsHistory(id: string, enabled: boolean) {
   return useQuery({
     queryKey: [...queryKeys.minion(id), 'grains-history'],
     queryFn: () =>
-      fetchJson<GrainsChange[]>(`/api/minions/${enc(id)}/grains/history?limit=${GRAINS_HISTORY_LIMIT}`),
+      fetchJson<GrainsChange[]>(`/api/minions/${enc(id)}/grains/history?limit=${GRAINS_HISTORY_LIMIT + 1}`),
     enabled,
   })
 }
@@ -292,11 +295,11 @@ export function useInventoryValues(key: string | null) {
 
 /**
  * What appeared, changed or went away, newest first: for one package or check entry, or one
- * minion (up to MINION_CHANGES_LIMIT, so one big upgrade fits).
+ * minion (MINION_CHANGES_LIMIT and one more, so one big upgrade fits).
  */
 export function useInventoryChanges(filter: { key: string } | { minion: string }, enabled = true) {
   const params = new URLSearchParams(filter)
-  if ('minion' in filter) params.set('limit', String(MINION_CHANGES_LIMIT))
+  if ('minion' in filter) params.set('limit', String(MINION_CHANGES_LIMIT + 1))
   return useQuery({
     queryKey:
       'minion' in filter

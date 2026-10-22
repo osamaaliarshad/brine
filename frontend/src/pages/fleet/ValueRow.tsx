@@ -35,7 +35,7 @@ export function ValueRow({
   minions: string[]
   total: number
   statusOf: Record<string, MinionStatus>
-  /** Not a value: "Not reported", "No answer yet". */
+  /** Not a value: "Not reported", "Couldn't read", "No answer yet". */
   muted?: boolean
   /** On hover, when there's more to say than `text`. */
   title?: string

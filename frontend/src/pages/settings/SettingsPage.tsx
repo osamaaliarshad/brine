@@ -168,7 +168,8 @@ function PackagesAndChecks({ inventory, saltApi }: { inventory: Settings['invent
       description="What brine reads from each minion and keeps the history of: its packages, and what each check prints."
     >
       <Row label="When">
-        Read every {every(inventory.refresh_hours)}, after people's jobs, when a minion comes back, and on Read now
+        Read every {every(inventory.refresh_hours)}, after jobs that may change software, when a minion comes back, and
+        on Read now
       </Row>
       <Row
         label="Checks"

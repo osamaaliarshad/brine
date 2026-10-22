@@ -30,7 +30,7 @@ const PACKAGE_FLEET = fleet(
     ],
   },
 )
-const NO_ANSWER = 'No answer from this minion yet, or its last answer was cut short'
+const NO_ANSWER = "No answer yet, couldn't read, or the last answer was cut short"
 
 function rows() {
   return screen
