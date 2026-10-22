@@ -8,13 +8,28 @@ describe('app shell', () => {
     mockApi({ '/api/fleet': fleet([]), '/api/status': systemStatus() })
   })
 
-  it('shows the wordmark and main navigation', () => {
+  it('shows the logo and main navigation', () => {
     renderApp('/')
     expect(screen.getAllByRole('img', { name: 'brine' }).length).toBeGreaterThan(0)
     const nav = screen.getByRole('navigation', { name: 'Main' })
     for (const label of ['Fleet', 'Jobs', 'Keys', 'Events', 'Issues']) {
       expect(nav).toHaveTextContent(label)
     }
+  })
+
+  it('draws each logo with its own gradient and the letters in the text color', () => {
+    renderApp('/')
+    const logos = screen.getAllByRole('img', { name: 'brine' })
+    expect(logos.length).toBeGreaterThan(1)
+    const ids = logos.map((logo) => {
+      const [wave, letters] = logo.querySelectorAll('path')
+      const id = logo.querySelector('linearGradient')?.id
+      expect(wave).toHaveAttribute('fill', `url(#${id})`)
+      expect(wave?.getAttribute('d')).toBeTruthy()
+      expect(letters).toHaveAttribute('fill', 'currentColor')
+      return id
+    })
+    expect(new Set(ids).size).toBe(ids.length)
   })
 
   it('navigates between pages', async () => {

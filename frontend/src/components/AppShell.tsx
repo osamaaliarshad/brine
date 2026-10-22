@@ -23,8 +23,8 @@ import { NavLink, Outlet } from 'react-router'
 import { useLiveUpdates } from '@/api/live'
 import { attentionCount, useCapabilities, useIssues, useMe } from '@/api/queries'
 import type { User } from '@/api/types'
+import { Logo } from '@/components/Logo'
 import { UserMenu } from '@/components/UserMenu'
-import { Wordmark } from '@/components/Wordmark'
 import { cn } from '@/lib/cn'
 import { getTheme, onThemeChange, setTheme, type Theme } from '@/lib/theme'
 
@@ -167,12 +167,12 @@ function Sidebar({
     <div className={cn('flex h-full flex-col gap-6 py-6', collapsed ? 'px-2' : 'px-3')}>
       {collapsed ? (
         <div className="flex flex-col items-center gap-3">
-          <Wordmark mark className="h-9" />
+          <Logo mark className="h-9" />
           {toggle}
         </div>
       ) : (
         <div className="flex items-center justify-between gap-2 pl-3">
-          <Wordmark className="h-10" />
+          <Logo className="h-10" />
           {toggle}
         </div>
       )}
@@ -289,7 +289,7 @@ export function AppShell() {
           >
             {mobileOpen ? <X className="size-5" /> : <Menu className="size-5" />}
           </button>
-          <Wordmark className="h-6" />
+          <Logo className="h-6" />
         </header>
         {/* Positioned, so screen-reader-only text deep in a long table stays inside this scroll
             area instead of stretching the whole window (a second scrollbar). Its one child fills

@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/brine-wordmark-light.svg">
-    <img alt="brine" src="docs/assets/brine-wordmark-dark.svg" width="260">
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/brine-logo-light.svg">
+    <img alt="brine" src="docs/assets/brine-logo-dark.svg" width="300">
   </picture>
 </p>
 

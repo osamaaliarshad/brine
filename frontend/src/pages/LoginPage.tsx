@@ -1,8 +1,8 @@
 import { LogIn } from 'lucide-react'
 import { Navigate, useSearchParams } from 'react-router'
 import { useAuthInfo } from '@/api/queries'
+import { Logo } from '@/components/Logo'
 import { Card } from '@/components/ui'
-import { Wordmark } from '@/components/Wordmark'
 
 const ERRORS: Record<string, string> = {
   denied:
@@ -27,7 +27,7 @@ export function LoginPage() {
   return (
     <main className="flex min-h-full items-center justify-center bg-bg px-4 py-12">
       <Card className="w-full max-w-sm px-8 py-10 text-center">
-        <Wordmark className="mx-auto h-12" />
+        <Logo className="mx-auto h-12" />
         <h1 className="mt-6 text-xl font-semibold">Sign in to brine</h1>
         <p className="mt-1 text-sm text-muted">Your Salt fleet, at a glance.</p>
         {error && (

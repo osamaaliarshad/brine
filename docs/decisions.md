@@ -22,10 +22,12 @@ Fewer concepts for a small app with flat routes. TanStack Query still handles al
 Geist and Geist Mono ship through Fontsource, so a self-hosted brine makes no third-party
 requests at runtime.
 
-## 4. Wordmark as a CSS mask
+## 4. Logo drawn inline
 
-The wordmark SVG has a fixed light fill. In the app it's used as a mask painted with
-`currentColor`, so one file works in both themes. The README uses light and dark copies in
+The logo (`frontend/src/assets/brine-logo.svg`) is a gradient wave beside near-white letters. The
+app draws it inline from that file, with the letters in `currentColor` so one file works in both
+themes, and the wave keeps its gradient. The collapsed sidebar shows the wave alone, and so does
+the favicon, on a dark tile. The README uses copies with dark and with light letters in
 `docs/assets/`.
 
 ## 5. Node 24 LTS in CI and images
