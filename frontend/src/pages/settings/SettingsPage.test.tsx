@@ -50,7 +50,7 @@ describe('SettingsPage', () => {
     expect(screen.getByText('· currently events')).toBeInTheDocument()
     expect(screen.getByText('Connected')).toBeInTheDocument()
     expect(screen.getByText('sqlite:///data/brine.db')).toBeInTheDocument()
-    expect(screen.getByText('jobs 90 days · presence, grains and packages 90 days · audit log forever')).toBeInTheDocument()
+    expect(screen.getByText('jobs 90 days · presence, grains, packages and issues marked read 90 days · audit log forever')).toBeInTheDocument()
   })
 
   it('explains sign-in without listing who holds which role', async () => {
