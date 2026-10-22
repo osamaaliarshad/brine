@@ -84,7 +84,7 @@ describe('SettingsPage', () => {
     expect(document.documentElement.dataset.theme).toBe('light')
     expect(localStorage.getItem('brine-theme')).toBe('light')
     // The sidebar toggle follows along.
-    expect(screen.getByRole('button', { name: 'Switch to dark theme' })).toBeInTheDocument()
+    expect(screen.getByRole('switch', { name: 'Dark theme' })).not.toBeChecked()
     await user.click(screen.getByRole('radio', { name: 'System' }))
     expect(localStorage.getItem('brine-theme')).toBeNull()
   })

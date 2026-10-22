@@ -19,7 +19,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
-import { NavLink, Outlet } from 'react-router'
+import { Link, NavLink, Outlet } from 'react-router'
 import { useLiveUpdates } from '@/api/live'
 import { attentionCount, useCapabilities, useIssues, useMe } from '@/api/queries'
 import type { User } from '@/api/types'
@@ -49,6 +49,8 @@ const RUN_NAV: NavItem = { to: '/run', label: 'Run', icon: TerminalSquare }
 
 const COLLAPSED_KEY = 'brine-sidebar-collapsed'
 
+// The logo is a way home: to the Fleet page.
+const LOGO_LINK = 'rounded-lg focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-accent'
 const ROW =
   'relative flex items-center gap-3 rounded-lg py-2.5 text-[15px] text-muted transition-colors hover:bg-surface-2 hover:text-fg'
 
@@ -107,27 +109,39 @@ function NavRow({
   )
 }
 
-function ThemeToggle({ collapsed }: { collapsed: boolean }) {
+/** Light or dark, as a switch: the sun and the moon, the current one on the knob. */
+function ThemeSwitch({ collapsed }: { collapsed: boolean }) {
   const [theme, setThemeState] = useState<Theme>(getTheme)
-  // Settings can change the theme too; keep the toggle's label in step.
+  // Settings can change the theme too; keep the switch in step.
   useEffect(() => onThemeChange(() => setThemeState(getTheme())), [])
-  const next: Theme = theme === 'dark' ? 'light' : 'dark'
-  const label = theme === 'dark' ? 'Light theme' : 'Dark theme'
+  const dark = theme === 'dark'
+  const slot = 'relative grid size-6 place-items-center transition-colors'
   return (
-    <button
-      type="button"
-      onClick={() => setTheme(next)}
-      className={cn(ROW, 'w-full', collapsed ? 'justify-center px-0' : 'px-3')}
-      aria-label={`Switch to ${next} theme`}
-      title={collapsed ? label : undefined}
-    >
-      {theme === 'dark' ? (
-        <Sun className="size-5 shrink-0" strokeWidth={1.75} />
-      ) : (
-        <Moon className="size-5 shrink-0" strokeWidth={1.75} />
-      )}
-      {!collapsed && label}
-    </button>
+    <div className={cn('flex py-1.5', collapsed ? 'justify-center' : 'px-3')}>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={dark}
+        aria-label="Dark theme"
+        title={`Switch to ${dark ? 'light' : 'dark'} theme`}
+        onClick={() => setTheme(dark ? 'light' : 'dark')}
+        className="relative flex shrink-0 rounded-full border bg-surface-2 p-0.5 text-muted hover:text-fg"
+      >
+        <span
+          aria-hidden
+          className={cn(
+            'absolute top-0.5 left-0.5 size-6 rounded-full bg-surface shadow-sm transition-transform',
+            dark && 'translate-x-6',
+          )}
+        />
+        <span aria-hidden className={cn(slot, !dark && 'text-fg')}>
+          <Sun className="size-3.5" strokeWidth={2} />
+        </span>
+        <span aria-hidden className={cn(slot, dark && 'text-fg')}>
+          <Moon className="size-3.5" strokeWidth={2} />
+        </span>
+      </button>
+    </div>
   )
 }
 
@@ -167,12 +181,16 @@ function Sidebar({
     <div className={cn('flex h-full flex-col gap-6 py-6', collapsed ? 'px-2' : 'px-3')}>
       {collapsed ? (
         <div className="flex flex-col items-center gap-3">
-          <Logo mark className="h-9" />
+          <Link to="/" onClick={onNavigate} title="Fleet" className={LOGO_LINK}>
+            <Logo mark className="h-9" />
+          </Link>
           {toggle}
         </div>
       ) : (
         <div className="flex items-center justify-between gap-2 pl-3">
-          <Logo className="h-10" />
+          <Link to="/" onClick={onNavigate} title="Fleet" className={LOGO_LINK}>
+            <Logo className="h-10" />
+          </Link>
           {toggle}
         </div>
       )}
@@ -203,7 +221,7 @@ function Sidebar({
         )}
       </nav>
       <div className="mt-auto flex flex-col gap-1">
-        <ThemeToggle collapsed={collapsed} />
+        <ThemeSwitch collapsed={collapsed} />
         <NavRow
           item={{ to: '/settings', label: 'Settings', icon: Settings }}
           onNavigate={onNavigate}
@@ -289,7 +307,9 @@ export function AppShell() {
           >
             {mobileOpen ? <X className="size-5" /> : <Menu className="size-5" />}
           </button>
-          <Logo className="h-6" />
+          <Link to="/" onClick={() => setMobileOpen(false)} title="Fleet" className={LOGO_LINK}>
+            <Logo className="h-6" />
+          </Link>
         </header>
         {/* Positioned, so screen-reader-only text deep in a long table stays inside this scroll
             area instead of stretching the whole window (a second scrollbar). Its one child fills

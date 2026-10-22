@@ -49,11 +49,23 @@ describe('app shell', () => {
     expect(screen.getByRole('heading', { name: 'Not found' })).toBeInTheDocument()
   })
 
-  it('toggles the theme', async () => {
+  it('switches the theme', async () => {
     document.documentElement.dataset.theme = 'dark'
     renderApp('/')
-    await userEvent.click(screen.getByRole('button', { name: 'Switch to light theme' }))
+    const dark = screen.getByRole('switch', { name: 'Dark theme' })
+    expect(dark).toBeChecked()
+    expect(dark).toHaveAccessibleName('Dark theme') // icons only, no words beside them
+    await userEvent.click(dark)
     expect(document.documentElement.dataset.theme).toBe('light')
+    expect(dark).not.toBeChecked()
+  })
+
+  it('goes to the Fleet page from the logo', async () => {
+    renderApp('/jobs')
+    expect(screen.getByRole('heading', { name: 'Jobs' })).toBeInTheDocument()
+    const nav = screen.getByRole('complementary', { hidden: true })
+    await userEvent.click(within(nav).getByRole('link', { name: 'brine' }))
+    expect(screen.getByRole('heading', { name: 'Fleet' })).toBeInTheDocument()
   })
 
   it('opens one live-update stream', async () => {
