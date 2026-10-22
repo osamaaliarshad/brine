@@ -326,6 +326,12 @@ def test_a_dry_run_changes_nothing(args: Any, changes: bool) -> None:
     assert inv.may_change_software("state.apply", args) is changes
 
 
+def test_only_state_functions_honour_test_true() -> None:
+    # pkg.install ignores test=True and installs anyway, so it's still worth reading again.
+    assert inv.may_change_software("pkg.install", ["rover-agent", "test=True"])
+    assert inv.may_change_software("cmd.run", ["apt-get install -y x", {"test": True}])
+
+
 def test_acl_without_checks_is_just_the_package_list() -> None:
     assert inv.acl_lines(settings_with({})) == "- '*':\n  - pkg.list_pkgs$\n"
 

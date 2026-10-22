@@ -2,7 +2,7 @@
 
 brine asks connected minions for ``pkg.list_pkgs`` (their package manager's own list) and for
 each check in ``inventory.checks`` (a read-only command, run with ``cmd.run_all``). It asks every
-``inventory.refresh_hours``, again after a person's job that may change software, when a minion
+``inventory.refresh_hours``, again after a job that may change software, when a minion
 starts or comes back, and when someone clicks Read now. The answers arrive on the event bus like
 any job return; ``Ingest`` keeps the current entries and every change.
 
@@ -25,7 +25,7 @@ CHECK_FUN = "cmd.run_all"
 
 # A minion asked and not answered after this long is asked again, whatever the ask was for.
 ANSWER_WAIT = timedelta(minutes=10)
-# Read again this long after a person's job that may change software finishes.
+# Read again this long after a job that may change software finishes.
 AFTER_JOB = timedelta(seconds=60)
 # brine assumes its clock and the master's (asks are timed by brine's, jobs by the master's)
 # agree to within this, as NTP keeps them. An ask timed less than this after a job may have
@@ -161,7 +161,7 @@ def _dry_run(args: object) -> bool:
 def may_change_software(fun: str, args: object) -> bool:
     """Whether a job running ``fun`` with ``args`` (its ``fun_args``) could change what's
     installed, so worth reading again. Not state.show_*, state.test, state.sls_exists or
-    state.id_exists, nor a dry run (``test=True``)."""
+    state.id_exists, nor a state dry run (``test=True``; other modules ignore the flag)."""
     # pkg.list_pkgs is brine's own read. cmd.run_all counts: a person can install things with it,
     # and brine's own check jobs are told apart elsewhere, as its service user's housekeeping.
     return (
@@ -169,7 +169,8 @@ def may_change_software(fun: str, args: object) -> bool:
         and fun != PACKAGES_FUN
         and not fun.startswith(_SHOWS_ONLY)
         and fun not in _CHECKS_ONLY
-        and not _dry_run(args)
+        # Only state functions honour test=True; pkg.install foo test=True still installs.
+        and not (fun.startswith("state.") and _dry_run(args))
     )
 
 

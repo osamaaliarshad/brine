@@ -182,10 +182,10 @@ Choices that keep it predictable:
 brine keeps each minion's `pkg.list_pkgs` and the output of optional checks (one-line commands
 run with `cmd.run_all`), over time. Not as grains: that would mean deploying a module, a much
 bigger `grains.items` on the CLI, and data only as fresh as the last grains refresh. brine asks
-the minions itself (every `inventory.refresh_hours`, a minute after a person's job that may
+the minions itself (every `inventory.refresh_hours`, a minute after a job that may
 change software, when a minion starts or comes back, and on Read now), so nothing changes on the
 master or the minions. `state.show_*`, `state.test`, `state.sls_exists`, `state.id_exists` and
-runs with `test=True` change nothing, so they aren't followed by a read.
+state runs with `test=True` change nothing, so they aren't followed by a read.
 
 A read only shows what changed since the one before, so a change is "found after" a job, never
 "made by" it. It's credited to a job only when brine's own read finds it, asked between 30

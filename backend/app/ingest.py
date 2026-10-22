@@ -262,7 +262,7 @@ class Ingest:
     #   pkg.list_pkgs, an older ask, one that beat `inventory_asked` to the database) still
     #   updates the entries, but settles nothing. An ask with no answer after ANSWER_WAIT is
     #   asked again, whatever it was for (`is_due`): a lost answer costs only the wait.
-    # * A start, or a person's job that may change software, wants the source read again (for
+    # * A start, or a job that may change software, wants the source read again (for
     #   a job, AFTER_JOB after it), and forgets brine's ask still out: that answer may predate
     #   it. So does Read now for the fleet (at once, by brine's clock), which the sweep then
     #   asks BATCH at a time. The want stays until brine's answer, good or failed, clears it:
@@ -387,7 +387,7 @@ class Ingest:
     async def inventory_job_done(
         self, mid: str, *, jid: str, user: str | None, at: datetime
     ) -> None:
-        """A person's job that may change software finished on `mid` at `at`: read each source
+        """A job that may change software finished on `mid` at `at`: read each source
         again shortly, and credit what that read finds to the job."""
         async with self._lock, self._sessions() as s, s.begin():
             if user == "salt":
