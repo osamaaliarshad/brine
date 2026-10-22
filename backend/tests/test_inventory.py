@@ -1014,9 +1014,10 @@ def test_packages_that_differ_across_the_fleet(admin: tuple[Api, FakeSalt]) -> N
     api, _ = admin
     now = datetime.now(UTC)
     same = {"bash": "5.2", "nano": "7.2"}
-    read(api, "rover-01", {**same, "curl": "8.0", "vim": "9.1"}, now)
-    read(api, "rover-02", {**same, "curl": "8.1", "vim": "9.1"}, now)  # another curl
-    read(api, "dock-01", {**same, "curl": "8.0"}, now)  # no vim
+    both = {"curl": "8.0", "zlib": "1.3", "acl": "2.3", "vim": "9.1"}
+    read(api, "rover-01", {**same, **both}, now)
+    read(api, "rover-02", {**same, **both, "curl": "8.1", "zlib": "1.2"}, now)  # other versions
+    read(api, "dock-01", {**same, "curl": "8.0", "zlib": "1.3"}, now)  # no acl or vim
     # Neither a read cut short nor a pending key counts, whatever they list.
     api.seed(
         api.ingest.inventory_read,
@@ -1029,8 +1030,11 @@ def test_packages_that_differ_across_the_fleet(admin: tuple[Api, FakeSalt]) -> N
     )
     read(api, "rover-04", {**same, "nano": "6.0"}, now)
     found = api.get("/api/inventory/keys")
+    # Different versions first, then packages only some have; each by name.
     assert [(k["key"], k["kind"], k["minions"]) for k in found] == [
         ("@packages:curl", "package", 3),
+        ("@packages:zlib", "package", 3),
+        ("@packages:acl", "package", 2),
         ("@packages:vim", "package", 2),
     ]
     assert [k["key"] for k in api.get("/api/inventory/keys", limit=1)] == ["@packages:curl"]

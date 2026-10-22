@@ -130,11 +130,11 @@ _DIFFERING_MEMO = "inventory-differing"
 
 
 async def differing_packages(runtime: Runtime, session: AsyncSession) -> list[str]:
-    """The packages that differ across the fleet, by name: those the accepted minions with a
-    whole good read of their packages don't all have at one version, or don't all have.
-    Minions without such a read don't count. Worked out in the database, but it goes through
-    every package row (500 robots with 1,500 packages each are 750,000 rows, a third of a second
-    or so), so the list is kept in runtime.memo for a minute."""
+    """The packages that differ across the fleet: those the accepted minions with a whole good
+    read of their packages don't all have at one version, then those they don't all have, each
+    by name. Minions without such a read don't count. Worked out in the database, but it goes
+    through every package row (500 robots with 1,500 packages each are 750,000 rows, about a
+    third of a second), so the list is kept in runtime.memo for a minute."""
     cached = runtime.memo.get(_DIFFERING_MEMO)
     if cached and time.monotonic() - cached[0] < DIFFERING_SECONDS:
         return list(cached[1])
@@ -145,16 +145,21 @@ async def differing_packages(runtime: Runtime, session: AsyncSession) -> list[st
         .subquery()
     )
     read = await session.scalar(select(func.count()).select_from(whole))
+    drift = func.count(InventoryItem.value.distinct()) > 1
+    # A cross join, so it goes one minion at a time, each one's packages by the primary key:
+    # without statistics (ANALYZE), SQLite would rather go through every package row and look
+    # each minion up, about ten times slower.
     names = list(
         await session.scalars(
             select(InventoryItem.name)
+            .select_from(_CrossJoin(whole, inspect(InventoryItem).selectable))
             .where(
+                InventoryItem.minion_id == whole.c.minion_id,
                 InventoryItem.source == inventory.PACKAGES,
-                InventoryItem.minion_id.in_(select(whole.c.minion_id)),
             )
             .group_by(InventoryItem.name)
-            .having(or_(func.count(InventoryItem.value.distinct()) > 1, func.count() < read))
-            .order_by(InventoryItem.name)
+            .having(or_(drift, func.count() < read))
+            .order_by(case((drift, 0), else_=1), InventoryItem.name)
         )
     )
     runtime.memo[_DIFFERING_MEMO] = (time.monotonic(), names)
@@ -183,7 +188,6 @@ async def inventory_keys(
                 or_(_has(InventoryItem.name, needle), _has(InventoryItem.source, needle)),
             ),
         )
-        order: list[Any] = [InventoryItem.source, InventoryItem.name]
     else:
         differing = (await differing_packages(runtime, session))[:limit]
         if not checks and not differing:
@@ -191,16 +195,22 @@ async def inventory_keys(
         wanted = or_(
             InventoryItem.source.in_(checks), and_(packages, InventoryItem.name.in_(differing))
         )
-        # The checks first, as the picker lists them first.
-        order = [case((packages, 1), else_=0), InventoryItem.source, InventoryItem.name]
-    rows = await session.execute(
-        select(InventoryItem.source, InventoryItem.name, func.count())
-        .join(Minion, Minion.id == InventoryItem.minion_id)
-        .where(Minion.key_state == "accepted", wanted)
-        .group_by(InventoryItem.source, InventoryItem.name)
-        .order_by(*order)
-        .limit(limit)
-    )
+    found = (
+        await session.execute(
+            select(InventoryItem.source, InventoryItem.name, func.count())
+            .join(Minion, Minion.id == InventoryItem.minion_id)
+            .where(Minion.key_state == "accepted", wanted)
+            .group_by(InventoryItem.source, InventoryItem.name)
+            .order_by(InventoryItem.source, InventoryItem.name)
+            .limit(limit if needle else None)
+        )
+    ).all()
+    rows = list(found)
+    if not needle:
+        # The checks first, as the picker lists them first; then the packages in their order.
+        rank = {name: i for i, name in enumerate(differing)}
+        rows.sort(key=lambda r: (r[0] == inventory.PACKAGES, rank.get(r[1], 0)))
+        del rows[limit:]
     return [
         InventoryKey(
             key=inventory.key_of(source, name),
