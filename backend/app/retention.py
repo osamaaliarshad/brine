@@ -1,8 +1,8 @@
 """Retention: brine's history is pruned once an hour, per `retention:` in the config.
 
 Jobs (with their returns) and finished catch-up runs after `jobs_days`; presence changes, grains
-history, and package and check changes after `history_days`; the audit log after `audit_days`.
-0 keeps that kind forever.
+history, package and check changes, and issues marked as read after `history_days`; the audit log
+after `audit_days`. 0 keeps that kind forever.
 Salt keeps its own, much shorter, job cache; this only touches brine's database.
 """
 

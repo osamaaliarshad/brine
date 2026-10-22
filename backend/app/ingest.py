@@ -26,6 +26,7 @@ from app.models import (
     InventoryChange,
     InventoryItem,
     InventoryRead,
+    IssueRead,
     Job,
     JobReturn,
     Minion,
@@ -739,6 +740,10 @@ class Ingest:
                     "inventory_changes",
                     delete(InventoryChange).where(InventoryChange.at < history_before),
                 )
+                # Mostly long-gone jobs' issues. One still going after all this time comes back.
+                await drop(
+                    s, "issue_reads", delete(IssueRead).where(IssueRead.read_at < history_before)
+                )
             if audit_before is not None:
                 await drop(s, "audit", delete(AuditEntry).where(AuditEntry.at < audit_before))
         return deleted
@@ -810,6 +815,28 @@ class Ingest:
         async with self._sessions() as s:
             rows = await s.scalars(select(Job.jid).where(Job.jid.in_(wanted)))
             return set(rows.all())
+
+    # --- issues marked as read ------------------------------------------------------------
+
+    async def issues_read(self, user: str, fingerprints: dict[str, str]) -> None:
+        """`user` read these issues ({key: fingerprint}), as they were then. A person's own view,
+        so nobody else's browser is told."""
+        now = self._clock()
+        async with self._lock, self._sessions() as s, s.begin():
+            mine = {
+                r.key: r for r in await s.scalars(select(IssueRead).where(IssueRead.user == user))
+            }
+            for key, fingerprint in fingerprints.items():
+                if (row := mine.get(key)) is None:
+                    s.add(IssueRead(user=user, key=key, fingerprint=fingerprint, read_at=now))
+                elif row.fingerprint != fingerprint:
+                    row.fingerprint, row.read_at = fingerprint, now
+
+    async def issues_unread(self, user: str, keys: Iterable[str]) -> None:
+        async with self._lock, self._sessions() as s, s.begin():
+            await s.execute(
+                delete(IssueRead).where(IssueRead.user == user, IssueRead.key.in_(list(keys)))
+            )
 
     # --- system state ---------------------------------------------------------------------
 

@@ -157,7 +157,7 @@ class RetentionConfig(_Strict):
     """How long brine keeps history, in days. 0 keeps it forever."""
 
     jobs_days: int = Field(default=90, ge=0)  # jobs, their returns, finished catch-up runs
-    # presence changes, grains history, and package and check changes
+    # presence changes, grains history, package and check changes, issues marked as read
     history_days: int = Field(default=90, ge=0)
     audit_days: int = Field(default=365, ge=0)
 

@@ -78,7 +78,7 @@ inventory:                         # packages and checks: what's installed where
 
 retention:                         # days of history brine keeps (0 = forever)
   jobs_days: 90
-  history_days: 90                 # presence changes, grains and package history
+  history_days: 90                 # presence, grains and package history; issues marked read
   audit_days: 365
 
 database: sqlite:///data/brine.db  # or postgresql://user:pass@host/brine

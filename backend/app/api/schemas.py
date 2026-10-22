@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -145,6 +145,28 @@ class Issue(BaseModel):
     since: datetime | None
     minion_id: str | None
     jid: str | None
+    # Changes when the issue does (the rules are in app/api/issues.py).
+    fingerprint: str
+    # The signed-in person marked it as read, and it hasn't changed since.
+    read: bool = False
+
+
+class IssueRef(BaseModel):
+    key: str = Field(max_length=512)
+    fingerprint: str = Field(max_length=64)
+
+
+# Plenty for "Mark all as read" on a big fleet's bad day.
+MAX_ISSUES_AT_ONCE = 10_000
+
+
+class IssuesRead(BaseModel):
+    # The issues as the page showed them: one that has changed since stays unread.
+    issues: list[IssueRef] = Field(max_length=MAX_ISSUES_AT_ONCE)
+
+
+class IssuesUnread(BaseModel):
+    keys: list[Annotated[str, Field(max_length=512)]] = Field(max_length=MAX_ISSUES_AT_ONCE)
 
 
 class Reactor(BaseModel):

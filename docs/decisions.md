@@ -198,3 +198,18 @@ installed"; a source cut short isn't compared.
 
 Two gaps: minions presence can't see (decision 12) are never read, and jobs imported from the job
 cache after a reconnect don't trigger a read; the next read finds their changes, uncredited.
+
+## 21. Marking an issue as read is personal, and lasts until the issue changes
+
+Issues are worked out on every request from what brine knows, so there's nothing to close, and
+one person putting a failed state aside shouldn't hide it from everyone else. brine keeps, for
+each person, the issues they marked as read with each one's fingerprint at the time, and hides an
+issue from them while its fingerprint stays the same. The fingerprint goes by when the issue
+began, so a minion offline again, a newer failed state run or salt-api lost again comes back; an
+issue with no start time goes by its wording (a minion moving to another Salt version). The page
+sends the fingerprints it showed, so an issue that changed in the meantime stays unread. Read
+issues can still be shown, and they don't count towards "need attention". Not audited: like the
+fleet's columns, it's how one person looks at brine.
+
+Two gaps: an issue with no start time that goes away and comes back worded the same stays read,
+and marks are pruned after `retention.history_days`, so an issue still there by then comes back.

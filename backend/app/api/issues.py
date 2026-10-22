@@ -1,15 +1,18 @@
 """Things in the fleet that need a human: SaltGUI's Issues detectors plus brine's own.
 
-Computed on request from what brine already knows; nothing here calls minions.
+Computed on request from what brine already knows; nothing here calls minions. Each person can
+mark issues as read, which hides them from that person until they change.
 """
 
 from __future__ import annotations
 
+import hashlib
 from collections import Counter
 from datetime import UTC, datetime, timedelta
 from typing import Literal
 
 from fastapi import APIRouter
+from fastapi.responses import Response
 from sqlalchemy import and_, case, func, select
 
 from app import inventory
@@ -17,8 +20,9 @@ from app.api.deps import RuntimeDep, SessionDep
 from app.api.fleet import grain_value, presence_blind, presence_info
 from app.api.inventory import refused_sources
 from app.api.jobs import NO_CATCH_UPS, catch_ups, latest_state_runs
-from app.api.schemas import Issue
-from app.models import Job, JobReturn, Minion
+from app.api.schemas import Issue, IssuesRead, IssuesUnread
+from app.auth.users import CurrentUser
+from app.models import IssueRead, Job, JobReturn, Minion
 from app.status import Status, minion_status
 
 router = APIRouter()
@@ -34,6 +38,18 @@ def _plural(n: int, word: str) -> str:
     return f"{n} {word}{'' if n == 1 else 's'}"
 
 
+def _fingerprint(*parts: object) -> str:
+    return hashlib.sha256("\0".join(map(str, parts)).encode()).hexdigest()
+
+
+# Marking an issue as read hides it from that person until it changes, that is until its
+# fingerprint does. By default the fingerprint goes by the issue's `since`, when this occurrence
+# began: salt-api lost again, presence gone stale again, a minion offline again or a newer failed
+# state run brings it back, and new wording alone doesn't (a job failing on one more minion).
+# Without a `since`, it goes by the title and detail (a minion on another Salt version, a new
+# reason salt-api refuses a read). Two kinds differ: a pending key goes by the key's fingerprint
+# too, so a new key under the same name comes back; a minion presence can't see never comes
+# back, as its `since` (when it was last seen) moves whenever it answers a job.
 def _issue(
     key: str,
     severity: Severity,
@@ -43,7 +59,10 @@ def _issue(
     since: datetime | None = None,
     minion_id: str | None = None,
     jid: str | None = None,
+    changes_with: tuple[object, ...] | None = None,  # what the fingerprint goes by instead
 ) -> Issue:
+    if changes_with is None:
+        changes_with = (since,) if since else (title, detail)
     return Issue(
         key=key,
         severity=severity,
@@ -52,11 +71,36 @@ def _issue(
         since=since,
         minion_id=minion_id,
         jid=jid,
+        fingerprint=_fingerprint(*changes_with),
     )
 
 
 @router.get("/issues", response_model=list[Issue])
-async def issues(runtime: RuntimeDep, session: SessionDep) -> list[Issue]:
+async def issues(runtime: RuntimeDep, session: SessionDep, user: CurrentUser) -> list[Issue]:
+    found = await current_issues(runtime, session)
+    mine = select(IssueRead.key, IssueRead.fingerprint).where(IssueRead.user == user.email)
+    read = {key: fingerprint for key, fingerprint in await session.execute(mine)}
+    for issue in found:
+        issue.read = read.get(issue.key) == issue.fingerprint
+    return found
+
+
+@router.post("/issues/read", status_code=204)
+async def mark_read(body: IssuesRead, runtime: RuntimeDep, user: CurrentUser) -> Response:
+    """Hide these issues from the signed-in person until they change. Not audited: like the
+    fleet's columns, it's their own view."""
+    await runtime.ingest.issues_read(user.email, {i.key: i.fingerprint for i in body.issues})
+    return Response(status_code=204)
+
+
+@router.post("/issues/unread", status_code=204)
+async def mark_unread(body: IssuesUnread, runtime: RuntimeDep, user: CurrentUser) -> Response:
+    await runtime.ingest.issues_unread(user.email, body.keys)
+    return Response(status_code=204)
+
+
+async def current_issues(runtime: RuntimeDep, session: SessionDep) -> list[Issue]:
+    """The fleet's issues, the same for everyone: most serious first, then newest first."""
     now = datetime.now(UTC)
     found: list[Issue] = []
     stale_minutes = runtime.settings.fleet.stale_after_minutes
@@ -122,6 +166,7 @@ async def issues(runtime: RuntimeDep, session: SessionDep) -> list[Issue]:
                     "(admins) or on the master.",
                     since=m.first_seen_at,
                     minion_id=m.id,
+                    changes_with=(m.first_seen_at, m.key_fingerprint),
                 )
             )
     for m in accepted:
@@ -144,6 +189,7 @@ async def issues(runtime: RuntimeDep, session: SessionDep) -> list[Issue]:
                     "(or a saltutil.refresh_pillar) refreshes the master's cache.",
                     since=m.last_seen_at,
                     minion_id=m.id,
+                    changes_with=(),
                 )
             )
         elif m.last_seen_at is None and not m.connected:

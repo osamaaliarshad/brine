@@ -10,6 +10,7 @@ What brine remembers about the fleet, independently of the master's own (short-l
 * ``InventoryChange``: every package or check entry that appeared, changed or went away.
 * ``Job`` / ``JobReturn``: jobs and per-minion results, kept after the master forgets them.
 * ``AuditEntry``: who did what.
+* ``IssueRead``: the issues each person marked as read.
 * ``SystemState``: small key/value facts, such as when presence was last observed.
 """
 
@@ -213,6 +214,19 @@ class AuditEntry(Base):
     action: Mapped[str] = mapped_column(String(64))
     target: Mapped[str | None] = mapped_column(Text)
     detail: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+
+
+class IssueRead(Base):
+    """An issue someone marked as read: hidden from them until it changes, which is when its
+    fingerprint does (the rules are in app/api/issues.py)."""
+
+    __tablename__ = "issue_reads"
+
+    # Their email, or "local" with sign-in off.
+    user: Mapped[str] = mapped_column(String(255), primary_key=True)
+    key: Mapped[str] = mapped_column(String(512), primary_key=True)  # e.g. "offline:rover-03"
+    fingerprint: Mapped[str] = mapped_column(String(64))  # the issue's, as they read it
+    read_at: Mapped[datetime]
 
 
 class SystemState(Base):
