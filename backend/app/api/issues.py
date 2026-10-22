@@ -23,6 +23,7 @@ from app.api.jobs import NO_CATCH_UPS, catch_ups, latest_state_runs
 from app.api.schemas import Issue, MarkRead, MarkReadResult, MarkUnread
 from app.auth.users import CurrentUser
 from app.models import IssueRead, Job, JobReturn, Minion, PresenceChange
+from app.states import STATE_FUNCTIONS
 from app.status import Status, minion_status
 
 router = APIRouter()
@@ -51,8 +52,9 @@ def _fingerprint(*parts: object) -> str:
 # - salt-api: when brine lost it, so a new error while it's still down doesn't count.
 # - offline: when presence saw the minion go, not when it was last seen, which a start event or
 #   a job's answer moves before presence sees it back.
-# - a failed state run: which states failed, so a schedule failing the same ones again stays
-#   read, and different ones come back.
+# - a failed state run: which states failed, and the minion's latest clean state run, so a
+#   schedule failing the same ones again stays read, and different ones, or the same ones after
+#   a clean run, come back.
 # - a pending key: the key's fingerprint too, so a new key under the same name comes back.
 # - a minion presence can't see: nothing, so it never comes back, as its `since` (when it was
 #   last seen) moves whenever it answers a job.
@@ -182,16 +184,8 @@ async def current_issues(runtime: RuntimeDep, session: SessionDep) -> list[Issue
                     changes_with=(m.first_seen_at, m.key_fingerprint),
                 )
             )
-    # When presence last saw each minion go: unlike when it was last seen, that stays put while
-    # it's offline (a start event or a job's answer can come before presence sees it back).
-    offline_at = (
-        select(PresenceChange.minion_id, func.max(PresenceChange.at))
-        .where(PresenceChange.connected.is_(False))
-        .group_by(PresenceChange.minion_id)
-    )
-    went_offline = {mid: at for mid, at in await session.execute(offline_at)}
-    for m in accepted:
-        status = minion_status(
+    statuses = {
+        m.id: minion_status(
             connected=m.connected,
             last_seen_at=m.last_seen_at,
             presence_at=presence.checked_at,
@@ -199,6 +193,19 @@ async def current_issues(runtime: RuntimeDep, session: SessionDep) -> list[Issue
             stale_after=stale_after,
             observable=m.id not in blind,
         )
+        for m in accepted
+    }
+    # When presence last saw each offline minion go: unlike when it was last seen, that stays put
+    # while it's offline (a start event or a job's answer can come before presence sees it back).
+    offline = [mid for mid, status in statuses.items() if status is Status.OFFLINE]
+    offline_at = (
+        select(PresenceChange.minion_id, func.max(PresenceChange.at))
+        .where(PresenceChange.minion_id.in_(offline), PresenceChange.connected.is_(False))
+        .group_by(PresenceChange.minion_id)
+    )
+    went_offline = {mid: at for mid, at in await session.execute(offline_at)} if offline else {}
+    for m in accepted:
+        status = statuses[m.id]
         if m.id in blind and not m.connected:
             found.append(
                 _issue(
@@ -265,6 +272,20 @@ async def current_issues(runtime: RuntimeDep, session: SessionDep) -> list[Issue
 
     # --- state runs and jobs -----------------------------------------------------------------
     runs = await latest_state_runs(session)
+    # Each failing minion's latest clean state run: one since means it was fixed, then broke again.
+    failing = [run.minion_id for run in runs.runs if run.failed]
+    clean_at = (
+        select(JobReturn.minion_id, func.max(JobReturn.returned_at))
+        .join(Job, Job.jid == JobReturn.jid)
+        .where(
+            JobReturn.minion_id.in_(failing),
+            Job.kind == "local",
+            Job.fun.in_(STATE_FUNCTIONS),
+            JobReturn.retcode == 0,
+        )
+        .group_by(JobReturn.minion_id)
+    )
+    last_clean = {mid: at for mid, at in await session.execute(clean_at)} if failing else {}
     for run in runs.runs:
         if run.failed:
             found.append(
@@ -276,8 +297,9 @@ async def current_issues(runtime: RuntimeDep, session: SessionDep) -> list[Issue
                     since=run.returned_at,
                     minion_id=run.minion_id,
                     jid=run.jid,
-                    changes_with=tuple(
-                        sorted({(s.function, s.id) for s in run.states if s.result is False})
+                    changes_with=(
+                        last_clean.get(run.minion_id),
+                        *sorted({(s.function, s.id) for s in run.states if s.result is False}),
                     ),
                 )
             )

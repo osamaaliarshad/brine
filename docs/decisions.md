@@ -214,8 +214,9 @@ What the fingerprint goes by (the rules are in `app/api/issues.py`):
 - salt-api: when brine lost it. A new error during the same outage doesn't count.
 - A minion offline: when presence saw it go. When it was last seen won't do: a start event or a
   job's answer moves it before presence sees the minion back.
-- A failed state run: which states failed. A schedule failing the same ones again stays read;
-  other states failing comes back.
+- A failed state run: which states failed, and the minion's latest clean state run. A schedule
+  failing the same ones again stays read; other states failing, or the same ones after a clean
+  run, comes back.
 - A pending key: the key's fingerprint too, so a new key under the same name comes back.
 - A minion presence can't see: nothing. It stays read, as when it was last seen moves whenever
   it answers a job.
@@ -226,7 +227,7 @@ and they don't count towards "need attention". Not audited: like the fleet's col
 one person looks at brine.
 
 Gaps: an issue that goes away and comes back the same stays read. That's an issue with no start
-time worded the same, a minion presence can't see again, a state run failing the same states
-after a good one, or the same pending key sent again. And marks are pruned after
-`retention.history_days` (those on a job's issues, which last a day, after two days), as are the
-presence changes an offline minion's mark goes by, so an issue still there by then comes back.
+time worded the same, a minion presence can't see again, or the same pending key sent again.
+And marks are pruned after `retention.history_days` (those on a job's issues, which last a day,
+after two days), as are the presence changes an offline minion's mark goes by, so an issue still
+there by then comes back.

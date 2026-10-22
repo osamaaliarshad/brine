@@ -261,11 +261,21 @@ export function attentionCount(issues: Issue[] | undefined): number | undefined 
 /** Marks on their way: live updates hold off refreshing issues meanwhile (it'd undo them). */
 export const MARK_ISSUES = ['issues', 'mark'] as const
 
+export type MarkIssues = { issues: Issue[]; read: boolean }
+
 /**
  * Mark issues read, as the page showed them (one that has changed since stays unread), or unread
  * again. Only for the signed-in person. The page changes straight away.
+ *
+ * `on` hears how every mark ends, even when another started since (mutate's own callbacks only
+ * hear about the latest).
  */
-export function useMarkIssues() {
+export function useMarkIssues(
+  on: {
+    onSuccess?: (result: MarkReadResult | undefined, vars: MarkIssues) => void
+    onError?: (error: Error, vars: MarkIssues) => void
+  } = {},
+) {
   const client = useQueryClient()
   // Set each of these issues' read flag in the list on screen.
   const setRead = (read: Map<string, boolean>) =>
@@ -274,7 +284,7 @@ export function useMarkIssues() {
     )
   return useMutation({
     mutationKey: MARK_ISSUES,
-    mutationFn: ({ issues, read }: { issues: Issue[]; read: boolean }): Promise<MarkReadResult | undefined> =>
+    mutationFn: ({ issues, read }: MarkIssues): Promise<MarkReadResult | undefined> =>
       read
         ? postJson<MarkReadResult>('/api/issues/read', { issues: issues.map(({ key, fingerprint }) => ({ key, fingerprint })) })
         : postJson<undefined>('/api/issues/unread', { keys: issues.map((i) => i.key) }),
@@ -286,11 +296,15 @@ export function useMarkIssues() {
       setRead(new Map(issues.map((i) => [i.key, read])))
       return { was }
     },
-    onSuccess: (result) => {
+    onSuccess: (result, vars) => {
       if (result?.changed.length) setRead(new Map(result.changed.map((key) => [key, false])))
+      on.onSuccess?.(result, vars)
     },
-    // Only these issues go back: other marks may be on their way.
-    onError: (_error, _vars, context) => context && setRead(context.was),
+    onError: (error, vars, context) => {
+      // Only these issues go back: other marks may be on their way.
+      if (context) setRead(context.was)
+      on.onError?.(error, vars)
+    },
     // The last one to finish fetches the list again, with whatever live updates held off.
     onSettled: () =>
       client.isMutating({ mutationKey: MARK_ISSUES }) === 1

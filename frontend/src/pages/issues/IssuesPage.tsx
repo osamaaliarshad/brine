@@ -1,8 +1,8 @@
 import { Check, CheckCheck, CircleCheck, CircleX, Eye, EyeOff, Info, TriangleAlert, Undo2, type LucideIcon } from 'lucide-react'
 import { useEffect, useId, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router'
-import { useIssues, useMarkIssues } from '@/api/queries'
-import type { Issue, IssueSeverity } from '@/api/types'
+import { type MarkIssues, useIssues, useMarkIssues } from '@/api/queries'
+import type { Issue, IssueSeverity, MarkReadResult } from '@/api/types'
 import { PageHeader } from '@/components/PageHeader'
 import { Card } from '@/components/ui'
 import { cn } from '@/lib/cn'
@@ -21,6 +21,26 @@ const FILTERS: (IssueSeverity | 'all')[] = ['all', 'critical', 'warning', 'info'
 const FILTER_BUTTON = 'flex h-10 items-center gap-2 rounded-lg border px-3 text-sm hover:bg-surface-2'
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
+
+/**
+ * What the status line says once a mark is done, given the read issues listed before it. An
+ * issue that changed before it could be marked stays unread, and that's shown on screen too.
+ */
+function saidAfter(
+  { issues: which, read }: MarkIssues,
+  result: MarkReadResult | undefined,
+  { readBefore, showRead }: { readBefore: number; showRead: boolean },
+): { text: string; changed: boolean } {
+  if (!read) return { text: `Marked as unread. ${plural(readBefore - which.length, 'read issue')} left.`, changed: false }
+  const marked = result?.marked.length ?? 0
+  const changed = which.filter((i) => result?.changed.includes(i.key))
+  const text = [
+    marked > 0 && `Marked as read. ${plural(readBefore + marked, 'read issue')} ${showRead ? 'below' : 'hidden'}.`,
+    changed.length === 1 && `${changed[0]!.title} changed in the meantime, so it stays unread.`,
+    changed.length > 1 && `${changed.length} issues changed in the meantime, so they stay unread.`,
+  ]
+  return { text: text.filter(Boolean).join(' '), changed: changed.length > 0 }
+}
 
 function IssueRow({ issue, now, onMark }: { issue: Issue; now: number; onMark: () => void }) {
   const { icon: Icon, tone } = SEVERITY[issue.severity]
@@ -92,7 +112,6 @@ function IssueRow({ issue, now, onMark }: { issue: Issue; now: number; onMark: (
 export function IssuesPage() {
   const now = useNow()
   const query = useIssues()
-  const mark = useMarkIssues()
   const [params, setParams] = useSearchParams()
   const filter = FILTERS.find((f) => f === params.get('severity')) ?? 'all'
   const showRead = params.get('read') === 'show'
@@ -125,35 +144,22 @@ export function IssuesPage() {
     moved.current = null
   }, [query.data])
 
-  // What happened, for screen readers; shown too when an issue changed and stays unread.
+  // How each mark ended: the status line (for screen readers, and on screen when an issue changed
+  // and stays unread) and the alert when one failed. Every mark reports, however many overlap; the
+  // page they read is as it was when that mark was made.
   const [said, setSaid] = useState<{ text: string; changed: boolean } | null>(null)
+  const [failed, setFailed] = useState<string | null>(null)
+  const mark = useMarkIssues({
+    onSuccess: (result, vars) => setSaid(saidAfter(vars, result, { readBefore: readIssues.length, showRead })),
+    onError: (error, { issues: which, read }) => {
+      if (which.some((i) => moved.current?.keys.has(i.key))) moved.current = null
+      setFailed(`Couldn't mark ${which.length === 1 ? 'it' : 'them'} as ${read ? 'read' : 'unread'}: ${error.message}`)
+    },
+  })
   const markIssues = (which: Issue[], read: boolean, index = 0) => {
     moved.current = { keys: new Set(which.map((i) => i.key)), read, index }
-    const readBefore = readIssues.length
-    mark.mutate(
-      { issues: which, read },
-      {
-        onSuccess: (result) => {
-          if (!read) {
-            const left = readBefore - which.length
-            setSaid({ text: `Marked as unread. ${plural(left, 'read issue')} left.`, changed: false })
-            return
-          }
-          const marked = result?.marked.length ?? 0
-          const changed = which.filter((i) => result?.changed.includes(i.key))
-          const text = [
-            marked > 0 && `Marked as read. ${plural(readBefore + marked, 'read issue')} ${showRead ? 'below' : 'hidden'}.`,
-            changed.length === 1 && `${changed[0]!.title} changed in the meantime, so it stays unread.`,
-            changed.length > 1 && `${changed.length} issues changed in the meantime, so they stay unread.`,
-          ]
-          setSaid({ text: text.filter(Boolean).join(' '), changed: changed.length > 0 })
-        },
-        onError: () => {
-          moved.current = null
-          setSaid(null)
-        },
-      },
-    )
+    setFailed(null)
+    mark.mutate({ issues: which, read })
   }
   const readListId = useId()
 
@@ -171,10 +177,9 @@ export function IssuesPage() {
           )
         }
       />
-      {mark.isError && (
+      {failed && (
         <p role="alert" className="mb-4 text-sm text-danger">
-          Couldn't mark {mark.variables.issues.length === 1 ? 'it' : 'them'} as {mark.variables.read ? 'read' : 'unread'}:{' '}
-          {mark.error.message}
+          {failed}
         </p>
       )}
       <p role="status" className={said?.changed ? 'mb-4 text-sm text-muted' : 'sr-only'}>

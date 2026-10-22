@@ -200,6 +200,31 @@ describe('IssuesPage', () => {
     ])
   })
 
+  it('says so when an earlier mark fails after a later one worked', async () => {
+    const user = userEvent.setup()
+    let answers = 0
+    let failFirst!: () => void
+    mockApi({
+      '/api/issues': ISSUES,
+      '/api/issues/read': () =>
+        ++answers === 1
+          ? new Promise<Response>((resolve) => {
+              failFirst = () => resolve(new Response(JSON.stringify({ detail: 'database is locked' }), { status: 500 }))
+            })
+          : json({ marked: ['key:rover-04'], changed: [] }),
+      '/api/status': systemStatus(),
+    })
+    renderApp('/issues')
+    await user.click((await screen.findAllByRole('button', { name: MARK }))[0]!)
+    await waitFor(() => expect(screen.getAllByRole('listitem')).toHaveLength(2))
+    await user.click(screen.getAllByRole('button', { name: MARK })[0]!)
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Marked as read.'))
+    failFirst()
+    expect(await screen.findByRole('alert')).toHaveTextContent("Couldn't mark it as read: database is locked")
+    await waitFor(() => expect(screen.getByText('dock-01: 1 state failed')).toBeInTheDocument())
+    expect(screen.getByRole('status')).toHaveTextContent('Marked as read.')
+  })
+
   it('shows read issues on request, muted, to mark as unread', async () => {
     const user = userEvent.setup()
     const { writes } = issuesServer(ISSUES.map((i) => (i.severity === 'critical' ? { ...i, read: true } : i)))

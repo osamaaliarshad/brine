@@ -76,13 +76,22 @@ def back_and_offline_again(api: Api, mid: str) -> None:
 
 
 def state_run(api: Api, jid: str, failing: list[str], at: datetime) -> None:
+    """A state.apply on a where these states fail and one more passes; none failing: clean."""
     data = {
         f"cmd_|-{s}_|-false_|-run": {"result": False, "comment": "", "changes": {}} for s in failing
     }
     data["cmd_|-ok_|-true_|-run"] = {"result": True, "comment": "", "changes": {}}
     run = {"jid": jid, "kind": "local", "fun": "state.apply", "at": at}
+    clean = not failing
     api.seed(api.ingest.job_new, **run, user="root", minions=["a"])
-    api.seed(api.ingest.job_return, **run, minion_id="a", data=data, success=False, retcode=2)
+    api.seed(
+        api.ingest.job_return,
+        **run,
+        minion_id="a",
+        data=data,
+        success=clean,
+        retcode=0 if clean else 2,
+    )
 
 
 def test_marked_read_until_marked_unread(api: Api) -> None:
@@ -174,6 +183,17 @@ def test_a_failing_state_run_comes_back_only_when_other_states_fail(api: Api) ->
     assert issues(c)["state:a"]["jid"] == "s2" and read_keys(c) == {"state:a"}
     state_run(api, "s3", ["calibrate", "mount"], NOW - timedelta(minutes=10))
     assert read_keys(c) == set()
+
+
+def test_a_failed_state_comes_back_when_it_fails_again_after_a_clean_run(api: Api) -> None:
+    seed(api)
+    c = api.client
+    state_run(api, "s1", ["calibrate"], NOW - timedelta(minutes=30))
+    mark(c, "state:a")
+    state_run(api, "s2", [], NOW - timedelta(minutes=20))  # fixed
+    assert "state:a" not in issues(c)
+    state_run(api, "s3", ["calibrate"], NOW - timedelta(minutes=10))  # broken again, the same way
+    assert issues(c)["state:a"]["read"] is False
 
 
 def test_an_issue_without_a_since_comes_back_when_it_reads_differently(api: Api) -> None:
