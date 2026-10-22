@@ -16,11 +16,21 @@ export function unanswered(run: CatchUpRun): boolean {
   return run.state === 'sent' && !run.answered_at
 }
 
-/** A run that may still bring the minion's answer, and how it's getting on. */
-export const STILL_CATCHING_UP: Partial<Record<CatchUpRun['state'], string>> = {
+/** How a run that may still bring the minion's answer is getting on. */
+const STILL_CATCHING_UP: Partial<Record<CatchUpRun['state'], string>> = {
   waiting: "runs when it's back",
   sending: 'sending now',
   sent: 'sent, no answer yet',
+}
+
+/** How a minion waiting to catch up is getting on: "runs when it's back". */
+export function catchingUpAs(run: CatchUpRun): string {
+  return STILL_CATCHING_UP[run.state] ?? STATE_LABEL[run.state].toLowerCase()
+}
+
+/** What became of a missing minion's catch-up: "cancelled", "not sent", "sent, no answer". */
+export function cameToNothing(run: CatchUpRun): string {
+  return unanswered(run) ? 'sent, no answer' : STATE_LABEL[run.state].toLowerCase()
 }
 
 export type Missing = {
@@ -30,14 +40,15 @@ export type Missing = {
   noReturn: [string, CatchUpRun | undefined][]
 }
 
-/** A job's minions without a result: those waiting to catch up, and those missing. */
+/**
+ * A job's minions without a result, as the server sees them: missing, or (with a catch-up run,
+ * in neither its results nor missing) waiting to catch up.
+ */
 export function splitMissing(job: JobDetail): Missing {
-  const answered = new Set(job.results.map((r) => r.minion_id))
   const runOf = new Map(job.catch_up.map((run) => [run.minion_id, run]))
+  const settled = new Set([...job.results.map((r) => r.minion_id), ...job.missing])
   return {
-    catchingUp: job.catch_up
-      .filter((run) => run.state in STILL_CATCHING_UP && !answered.has(run.minion_id))
-      .map((run) => [run.minion_id, run]),
+    catchingUp: [...runOf].filter(([mid]) => !settled.has(mid)),
     noReturn: job.missing.map((mid) => [mid, runOf.get(mid)]),
   }
 }

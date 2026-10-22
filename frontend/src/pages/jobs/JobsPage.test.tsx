@@ -91,6 +91,11 @@ describe('JobsPage', () => {
     expect(outcome('test.ping')).toHaveTextContent(/^2\/4· 1 caught up· 1 waiting to catch up$/)
     expect(outcome('test.echo')).toHaveTextContent(/^2\/4· 1 waiting to catch up· 1 missing$/)
     expect(outcome('test.true')).toHaveTextContent(/^0\/4 returned· 4 waiting to catch up$/)
+    // Done, green; some still to come, neutral; some missing, amber.
+    const colour = (fun: string) => outcome(fun)!.firstElementChild!.className
+    expect(colour('test.version')).toContain('text-online')
+    expect(colour('test.ping')).not.toMatch(/text-(online|warn)/)
+    expect(colour('test.echo')).toContain('text-warn')
   })
 
   it('searches, filters by kind, and loads older pages', async () => {

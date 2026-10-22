@@ -672,6 +672,17 @@ class Ingest:
             run.state, run.reason = state, reason
             return Changes(jobs={run.source_jid}, minions={run.minion_id})
 
+    async def catch_up_interrupted(self) -> Changes:
+        """brine stopped while sending these, so they may or may not have gone out: failed,
+        never to be sent again, like a send salt-api may have taken before it failed."""
+        changes = Changes()
+        async with self._lock, self._sessions() as s, s.begin():
+            for run in await s.scalars(select(PendingRun).where(PendingRun.state == "sending")):
+                run.state, run.reason = "failed", "brine restarted while sending it; check Jobs"
+                changes.jobs.add(run.source_jid)
+                changes.minions.add(run.minion_id)
+        return changes
+
     async def catch_up_expire(self, now: datetime) -> Changes:
         changes = Changes()
         async with self._lock, self._sessions() as s, s.begin():

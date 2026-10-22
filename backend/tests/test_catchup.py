@@ -1,5 +1,6 @@
 """Catch-up runs: commands that wait for offline minions and run when they're back."""
 
+import asyncio
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -319,15 +320,32 @@ def _failed(api: Api, run_id: int) -> None:
     api.seed(api.ingest.catch_up_unsent, run_id, state="failed", reason="lost")
 
 
+def _replaced(api: Api, _: int) -> None:
+    run(api, command="test.echo hello", catch_up=True)  # the same command, again
+
+
+def _sent(ago: timedelta) -> Any:
+    def sent(api: Api, run_id: int) -> None:
+        _sending(api, run_id)
+        at = datetime.now(UTC) - ago
+        api.seed(api.ingest.catch_up_sent, run_id, jid="20261020120500000001", at=at)
+
+    return sent
+
+
 @pytest.mark.parametrize(
     ("state", "becomes", "catching_up"),
     [
         ("waiting", None, True),
         ("sending", _sending, True),
+        pytest.param("sent", _sent(timedelta(minutes=1)), True, id="sent"),
+        # The minion went away again before it answered: it's missing after all.
+        pytest.param("sent", _sent(catchup.ANSWER_WAIT), False, id="sent-no-answer"),
         ("cancelled", _closed("cancelled"), False),
         ("refused", _closed("refused"), False),
         ("expired", _expired, False),
         ("failed", _failed, False),
+        ("replaced", _replaced, False),
     ],
 )
 def test_a_minion_waiting_to_catch_up_is_not_missing(
@@ -376,6 +394,103 @@ def test_issues_dont_count_minions_catching_up_or_caught_up(setup: tuple[Api, Fa
     assert missing_issues(api) == {f"job-missing:{late_jid}": "test.echo: no return from 1 minion"}
     returns(api, late_jid, "rover-03")
     assert missing_issues(api) == {}
+
+
+@pytest.mark.usefixtures("no_wait")
+def test_minions_in_every_state_on_several_jobs(setup: tuple[Api, FakeSalt]) -> None:
+    api, _ = setup
+    now = datetime.now(UTC)
+    minions = ["a", "b", "c", "d", "e", "f", "g"]
+
+    def job(jid: str, minions: list[str]) -> None:
+        api.seed(
+            api.ingest.command_started,
+            jid=jid,
+            fun="test.echo",
+            args=["hello"],
+            target="*",
+            target_type="glob",
+            actor="local",
+            minions=minions,
+            at=now,
+        )
+
+    def queue(jid: str, minions: list[str]) -> dict[str, int]:
+        api.seed(
+            api.ingest.catch_up_queue,
+            source_jid=jid,
+            fun="test.echo",
+            args=[jid],  # not identical, so none replaces another
+            actor="local",
+            minions=minions,
+            at=now,
+            expires_at=now + timedelta(days=7),
+        )
+        return {r["minion_id"]: r["id"] for r in api.get(f"/api/jobs/{jid}")["catch_up"]}
+
+    def sent(run_id: int, jid: str, at: datetime) -> None:
+        _sending(api, run_id)
+        api.seed(api.ingest.catch_up_sent, run_id, jid=jid, at=at)
+
+    job("1", minions)
+    runs = queue("1", minions[:-1])
+    _sending(api, runs["b"])
+    sent(runs["c"], "11", now)
+    sent(runs["d"], "12", now - catchup.ANSWER_WAIT)  # never answered
+    sent(runs["e"], "13", now)
+    returns(api, "13", "e")
+    _closed("cancelled")(api, runs["f"])
+    returns(api, "1", "g")
+    job("2", ["a", "b"])
+    _closed("refused")(api, queue("2", ["a"])["a"])
+    returns(api, "2", "b")
+    job("3", ["a"])
+    returns(api, "3", "a")
+
+    one = api.get("/api/jobs/1")
+    # a waiting, b sending, c sent: waiting to catch up. e caught up, g returned.
+    assert (one["missing"], [r["minion_id"] for r in one["results"]]) == (["d", "f"], ["e", "g"])
+    assert counts(one) == (7, 1, 1, 3, 2, 0)
+    assert api.get("/api/jobs/2")["missing"] == ["a"]
+    for jid in ("1", "2", "3"):
+        detail = api.get(f"/api/jobs/{jid}")
+        assert counts(detail) == counts(summary(api, jid))
+        expected, returned, caught_up, catching_up, *_ = counts(detail)
+        assert len(detail["missing"]) == expected - returned - caught_up - catching_up
+    ours = {"job-missing:1", "job-missing:2", "job-missing:3"}
+    assert {k: v for k, v in missing_issues(api).items() if k in ours} == {
+        "job-missing:1": "test.echo: no return from 2 minions",
+        "job-missing:2": "test.echo: no return from 1 minion",
+    }
+
+
+def test_a_run_left_sending_by_a_restart_is_never_sent(
+    setup: tuple[Api, FakeSalt], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    api, salt = setup
+    run(api, catch_up=True)
+    (waiting,) = api.get(f"/api/jobs/{JID}")["catch_up"]
+    _sending(api, waiting["id"])  # brine stopped here, after claiming it
+    comes_back(api)
+
+    class Done(Exception):
+        pass
+
+    real_sleep = asyncio.sleep
+
+    async def one_round(seconds: float) -> None:
+        if seconds == catchup.SWEEP_SECONDS:
+            raise Done
+        await real_sleep(seconds)
+
+    monkeypatch.setattr(asyncio, "sleep", one_round)
+    with pytest.raises(Done):
+        api.seed(catchup.run_forever, runtime(api))
+    (failed,) = api.get(f"/api/jobs/{JID}")["catch_up"]
+    assert failed["state"] == "failed"
+    assert failed["reason"] == "brine restarted while sending it; check Jobs"
+    assert sent(salt) == []
+    assert "rover-03" in api.get(f"/api/jobs/{JID}")["missing"]
 
 
 @pytest.mark.usefixtures("no_wait")

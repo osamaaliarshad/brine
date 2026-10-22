@@ -134,7 +134,19 @@ async def deliver(runtime: Runtime, run: PendingRun, now: datetime) -> Changes:
     return changes
 
 
+async def recover(runtime: Runtime) -> None:
+    """Runs a stopped brine left half-sent are failed (see Ingest.catch_up_interrupted)."""
+    changes = await runtime.ingest.catch_up_interrupted()
+    if changes:
+        log.warning("catch-up runs left sending at a restart are failed: %s", sorted(changes.jobs))
+        runtime.bus.publish_changes(changes)
+
+
 async def run_forever(runtime: Runtime) -> None:
+    try:
+        await recover(runtime)
+    except Exception:  # the sweeps still run
+        log.exception("couldn't check for catch-up runs left sending")
     while True:
         try:
             await sweep(runtime)

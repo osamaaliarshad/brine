@@ -44,8 +44,10 @@ export function JobOutcome({ job }: { job: JobSummary }) {
         {late}
       </span>
     )
+  // Neutral while some may still catch up: not done, but nothing's wrong either.
+  const colour = pending ? 'text-warn' : job.catching_up ? undefined : 'text-online'
   return (
-    <span className={cn('inline-flex items-center gap-1.5', pending ? 'text-warn' : 'text-online')}>
+    <span className={cn('inline-flex items-center gap-1.5', colour)}>
       <CircleCheck className="size-4" aria-hidden />
       {job.expected > 0 ? `${job.returned}/${job.expected}` : 'Done'}
       {late}

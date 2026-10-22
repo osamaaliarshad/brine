@@ -11,7 +11,7 @@ import { formatAbsolute, formatDuration, formatRelative, useNow } from '@/lib/ti
 import { ResultLabel } from '@/pages/minion/panels'
 import { CONTROL } from '@/pages/fleet/FleetToolbar'
 import { CatchUpPanel } from '@/pages/jobs/CatchUp'
-import { type Missing, STATE_LABEL, STILL_CATCHING_UP, splitMissing } from '@/pages/jobs/catchUpRuns'
+import { cameToNothing, catchingUpAs, type Missing, splitMissing } from '@/pages/jobs/catchUpRuns'
 import { commandLine, formatArgs } from '@/pages/jobs/format'
 import { JobOutcome, StateDots, StateTable, Target } from '@/pages/jobs/parts'
 
@@ -150,7 +150,7 @@ function CatchingUp({ minions }: { minions: Missing['catchingUp'] }) {
       {minions.slice(0, NAMED).map(([mid, run], i) => (
         <Fragment key={mid}>
           {i > 0 && ', '}
-          {mid} <span className="text-muted">({STILL_CATCHING_UP[run.state]})</span>
+          {mid} <span className="text-muted">({catchingUpAs(run)})</span>
         </Fragment>
       ))}
       {rest > 0 && ` and ${rest} more`}.
@@ -160,7 +160,7 @@ function CatchingUp({ minions }: { minions: Missing['catchingUp'] }) {
 
 /** "rover-03 (catch-up cancelled)" for a minion whose catch-up run came to nothing. */
 function noReturnName([mid, run]: [string, CatchUpRun | undefined]): string {
-  return run ? `${mid} (catch-up ${STATE_LABEL[run.state].toLowerCase()})` : mid
+  return run ? `${mid} (catch-up ${cameToNothing(run)})` : mid
 }
 
 // Target types the Run page takes; other jobs are re-run on the minions they reached.

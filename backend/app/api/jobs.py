@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from datetime import UTC, datetime
 from typing import Any, Literal, NamedTuple
 
 from fastapi import APIRouter, HTTPException, Query
@@ -21,6 +22,7 @@ from app.api.schemas import (
     StateRuns,
 )
 from app.auth.users import CurrentUser
+from app.catchup import ANSWER_WAIT
 from app.masking import HIDDEN, reveals_pillar
 from app.models import Job, JobReturn, Minion, PendingRun
 from app.states import (
@@ -47,8 +49,17 @@ def _with_counts() -> Select[Job, int, Any, Any, Any]:
     )
 
 
-# A catch-up run in these states may still bring the minion's answer; sent, until it does.
-STILL_OUT = ("waiting", "sending", "sent")
+# Catch-up runs not sent yet. A sent one may still bring its minion's answer for ANSWER_WAIT;
+# after that, the minion went away again (the catch-up sweep stops waiting for it too).
+UNSENT = ("waiting", "sending")
+
+
+def _still_out(run: PendingRun | CatchUpRun, now: datetime) -> bool:
+    """Whether a run that hasn't been answered may still bring its minion's answer. The same
+    rule as in catch_ups."""
+    if run.state == "sent":
+        return run.sent_at is not None and run.sent_at > now - ANSWER_WAIT
+    return run.state in UNSENT
 
 
 class CatchUps(NamedTuple):
@@ -86,20 +97,26 @@ def _summary(row: Row[Job, int, Any, Any, Any], late: CatchUps = NO_CATCH_UPS) -
 
 
 async def catch_ups(
-    session: AsyncSession, jids: Iterable[str] | Select[str]
+    session: AsyncSession, jids: Iterable[str] | Select[str], now: datetime | None = None
 ) -> dict[str, CatchUps]:
     """For each of these jobs (a list, or a query of jids) that has any: its minions that
     missed it and have answered a catch-up run of it since, and those whose run may still
-    bring an answer. One that answered the job itself after all counts as neither."""
+    bring an answer (_still_out). One that answered the job itself after all counts as
+    neither."""
+    now = now or datetime.now(UTC)
     answer, own = aliased(JobReturn), aliased(JobReturn)
     answered = answer.minion_id.is_not(None)
+    still_out = or_(
+        PendingRun.state.in_(UNSENT),
+        and_(PendingRun.state == "sent", PendingRun.sent_at > now - ANSWER_WAIT),
+    )
     rows = await session.execute(
         select(
             PendingRun.source_jid,
             func.sum(case((answered, 1), else_=0)),
             func.sum(case((answer.success.is_(True), 1), else_=0)),
             func.sum(case((answer.success.is_(False), 1), else_=0)),
-            func.sum(case((answered, 0), else_=1)),
+            func.sum(case((answered, 0), (still_out, 1), else_=0)),
         )
         .outerjoin(
             answer,
@@ -110,7 +127,7 @@ async def catch_ups(
             ),
         )
         .where(
-            PendingRun.state.in_(STILL_OUT),
+            PendingRun.state.in_((*UNSENT, "sent")),
             PendingRun.source_jid.in_(jids),
             ~select(own.jid)
             .where(own.jid == PendingRun.source_jid, own.minion_id == PendingRun.minion_id)
@@ -267,7 +284,9 @@ async def job_detail(jid: str, session: SessionDep, user: CurrentUser) -> JobDet
 
     runs = (
         await session.scalars(
-            select(PendingRun).where(PendingRun.source_jid == jid).order_by(PendingRun.minion_id)
+            select(PendingRun)
+            .where(PendingRun.source_jid == jid)
+            .order_by(PendingRun.minion_id, PendingRun.id)
         )
     ).all()
     # The answers to its catch-up runs: a minion that missed the job and has answered one is
@@ -288,7 +307,6 @@ async def job_detail(jid: str, session: SessionDep, user: CurrentUser) -> JobDet
     }
     results = {r.minion_id: result(r) for r in returns}
     catch_up: list[CatchUpRun] = []
-    late = NO_CATCH_UPS
     for run in runs:
         answer = answers.get((run.sent_jid or "", run.minion_id)) if run.state == "sent" else None
         catch_up.append(
@@ -299,16 +317,13 @@ async def job_detail(jid: str, session: SessionDep, user: CurrentUser) -> JobDet
         if answer is not None and run.minion_id not in results:
             at = run.sent_at or answer.returned_at
             results[run.minion_id] = result(answer, CaughtUp(jid=answer.jid, at=at))
-            late = late._replace(
-                caught_up=late.caught_up + 1,
-                succeeded=late.succeeded + (answer.success is True),
-                failed=late.failed + (answer.success is False),
-            )
     # Waiting to catch up: not missing, as their answer may still come.
+    now = datetime.now(UTC)
     catching_up = {
-        r.minion_id for r in catch_up if r.state in STILL_OUT and r.minion_id not in results
+        r.minion_id for r in catch_up if r.minion_id not in results and _still_out(r, now)
     }
-    late = late._replace(catching_up=len(catching_up))
+    # Counted as the Jobs list counts them.
+    late = (await catch_ups(session, [jid], now)).get(jid, NO_CATCH_UPS)
     caught_up_from = await session.scalar(
         select(PendingRun.source_jid).where(PendingRun.sent_jid == jid).limit(1)
     )

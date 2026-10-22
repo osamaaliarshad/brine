@@ -207,18 +207,22 @@ describe('catch-up runs', () => {
   it('says why a minion whose catch-up came to nothing is still missing', async () => {
     open({
       ...JOB,
-      expected: 3,
+      expected: 4,
       catching_up: 0,
-      minions: ['rover-01', 'rover-02', 'rover-03'],
-      missing: ['rover-02', 'rover-03'],
+      minions: ['rover-01', 'rover-02', 'rover-03', 'rover-04'],
+      // The server's verdict: rover-04's catch-up was sent long ago and never answered.
+      missing: ['rover-02', 'rover-03', 'rover-04'],
       catch_up: [
         catchUp({ minion_id: 'rover-02', state: 'refused', reason: 'o@example.com may no longer run test.echo' }),
         catchUp({ id: 2, state: 'cancelled', reason: 'cancelled by o@example.com' }),
+        catchUp({ id: 3, minion_id: 'rover-04', state: 'sent', sent_jid: LATE_JID, sent_at: ago(3600) }),
       ],
     })
     expect(await screen.findByText(/^No return from/)).toHaveTextContent(
-      'No return from rover-02 (catch-up not sent), rover-03 (catch-up cancelled). They may have been offline, or are still running it.',
+      'No return from rover-02 (catch-up not sent), rover-03 (catch-up cancelled), rover-04 (catch-up sent, no answer). ' +
+        'They may have been offline, or are still running it.',
     )
+    // Never under both.
     expect(screen.queryByText(/Waiting to catch up/)).toBeNull()
   })
 
