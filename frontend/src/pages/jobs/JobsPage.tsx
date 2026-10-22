@@ -3,7 +3,7 @@ import { Link, useSearchParams } from 'react-router'
 import { type JobFilters, useJobs, useStateRuns } from '@/api/queries'
 import { PageHeader } from '@/components/PageHeader'
 import { Tabs } from '@/components/Tabs'
-import { Card } from '@/components/ui'
+import { Card, FILL } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { formatAbsolute, formatRelative, useNow } from '@/lib/time'
 import { useTab } from '@/lib/useTab'
@@ -209,7 +209,7 @@ export function JobsPage() {
   return (
     <>
       <PageHeader title="Jobs" subtitle="Every job, kept longer than the master's job cache." />
-      <Card className="overflow-hidden">
+      <Card className={`${FILL} overflow-hidden`}>
         <div className="px-2 sm:px-4">
           <Tabs tabs={TABS} active={tab} onSelect={setTab} label="Job views" />
         </div>

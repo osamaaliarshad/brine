@@ -11,7 +11,7 @@ export function ErrorPage() {
       : String(error)
 
   return (
-    <div className="mx-auto max-w-xl py-12">
+    <div className="mx-auto w-full max-w-xl py-12">
       <Card className="px-6 py-8">
         <h1 className="text-xl font-semibold">Something went wrong on this page</h1>
         <p className="mt-2 text-sm text-muted">

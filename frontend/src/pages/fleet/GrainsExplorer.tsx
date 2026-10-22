@@ -17,8 +17,9 @@ const SEARCH_DELAY_MS = 250
 
 const HEADING = 'px-4 pb-1 text-xs font-medium uppercase tracking-wider text-muted'
 const NOTE = 'px-4 py-2 text-sm text-muted'
-// Short on a phone, so the values below stay within reach.
-const LIST = 'max-h-40 overflow-y-auto pb-2 md:max-h-72'
+// Short on a phone, so the values below stay within reach. Beside the values, the lists share
+// the panel's height instead.
+const LIST = 'max-h-40 overflow-y-auto pb-2 md:max-h-none md:min-h-0'
 
 function pickClass(selected: boolean) {
   return cn(
@@ -44,7 +45,7 @@ function PackagePicker({ filter, selected, onSelect }: { filter: string; selecte
   const searching = !short && (settled !== typed || keys.isPlaceholderData)
 
   return (
-    <div className="border-t pt-3">
+    <div className="border-t pt-3 md:flex md:min-h-0 md:flex-col">
       <div className={HEADING}>Packages and checks</div>
       <ul aria-label="Packages and checks" className={LIST}>
         {shown.map((k) => (
@@ -174,37 +175,42 @@ export function GrainsExplorer({
   )
 
   return (
-    <div className="grid border-t md:grid-cols-[18rem_1fr]">
-      <div className="border-b md:border-r md:border-b-0">
-        <label className="m-3 flex h-9 items-center gap-2 rounded-lg border bg-bg px-2.5">
-          <Search className="size-4 text-muted" aria-hidden />
-          <input
-            type="search"
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            placeholder="Find a grain, package or check…"
-            aria-label="Find a grain, package or check"
-            className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted"
-          />
-        </label>
-        <div className={HEADING}>Grains</div>
-        <ul aria-label="Grains" className={LIST}>
-          {shownKeys.map((k) => (
-            <li key={k.key}>
-              <button
-                type="button"
-                onClick={() => select(k.key)}
-                aria-current={k.key === grain ? 'true' : undefined}
-                className={pickClass(k.key === grain)}
-              >
-                <span className="truncate">{k.key}</span>
-                <span className="text-xs text-muted tabular-nums">{k.minions}</span>
-              </button>
-            </li>
-          ))}
-          {keys.isSuccess && shownKeys.length === 0 && <li className={NOTE}>No grains match.</li>}
-        </ul>
-        <PackagePicker filter={filter} selected={grain} onSelect={select} />
+    // Beside the values, the lists take the panel's height (down to the bottom of the window, or
+    // as long as the values are) and scroll within it, rather than making it taller. Each list
+    // gets an even share, or less if it's shorter; the other gets the rest.
+    <div className="grid border-t md:min-h-[28rem] md:grow md:grid-cols-[18rem_1fr]">
+      <div className="border-b md:relative md:border-r md:border-b-0">
+        <div className="md:absolute md:inset-0 md:grid md:grid-rows-[auto_auto_minmax(0,auto)_minmax(0,auto)] md:content-start">
+          <label className="m-3 flex h-9 items-center gap-2 rounded-lg border bg-bg px-2.5">
+            <Search className="size-4 text-muted" aria-hidden />
+            <input
+              type="search"
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              placeholder="Find a grain, package or check…"
+              aria-label="Find a grain, package or check"
+              className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted"
+            />
+          </label>
+          <div className={HEADING}>Grains</div>
+          <ul aria-label="Grains" className={LIST}>
+            {shownKeys.map((k) => (
+              <li key={k.key}>
+                <button
+                  type="button"
+                  onClick={() => select(k.key)}
+                  aria-current={k.key === grain ? 'true' : undefined}
+                  className={pickClass(k.key === grain)}
+                >
+                  <span className="truncate">{k.key}</span>
+                  <span className="text-xs text-muted tabular-nums">{k.minions}</span>
+                </button>
+              </li>
+            ))}
+            {keys.isSuccess && shownKeys.length === 0 && <li className={NOTE}>No grains match.</li>}
+          </ul>
+          <PackagePicker filter={filter} selected={grain} onSelect={select} />
+        </div>
       </div>
 
       {/* On a phone, at least a screen tall: a short "Loading…" mustn't undo the scroll to it. */}

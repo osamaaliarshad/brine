@@ -49,6 +49,13 @@ export function Badge({ children, title, tone = 'muted' }: {
   )
 }
 
+/**
+ * A page's one big panel: down to the bottom of the window at least, with room to spare inside
+ * when there isn't much in it; past it, the page scrolls. A column, so a part of it (a picker
+ * list) can take the height that's left.
+ */
+export const FILL = 'flex grow flex-col'
+
 export function Card({ children, className }: { children: ReactNode; className?: string }) {
   return <div className={cn('rounded-2xl border bg-surface', className)}>{children}</div>
 }

@@ -4,7 +4,7 @@ import { Link, useSearchParams } from 'react-router'
 import { attentionCount, useCapabilities, useFleet, useIssues, useMe, useSystemStatus } from '@/api/queries'
 import type { SystemStatus } from '@/api/types'
 import { PageHeader } from '@/components/PageHeader'
-import { Card } from '@/components/ui'
+import { Card, FILL } from '@/components/ui'
 import { formatAbsolute, formatRelative, useNow } from '@/lib/time'
 import { Tabs } from '@/components/Tabs'
 import { useMediaQuery } from '@/lib/useMediaQuery'
@@ -141,7 +141,7 @@ export function FleetPage() {
 
       <StatCards summary={fleet?.summary} attention={attentionCount(issuesQuery.data)} />
 
-      <Card className="mt-4 overflow-hidden sm:mt-6">
+      <Card className={`${FILL} mt-4 overflow-hidden sm:mt-6`}>
         <div className="px-2 sm:px-4">
           <Tabs tabs={FLEET_TABS} active={tab} onSelect={setTab} label="Fleet views" />
         </div>

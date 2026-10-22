@@ -6,7 +6,7 @@ import type { MinionStatus } from '@/api/types'
 import { MinionChip } from '@/components/MinionChip'
 import { PageHeader } from '@/components/PageHeader'
 import { Tabs } from '@/components/Tabs'
-import { Card } from '@/components/ui'
+import { Card, FILL } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { formatAbsolute, formatRelative, useNow } from '@/lib/time'
 import { useTab } from '@/lib/useTab'
@@ -197,9 +197,12 @@ function FilesTab() {
   const lines = file.data?.content.split('\n') ?? []
 
   return (
-    <div className="grid border-t md:grid-cols-[16rem_1fr]">
-      <div className="flex max-h-72 flex-col border-b md:max-h-[36rem] md:border-r md:border-b-0">
-        <FileTree paths={[...new Set(files.data.map((f) => f.path))]} selected={selected} onOpen={open} />
+    // Beside the file, the tree takes the panel's height and scrolls within it.
+    <div className="grid border-t md:min-h-[28rem] md:grow md:grid-cols-[16rem_1fr]">
+      <div className="border-b md:relative md:border-r md:border-b-0">
+        <div className="flex max-h-72 flex-col md:absolute md:inset-0 md:max-h-none">
+          <FileTree paths={[...new Set(files.data.map((f) => f.path))]} selected={selected} onOpen={open} />
+        </div>
       </div>
       <div className="min-w-0">
         <div className="border-b px-4 py-3 font-mono text-sm sm:px-6">
@@ -233,7 +236,7 @@ export function StatesPage() {
   return (
     <>
       <PageHeader title="States" subtitle="What the master tells each minion to be." />
-      <Card className="overflow-hidden">
+      <Card className={`${FILL} overflow-hidden`}>
         <div className="px-2 sm:px-4">
           <Tabs tabs={TABS} active={tab} onSelect={setTab} label="State views" />
         </div>
