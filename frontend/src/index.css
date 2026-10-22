@@ -21,6 +21,13 @@
   --warn: #c2680a;
   --danger: #c53030;
   --scrollbar: #cdc5b4;
+  /* Code (state files), in the colors of VS Code's Light+ and Dark+. */
+  --code-key: #0451a5;
+  --code-fn: #795e26;
+  --code-string: #a31515;
+  --code-number: #098658;
+  --code-comment: #008000;
+  --code-jinja: #af00db;
   /* The browser's own parts (scrollbars, pickers) follow the theme, not the system's. */
   color-scheme: light;
 }
@@ -39,6 +46,12 @@
   --warn: #f5b942;
   --danger: #f87171;
   --scrollbar: #353b42;
+  --code-key: #9cdcfe;
+  --code-fn: #dcdcaa;
+  --code-string: #ce9178;
+  --code-number: #b5cea8;
+  --code-comment: #6a9955;
+  --code-jinja: #c586c0;
   color-scheme: dark;
 }
 
@@ -55,6 +68,12 @@
   --color-offline: var(--offline);
   --color-warn: var(--warn);
   --color-danger: var(--danger);
+  --color-code-key: var(--code-key);
+  --color-code-fn: var(--code-fn);
+  --color-code-string: var(--code-string);
+  --color-code-number: var(--code-number);
+  --color-code-comment: var(--code-comment);
+  --color-code-jinja: var(--code-jinja);
   --font-sans: 'Geist Variable', ui-sans-serif, system-ui, sans-serif;
   --font-mono: 'Geist Mono Variable', ui-monospace, monospace;
 }

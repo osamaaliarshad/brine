@@ -1,5 +1,5 @@
 import { ChevronRight, Folder, RefreshCw } from 'lucide-react'
-import { Fragment, useState } from 'react'
+import { Fragment, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import { useFleet, useStateFile, useStateFiles, useStateTop } from '@/api/queries'
 import type { MinionStatus } from '@/api/types'
@@ -10,6 +10,7 @@ import { Card } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { formatAbsolute, formatRelative, useNow } from '@/lib/time'
 import { useTab } from '@/lib/useTab'
+import { highlightYaml, isYamlFile, type Token, type TokenKind } from '@/lib/yamlHighlight'
 import { FileTree } from '@/pages/states/FileTree'
 import { slsToPath } from '@/pages/states/sls'
 
@@ -181,6 +182,43 @@ function TopTab({ now, statusOf }: { now: number; statusOf: Record<string, Minio
   )
 }
 
+// Each kind of token in a state file, in the theme's code colors.
+const TOKEN_CLASS: Record<TokenKind, string> = {
+  key: 'text-code-key',
+  fn: 'text-code-fn',
+  string: 'text-code-string',
+  number: 'text-code-number',
+  comment: 'text-code-comment italic',
+  jinja: 'text-code-jinja',
+  punct: 'text-muted',
+}
+
+/** A file's text with line numbers; Salt states and other YAML in color. */
+function FileText({ content, yaml }: { content: string; yaml: boolean }) {
+  const lines = useMemo(
+    () => (yaml ? highlightYaml(content) : content.split('\n').map((text): Token[] => [{ text }])),
+    [content, yaml],
+  )
+  return (
+    <pre className="overflow-x-auto p-4 font-mono text-[13px] leading-relaxed sm:px-6">
+      {lines.map((tokens, i) => (
+        <div key={i} className="flex">
+          <span className="w-10 shrink-0 pr-4 text-right text-muted select-none">{i + 1}</span>
+          <code>
+            {tokens.some((token) => token.text)
+              ? tokens.map((token, j) => (
+                  <span key={j} className={token.kind && TOKEN_CLASS[token.kind]}>
+                    {token.text}
+                  </span>
+                ))
+              : ' '}
+          </code>
+        </div>
+      ))}
+    </pre>
+  )
+}
+
 function FilesTab() {
   const [params, setParams] = useSearchParams()
   const files = useStateFiles(true)
@@ -194,8 +232,6 @@ function FilesTab() {
   if (files.isPending) return <Empty>Loading files…</Empty>
   if (files.isError) return <Empty>Couldn't list state files: {files.error.message}</Empty>
   if (files.data.length === 0) return <Empty>No files in the master's file roots.</Empty>
-  const lines = file.data?.content.split('\n') ?? []
-
   return (
     // Beside the file, the tree takes the panel's height and scrolls within it.
     <div className="grid border-t md:min-h-[28rem] md:grow md:grid-cols-[16rem_1fr]">
@@ -214,14 +250,7 @@ function FilesTab() {
         ) : file.isError ? (
           <p className="px-6 py-10 text-center text-muted">Couldn't read {selected}: {file.error.message}</p>
         ) : (
-          <pre className="overflow-x-auto p-4 font-mono text-[13px] leading-relaxed sm:px-6">
-            {lines.map((line, i) => (
-              <div key={i} className="flex">
-                <span className="w-10 shrink-0 pr-4 text-right text-muted select-none">{i + 1}</span>
-                <code>{line || ' '}</code>
-              </div>
-            ))}
-          </pre>
+          <FileText content={file.data.content} yaml={isYamlFile(selected)} />
         )}
       </div>
     </div>

@@ -116,7 +116,7 @@ describe('States page', () => {
       '/api/states/file': (url: URL) => ({
         path: url.searchParams.get('path'),
         full_path: `/srv/salt/${url.searchParams.get('path')}`,
-        content: '/etc/motd:\n  file.managed',
+        content: '/etc/motd:\n  file.managed:\n    - source: salt://motd',
         truncated: false,
       }),
     })
@@ -128,7 +128,9 @@ describe('States page', () => {
 
     await user.click(screen.getByRole('link', { name: 'motd' }))
     expect(await screen.findByText('/srv/salt/motd.sls')).toBeInTheDocument()
-    expect(screen.getByText('file.managed', { exact: false })).toBeInTheDocument()
+    // In color, as in an editor: the state's id, then its function.
+    expect(screen.getByText('/etc/motd')).toHaveClass('text-code-key')
+    expect(screen.getByText('file.managed')).toHaveClass('text-code-fn')
   })
 
   it('groups states by folder, with who each group reaches', async () => {
