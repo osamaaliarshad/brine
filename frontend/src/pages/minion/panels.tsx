@@ -13,6 +13,7 @@ import { JsonTree } from '@/components/JsonView'
 import { Badge, StatusDot } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { formatAbsolute, formatDuration, formatRelative } from '@/lib/time'
+import { useKeptFor } from '@/lib/useKeptFor'
 import { ChangeList, FoundWhen } from '@/pages/fleet/ChangeList'
 import { grainsAsOf } from '@/pages/fleet/model'
 
@@ -188,6 +189,7 @@ function timeline(allGrains: GrainsChange[], allChanges: InventoryChange[]): { e
 export function HistoryPanel({ minionId, now }: { minionId: string; now: number }) {
   const grains = useGrainsHistory(minionId, true)
   const changes = useInventoryChanges({ minion: minionId })
+  const keptFor = useKeptFor('history_days')
   if (grains.isPending || changes.isPending) return <Empty>Loading history…</Empty>
   if (grains.isError && changes.isError) return <Empty>Couldn't load history: {grains.error.message}</Empty>
   const { entries, more } = timeline(grains.data ?? [], changes.data ?? [])
@@ -231,7 +233,12 @@ export function HistoryPanel({ minionId, now }: { minionId: string; now: number 
           })}
         </ol>
       )}
-      {more && <p className="border-t px-4 py-3 text-sm text-muted sm:px-6">Older history isn't shown.</p>}
+      {(more || keptFor) && (
+        <p className="border-t px-4 py-3 text-sm text-muted sm:px-6">
+          {more && <span>Older history isn't shown. </span>}
+          {keptFor && <span>{keptFor}</span>}
+        </p>
+      )}
     </>
   )
 }

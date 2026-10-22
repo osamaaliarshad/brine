@@ -77,12 +77,15 @@ describe('JobsPage', () => {
           ? { jobs: [job('old', { fun: 'test.ping' })], next_before: null }
           : { jobs: [job('new')], next_before: 'new' },
       '/api/status': systemStatus(),
+      '/api/settings': { retention: { jobs_days: 30, history_days: 90, audit_days: 365 } },
     })
     const { router } = renderApp('/jobs')
     await screen.findByRole('link', { name: 'state.apply' })
 
     await user.click(screen.getByRole('button', { name: 'Load older jobs' }))
     expect(await screen.findByRole('link', { name: 'test.ping' })).toBeInTheDocument()
+    // How far back that can go.
+    expect(await screen.findByText("Kept for 30 days (retention in brine's config).")).toBeInTheDocument()
 
     await user.click(screen.getByRole('tab', { name: 'Runners' }))
     await user.type(screen.getByRole('searchbox', { name: 'Search jobs' }), 'ping')

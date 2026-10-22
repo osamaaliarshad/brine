@@ -5,6 +5,7 @@ import { PageHeader } from '@/components/PageHeader'
 import { Card } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { formatAbsolute, formatRelative, useNow } from '@/lib/time'
+import { useKeptFor } from '@/lib/useKeptFor'
 
 const ACTIONS: Record<string, string> = {
   'auth.login': 'Signed in',
@@ -65,6 +66,7 @@ export function AuditPage() {
   const filter = FILTERS.find((f) => f.value === params.get('action'))?.value ?? null
   const query = useAuditLog(filter)
   const entries = query.data?.pages.flatMap((p) => p.entries) ?? []
+  const keptFor = useKeptFor('audit_days')
 
   if (me.data && me.data.role !== 'admin') {
     return (
@@ -159,6 +161,7 @@ export function AuditPage() {
             </button>
           </div>
         )}
+        {keptFor && <p className="border-t px-4 py-3 text-sm text-muted sm:px-6">{keptFor}</p>}
       </Card>
     </>
   )

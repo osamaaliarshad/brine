@@ -6,6 +6,7 @@ import { Tabs } from '@/components/Tabs'
 import { Card, FILL } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { formatAbsolute, formatRelative, useNow } from '@/lib/time'
+import { useKeptFor } from '@/lib/useKeptFor'
 import { useTab } from '@/lib/useTab'
 import { JobOutcome, StateDots, StateLegend, Target } from '@/pages/jobs/parts'
 
@@ -41,6 +42,7 @@ function AllJobs({ now }: { now: number }) {
   }
   const query = useJobs(filters)
   const jobs = query.data?.pages.flatMap((p) => p.jobs) ?? []
+  const keptFor = useKeptFor('jobs_days')
 
   return (
     <>
@@ -134,6 +136,7 @@ function AllJobs({ now }: { now: number }) {
           </button>
         </div>
       )}
+      {keptFor && <p className="border-t px-4 py-3 text-sm text-muted sm:px-6">{keptFor}</p>}
     </>
   )
 }

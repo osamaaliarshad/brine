@@ -439,6 +439,27 @@ describe('MinionPage', () => {
     expect(screen.queryByRole('list', { name: 'How the fleet differs from rover-01' })).toBeNull()
   })
 
+  it('says how long history is kept', async () => {
+    const retention = (history_days: number) => ({ retention: { jobs_days: 30, history_days, audit_days: 365 } })
+    api({
+      '/api/minions/rover-01/grains/history': [{ collected_at: ago(60), added: { os: 'Debian' }, removed: {}, changed: {} }],
+      '/api/inventory/changes': [],
+      '/api/settings': retention(90),
+    })
+    renderApp('/minions/rover-01?tab=history')
+    expect(await screen.findByText("Kept for 90 days (retention in brine's config).")).toBeInTheDocument()
+  })
+
+  it('says when history is kept forever', async () => {
+    api({
+      '/api/minions/rover-01/grains/history': [],
+      '/api/inventory/changes': [],
+      '/api/settings': { retention: { jobs_days: 30, history_days: 0, audit_days: 365 } },
+    })
+    renderApp('/minions/rover-01?tab=history')
+    expect(await screen.findByText("Kept forever (retention in brine's config).")).toBeInTheDocument()
+  })
+
   it('shows grains, package and check changes in one history, newest first', async () => {
     const change = (patch: Partial<InventoryChange>): InventoryChange => ({
       minion_id: 'rover-01',

@@ -105,6 +105,10 @@ connected to; Issues says if something's off.
 
 ### Good to know
 
+- **Changing the config:** edit `config.yaml` and run `docker compose restart`; brine reads it
+  when it starts. Any setting can also be set in `.env` as `BRINE__SECTION__KEY` (e.g.
+  `BRINE__INVENTORY__REFRESH_HOURS=2`), which wins over `config.yaml`. After changing `.env`, run
+  `docker compose up -d` instead: a restart keeps the old values.
 - **On the master itself,** point `salt_api.url` at `https://host.docker.internal:8000` (the
   compose file maps that name to the host). salt-api has to listen on more than `127.0.0.1` for
   a container to reach it.

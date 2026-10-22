@@ -92,12 +92,14 @@ describe('audit log page', () => {
         ],
         next_before: null,
       },
+      '/api/settings': { retention: { jobs_days: 90, history_days: 90, audit_days: 365 } },
     })
     renderApp('/audit')
     expect(await screen.findByText('Sign-in refused')).toHaveClass('text-danger')
     expect(screen.getByText('reason: no role · ip: 10.0.0.9')).toBeInTheDocument()
     expect(screen.getByText('Viewed pillar')).toBeInTheDocument()
     expect(screen.getByText('· rover-01')).toBeInTheDocument()
+    expect(await screen.findByText("Kept for 365 days (retention in brine's config).")).toBeInTheDocument()
   })
 })
 
