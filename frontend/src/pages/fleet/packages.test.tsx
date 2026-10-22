@@ -238,7 +238,13 @@ describe('Fleet › Grains & packages', () => {
     expect(within(footer).getByText('3h')).toHaveAttribute('title', formatAbsolute(ago(3 * 3600)))
     expect(within(footer).getByText('20m ago')).toHaveAttribute('title', formatAbsolute(ago(20 * 60)))
 
-    const changes = await screen.findByRole('list', { name: 'Changes to rover-agent' })
+    // Changes are closed until asked for, with how many there are; open, they stay open.
+    const toggle = await screen.findByRole('button', { name: 'Changes 4' })
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByRole('list', { name: 'Changes to rover-agent' })).toBeNull()
+    await user.click(toggle)
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    const changes = screen.getByRole('list', { name: 'Changes to rover-agent' })
     const [byJob, byPerson, between, appeared] = within(changes).getAllByRole('listitem')
     expect(byJob).toHaveTextContent('20m ago rover-01 2.3.0 → 2.4.1 found after job 20261020114000000001 by alice@example.com')
     expect(within(byJob!).getByRole('link', { name: '20261020114000000001' })).toHaveAttribute(
@@ -445,7 +451,8 @@ describe('Fleet › Grains & packages', () => {
     expect(within(values).queryByRole('link', { name: 'Run on these' })).toBeNull() // viewers can't run commands
 
     expect(screen.getByRole('button', { name: 'Read now' }).parentElement).toHaveTextContent('Read 2h ago')
-    expect(await screen.findByText('No changes since brine first looked.')).toBeInTheDocument()
+    await user.click(await screen.findByRole('button', { name: 'Changes none' }))
+    expect(screen.getByText('No changes since brine first looked.')).toBeInTheDocument()
   })
 
   it('on a phone, picking an entry scrolls to its values', async () => {

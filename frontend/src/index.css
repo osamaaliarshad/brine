@@ -20,6 +20,9 @@
   --offline: #a39d91;
   --warn: #c2680a;
   --danger: #c53030;
+  --scrollbar: #cdc5b4;
+  /* The browser's own parts (scrollbars, pickers) follow the theme, not the system's. */
+  color-scheme: light;
 }
 
 [data-theme='dark'] {
@@ -35,6 +38,8 @@
   --offline: #6b7280;
   --warn: #f5b942;
   --danger: #f87171;
+  --scrollbar: #353b42;
+  color-scheme: dark;
 }
 
 @theme inline {
@@ -67,5 +72,8 @@
 
   * {
     @apply border-border;
+    /* Thin scrollbars in the theme's colors on everything that scrolls. */
+    scrollbar-width: thin;
+    scrollbar-color: var(--scrollbar) transparent;
   }
 }

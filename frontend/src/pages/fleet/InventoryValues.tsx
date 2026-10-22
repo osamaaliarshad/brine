@@ -1,8 +1,9 @@
-import { ShieldAlert } from 'lucide-react'
-import type { ReactNode } from 'react'
-import { Link } from 'react-router'
+import { ChevronRight, ShieldAlert } from 'lucide-react'
+import { type ReactNode, useId } from 'react'
+import { Link, useSearchParams } from 'react-router'
 import { useInventoryChanges, useInventoryValues } from '@/api/queries'
 import type { InventoryDistribution, MinionStatus } from '@/api/types'
+import { cn } from '@/lib/cn'
 import {
   describeSource,
   FAILED_ANSWER,
@@ -20,6 +21,8 @@ import { ReadNowBar } from '@/pages/fleet/ReadNowBar'
 import { ValueRow, ValuesHeader } from '@/pages/fleet/ValueRow'
 
 const HOUR = 3600_000
+// The changes the API sends unless asked for more: a full page may mean there are more.
+const CHANGES_PAGE = 100
 
 function spread(d: InventoryDistribution): string {
   const having = d.values.reduce((n, v) => n + v.minions.length, 0)
@@ -89,18 +92,49 @@ function Changes({
   now: number
 }) {
   const changes = useInventoryChanges({ key: itemKey })
+  const [params, setParams] = useSearchParams()
+  const bodyId = useId()
+  // Closed until asked for. It's in the address, so it stays open while you look at other entries.
+  const open = params.has('changes')
+  const toggle = () => {
+    const next = new URLSearchParams(params)
+    if (open) next.delete('changes')
+    else next.set('changes', 'open')
+    setParams(next, { replace: true })
+  }
+  const count = changes.data?.length
   const note = 'px-4 pb-4 text-sm text-muted sm:px-6'
   return (
     <section className="border-t">
-      <h3 className="px-4 pt-4 pb-2 text-xs font-medium uppercase tracking-wider text-muted sm:px-6">Changes</h3>
-      {changes.isPending ? (
-        <p className={note}>Loading changes…</p>
-      ) : changes.isError ? (
-        <p className={note}>Couldn't load changes: {changes.error.message}</p>
-      ) : changes.data.length === 0 ? (
-        <p className={note}>{read ? 'No changes since brine first looked.' : 'No changes yet.'}</p>
-      ) : (
-        <ChangeList changes={changes.data} now={now} statusOf={statusOf} label={`Changes to ${keyLabel(itemKey)}`} />
+      <h3>
+        <button
+          type="button"
+          aria-expanded={open}
+          aria-controls={bodyId}
+          onClick={toggle}
+          className="flex w-full items-center gap-2 px-4 py-3 text-xs font-medium uppercase tracking-wider text-muted hover:text-fg sm:px-6"
+        >
+          <ChevronRight className={cn('size-4 shrink-0 transition-transform', open && 'rotate-90')} aria-hidden />
+          Changes{' '}
+          {count !== undefined && (
+            <span className="rounded-md bg-surface-2 px-1.5 normal-case tracking-normal tabular-nums">
+              {count === 0 ? 'none' : count >= CHANGES_PAGE ? `${CHANGES_PAGE}+` : count}
+            </span>
+          )}
+        </button>
+      </h3>
+      {open && (
+        <div id={bodyId}>
+          {changes.isPending ? (
+            <p className={note}>Loading changes…</p>
+          ) : changes.isError ? (
+            <p className={note}>Couldn't load changes: {changes.error.message}</p>
+          ) : changes.data.length === 0 ? (
+            <p className={note}>{read ? 'No changes since brine first looked.' : 'No changes yet.'}</p>
+          ) : (
+            <ChangeList changes={changes.data} now={now} statusOf={statusOf} label={`Changes to ${keyLabel(itemKey)}`} />
+          )}
+        </div>
       )}
     </section>
   )

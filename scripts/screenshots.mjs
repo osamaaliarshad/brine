@@ -30,8 +30,9 @@ export const PAGES = [
   ['fleet', '/'],
   // A package. The demo starts with rover-agent 2.4.1 on rover-01 and rover-02, 2.3.0 on rover-03,
   // and none on dock-01; the README's shots are taken after upgrading rover-03 to 2.4.1 through
-  // brine (state.apply agent from the Run page), so the explorer shows that change credited to the job.
-  ['grains', `/?tab=grains&grain=${encodeURIComponent('@packages:rover-agent')}`],
+  // brine (state.apply agent from the Run page), so the explorer shows that change credited to the job
+  // (with Changes opened: they start closed).
+  ['grains', `/?tab=grains&grain=${encodeURIComponent('@packages:rover-agent')}&changes=open`],
   ['nodegroups', '/?tab=nodegroups'],
   ['minion', '/minions/rover-01'],
   // Compared with dock-01: rover-agent and the rover-cli check differ.
