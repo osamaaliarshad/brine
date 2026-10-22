@@ -261,7 +261,12 @@ export function attentionCount(issues: Issue[] | undefined): number | undefined 
 /** Marks on their way: live updates hold off refreshing issues meanwhile (it'd undo them). */
 export const MARK_ISSUES = ['issues', 'mark'] as const
 
-export type MarkIssues = { issues: Issue[]; read: boolean }
+/**
+ * `readBefore`: how many read issues the page listed when the button was pressed, for what it
+ * says afterwards. It travels with the mark because the callbacks below run with the state of
+ * later renders (the list already without the issue).
+ */
+export type MarkIssues = { issues: Issue[]; read: boolean; readBefore: number }
 
 /**
  * Mark issues read, as the page showed them (one that has changed since stays unread), or unread

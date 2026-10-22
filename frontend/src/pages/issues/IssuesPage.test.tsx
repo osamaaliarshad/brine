@@ -121,6 +121,31 @@ describe('IssuesPage', () => {
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Marked as read. 1 read issue hidden.'))
   })
 
+  it('counts the read issues as they were when the button was pressed', async () => {
+    // The answer comes after the row has left and the page has drawn the list without it.
+    const user = userEvent.setup()
+    const { release } = issuesServer(ISSUES, { hold: true })
+    renderApp('/issues')
+    await user.click(within((await screen.findAllByRole('listitem'))[1]!).getByRole('button', { name: MARK }))
+    await waitFor(() => expect(screen.getAllByRole('listitem')).toHaveLength(2))
+    release()
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Marked as read. 1 read issue hidden.'))
+  })
+
+  it('counts the read issues left after marking the only one unread', async () => {
+    const user = userEvent.setup()
+    const { release } = issuesServer(
+      ISSUES.map((i) => (i.severity === 'critical' ? { ...i, read: true } : i)),
+      { hold: true },
+    )
+    renderApp('/issues?read=show')
+    const read = await screen.findByRole('list', { name: 'Read issues' })
+    await user.click(within(read).getByRole('button', { name: /^Mark as unread/ }))
+    await waitFor(() => expect(screen.queryByRole('list', { name: 'Read issues' })).not.toBeInTheDocument())
+    release()
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Marked as unread. 0 read issues left.'))
+  })
+
   it('says so when an issue changed before it was marked, and leaves it unread', async () => {
     const user = userEvent.setup()
     issuesServer(ISSUES, { changed: ['key:rover-04'] })

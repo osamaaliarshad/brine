@@ -23,13 +23,13 @@ const FILTER_BUTTON = 'flex h-10 items-center gap-2 rounded-lg border px-3 text-
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
 
 /**
- * What the status line says once a mark is done, given the read issues listed before it. An
- * issue that changed before it could be marked stays unread, and that's shown on screen too.
+ * What the status line says once a mark is done. An issue that changed before it could be marked
+ * stays unread, and that's shown on screen too. `showRead`: whether read issues are listed now.
  */
 function saidAfter(
-  { issues: which, read }: MarkIssues,
+  { issues: which, read, readBefore }: MarkIssues,
   result: MarkReadResult | undefined,
-  { readBefore, showRead }: { readBefore: number; showRead: boolean },
+  showRead: boolean,
 ): { text: string; changed: boolean } {
   if (!read) return { text: `Marked as unread. ${plural(readBefore - which.length, 'read issue')} left.`, changed: false }
   const marked = result?.marked.length ?? 0
@@ -145,13 +145,15 @@ export function IssuesPage() {
   }, [query.data])
 
   // How each mark ended: the status line (for screen readers, and on screen when an issue changed
-  // and stays unread) and the alert when one failed. Every mark reports, however many overlap; the
-  // page they read is as it was when that mark was made.
+  // and stays unread) and the alert when one failed. Every mark reports, however many overlap.
+  // These run with the state of the latest render, so what must be as it was when the button was
+  // pressed comes with the mark itself.
   const [said, setSaid] = useState<{ text: string; changed: boolean } | null>(null)
   const [failed, setFailed] = useState<string | null>(null)
   const mark = useMarkIssues({
-    onSuccess: (result, vars) => setSaid(saidAfter(vars, result, { readBefore: readIssues.length, showRead })),
+    onSuccess: (result, vars) => setSaid(saidAfter(vars, result, showRead)),
     onError: (error, { issues: which, read }) => {
+      // Focus stays put unless it was about to move for another mark.
       if (which.some((i) => moved.current?.keys.has(i.key))) moved.current = null
       setFailed(`Couldn't mark ${which.length === 1 ? 'it' : 'them'} as ${read ? 'read' : 'unread'}: ${error.message}`)
     },
@@ -159,7 +161,7 @@ export function IssuesPage() {
   const markIssues = (which: Issue[], read: boolean, index = 0) => {
     moved.current = { keys: new Set(which.map((i) => i.key)), read, index }
     setFailed(null)
-    mark.mutate({ issues: which, read })
+    mark.mutate({ issues: which, read, readBefore: readIssues.length })
   }
   const readListId = useId()
 

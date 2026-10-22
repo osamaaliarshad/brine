@@ -230,4 +230,5 @@ Gaps: an issue that goes away and comes back the same stays read. That's an issu
 time worded the same, a minion presence can't see again, or the same pending key sent again.
 And marks are pruned after `retention.history_days` (those on a job's issues, which last a day,
 after two days), as are the presence changes an offline minion's mark goes by, so an issue still
-there by then comes back.
+there by then comes back. The same goes for a failed state run's latest clean run: it's a job, so
+it goes after `retention.jobs_days`, the fingerprint changes, and the issue comes back once.
