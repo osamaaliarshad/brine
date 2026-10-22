@@ -1,6 +1,7 @@
 import { QueryClient } from '@tanstack/react-query'
 import { afterEach, beforeEach, describe, expect, it, type MockInstance, vi } from 'vitest'
 import { createLiveInvalidator } from '@/api/live'
+import { MARK_ISSUES } from '@/api/queries'
 
 describe('createLiveInvalidator', () => {
   let client: QueryClient
@@ -47,6 +48,20 @@ describe('createLiveInvalidator', () => {
     handle({ type: 'status' })
     vi.advanceTimersByTime(100)
     expect(keys()).toEqual([['status'], ['fleet'], ['issues']])
+  })
+
+  it('holds off refreshing issues while a mark is on its way (it refreshes them when done)', () => {
+    const handle = createLiveInvalidator(client, 100)
+    const mark = client.getMutationCache().build(client, { mutationKey: MARK_ISSUES, mutationFn: () => new Promise(() => {}) })
+    void mark.execute(undefined)
+    handle({ type: 'fleet' })
+    vi.advanceTimersByTime(100)
+    expect(keys()).toEqual([['fleet'], ['keys'], ['inventory']])
+
+    handle({ type: 'resync' })
+    const { predicate } = invalidate.mock.calls.at(-1)![0] as unknown as { predicate: (q: { queryKey: unknown[] }) => boolean }
+    expect(predicate({ queryKey: ['issues'] })).toBe(false)
+    expect(predicate({ queryKey: ['fleet'] })).toBe(true)
   })
 
   it('reconnecting refreshes brine data, but never re-runs Salt work', () => {

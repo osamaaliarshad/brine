@@ -1,6 +1,6 @@
 import { type QueryClient, useQueryClient } from '@tanstack/react-query'
 import { useEffect } from 'react'
-import { queryKeys } from '@/api/queries'
+import { MARK_ISSUES, queryKeys } from '@/api/queries'
 import type { LiveMessage } from '@/api/types'
 
 const DEBOUNCE_MS = 250
@@ -19,10 +19,14 @@ export function createLiveInvalidator(queryClient: QueryClient, debounceMs = DEB
   let timer: ReturnType<typeof setTimeout> | undefined
   let connectedBefore = false
 
+  // A mark on its way would be undone by fetching issues; it fetches them itself when done.
+  const marking = () => queryClient.isMutating({ mutationKey: MARK_ISSUES }) > 0
+
   const flush = () => {
     timer = undefined
+    const skip = marking() ? JSON.stringify(queryKeys.issues) : null
     for (const key of pending) {
-      void queryClient.invalidateQueries({ queryKey: JSON.parse(key) as unknown[] })
+      if (key !== skip) void queryClient.invalidateQueries({ queryKey: JSON.parse(key) as unknown[] })
     }
     pending.clear()
   }
@@ -58,15 +62,19 @@ export function createLiveInvalidator(queryClient: QueryClient, debounceMs = DEB
         queue(queryKeys.issues)
         break
       case 'hello':
-      case 'resync':
+      case 'resync': {
         // The first hello is just the page opening: everything on it was fetched a moment ago.
         if (message.type === 'hello' && !connectedBefore) {
           connectedBefore = true
           break
         }
         // Reconnected, or fell behind: brine's own data could all have changed.
-        void queryClient.invalidateQueries({ predicate: (q) => !ASKS_SALT.has(String(q.queryKey[0])) })
+        const skip = marking() ? queryKeys.issues[0] : null
+        void queryClient.invalidateQueries({
+          predicate: (q) => !ASKS_SALT.has(String(q.queryKey[0])) && q.queryKey[0] !== skip,
+        })
         break
+      }
     }
   }
 }

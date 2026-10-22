@@ -1,5 +1,5 @@
 import { Check, CheckCheck, CircleCheck, CircleX, Eye, EyeOff, Info, TriangleAlert, Undo2, type LucideIcon } from 'lucide-react'
-import { useEffect, useId, useRef } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import { useIssues, useMarkIssues } from '@/api/queries'
 import type { Issue, IssueSeverity } from '@/api/types'
@@ -25,6 +25,7 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
 function IssueRow({ issue, now, onMark }: { issue: Issue; now: number; onMark: () => void }) {
   const { icon: Icon, tone } = SEVERITY[issue.severity]
   const titleId = useId()
+  const buttonId = useId()
   // Salt won't let brine read packages or a check: Settings has the permissions to add.
   const settings = issue.key.startsWith('inventory:')
   return (
@@ -70,8 +71,9 @@ function IssueRow({ issue, now, onMark }: { issue: Issue; now: number; onMark: (
           <button
             type="button"
             data-mark
-            onClick={onMark}
-            aria-describedby={titleId}
+            // A double-click's second click lands on the row that took this one's place.
+            onClick={(event) => event.detail < 2 && onMark()}
+            aria-labelledby={`${buttonId} ${titleId}`}
             className="ml-auto flex h-8 items-center gap-1.5 rounded-lg border bg-surface px-2.5 text-fg transition-colors hover:bg-surface-2"
           >
             {issue.read ? (
@@ -79,7 +81,7 @@ function IssueRow({ issue, now, onMark }: { issue: Issue; now: number; onMark: (
             ) : (
               <Check className="size-4 text-muted" aria-hidden />
             )}
-            {issue.read ? 'Mark as unread' : 'Mark as read'}
+            <span id={buttonId}>{issue.read ? 'Mark as unread' : 'Mark as read'}</span>
           </button>
         </div>
       </div>
@@ -110,10 +112,10 @@ export function IssuesPage() {
   // When rows leave a list, keyboard focus goes to the next row's button there, or else to the
   // read toggle or the filter, rather than back to the top of the page.
   const card = useRef<HTMLDivElement>(null)
-  const moved = useRef<{ keys: string[]; read: boolean; index: number } | null>(null)
+  const moved = useRef<{ keys: Set<string>; read: boolean; index: number } | null>(null)
   useEffect(() => {
     const m = moved.current
-    if (!m || query.data?.some((i) => m.keys.includes(i.key) && i.read !== m.read)) return
+    if (!m || query.data?.some((i) => m.keys.has(i.key) && i.read !== m.read)) return
     const buttons = card.current?.querySelectorAll<HTMLElement>(`[data-list="${m.read ? 'unread' : 'read'}"] [data-mark]`)
     const next =
       buttons?.[Math.min(m.index, buttons.length - 1)] ??
@@ -122,17 +124,38 @@ export function IssuesPage() {
     next?.focus()
     moved.current = null
   }, [query.data])
+
+  // What happened, for screen readers; shown too when an issue changed and stays unread.
+  const [said, setSaid] = useState<{ text: string; changed: boolean } | null>(null)
   const markIssues = (which: Issue[], read: boolean, index = 0) => {
-    moved.current = { keys: which.map((i) => i.key), read, index }
+    moved.current = { keys: new Set(which.map((i) => i.key)), read, index }
+    const readBefore = readIssues.length
     mark.mutate(
       { issues: which, read },
       {
+        onSuccess: (result) => {
+          if (!read) {
+            const left = readBefore - which.length
+            setSaid({ text: `Marked as unread. ${plural(left, 'read issue')} left.`, changed: false })
+            return
+          }
+          const marked = result?.marked.length ?? 0
+          const changed = which.filter((i) => result?.changed.includes(i.key))
+          const text = [
+            marked > 0 && `Marked as read. ${plural(readBefore + marked, 'read issue')} ${showRead ? 'below' : 'hidden'}.`,
+            changed.length === 1 && `${changed[0]!.title} changed in the meantime, so it stays unread.`,
+            changed.length > 1 && `${changed.length} issues changed in the meantime, so they stay unread.`,
+          ]
+          setSaid({ text: text.filter(Boolean).join(' '), changed: changed.length > 0 })
+        },
         onError: () => {
           moved.current = null
+          setSaid(null)
         },
       },
     )
   }
+  const readListId = useId()
 
   return (
     <>
@@ -154,6 +177,9 @@ export function IssuesPage() {
           {mark.error.message}
         </p>
       )}
+      <p role="status" className={said?.changed ? 'mb-4 text-sm text-muted' : 'sr-only'}>
+        {said?.text}
+      </p>
       <Card fill className="overflow-hidden">
         <div ref={card} className="contents">
           <div className="flex flex-wrap items-center gap-2 p-3 sm:p-4">
@@ -178,6 +204,8 @@ export function IssuesPage() {
               <button
                 type="button"
                 data-read-toggle
+                aria-expanded={showRead}
+                aria-controls={readListId}
                 onClick={() => setParam('read', showRead ? null : 'show')}
                 className={cn(FILTER_BUTTON, 'ml-auto')}
               >
@@ -227,7 +255,7 @@ export function IssuesPage() {
                   <h2 className="border-t bg-surface-2/40 px-4 py-2 text-xs font-medium uppercase tracking-wider text-muted sm:px-6">
                     Read
                   </h2>
-                  <ul aria-label="Read issues" data-list="read">
+                  <ul id={readListId} aria-label="Read issues" data-list="read">
                     {readIssues.map((issue, index) => (
                       <IssueRow key={issue.key} issue={issue} now={now} onMark={() => markIssues([issue], false, index)} />
                     ))}

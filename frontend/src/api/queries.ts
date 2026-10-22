@@ -28,6 +28,7 @@ import type {
   KeyActionResult,
   LiveKind,
   LiveView,
+  MarkReadResult,
   MinionComparison,
   MinionDetail,
   MinionInventory,
@@ -257,26 +258,44 @@ export function attentionCount(issues: Issue[] | undefined): number | undefined 
   return issues?.filter((i) => i.severity !== 'info' && !i.read).length
 }
 
+/** Marks on their way: live updates hold off refreshing issues meanwhile (it'd undo them). */
+export const MARK_ISSUES = ['issues', 'mark'] as const
+
 /**
  * Mark issues read, as the page showed them (one that has changed since stays unread), or unread
  * again. Only for the signed-in person. The page changes straight away.
  */
 export function useMarkIssues() {
   const client = useQueryClient()
+  // Set each of these issues' read flag in the list on screen.
+  const setRead = (read: Map<string, boolean>) =>
+    client.setQueryData<Issue[]>(queryKeys.issues, (old) =>
+      old?.map((i) => (read.has(i.key) ? { ...i, read: read.get(i.key)! } : i)),
+    )
   return useMutation({
-    mutationFn: ({ issues, read }: { issues: Issue[]; read: boolean }) =>
+    mutationKey: MARK_ISSUES,
+    mutationFn: ({ issues, read }: { issues: Issue[]; read: boolean }): Promise<MarkReadResult | undefined> =>
       read
-        ? postJson<void>('/api/issues/read', { issues: issues.map(({ key, fingerprint }) => ({ key, fingerprint })) })
-        : postJson<void>('/api/issues/unread', { keys: issues.map((i) => i.key) }),
+        ? postJson<MarkReadResult>('/api/issues/read', { issues: issues.map(({ key, fingerprint }) => ({ key, fingerprint })) })
+        : postJson<undefined>('/api/issues/unread', { keys: issues.map((i) => i.key) }),
     onMutate: async ({ issues, read }) => {
       await client.cancelQueries({ queryKey: queryKeys.issues })
-      const before = client.getQueryData<Issue[]>(queryKeys.issues)
       const keys = new Set(issues.map((i) => i.key))
-      client.setQueryData<Issue[]>(queryKeys.issues, (old) => old?.map((i) => (keys.has(i.key) ? { ...i, read } : i)))
-      return { before }
+      const shown = client.getQueryData<Issue[]>(queryKeys.issues) ?? []
+      const was = new Map(shown.filter((i) => keys.has(i.key)).map((i) => [i.key, i.read]))
+      setRead(new Map(issues.map((i) => [i.key, read])))
+      return { was }
     },
-    onError: (_error, _vars, context) => client.setQueryData(queryKeys.issues, context?.before),
-    onSettled: () => client.invalidateQueries({ queryKey: queryKeys.issues }),
+    onSuccess: (result) => {
+      if (result?.changed.length) setRead(new Map(result.changed.map((key) => [key, false])))
+    },
+    // Only these issues go back: other marks may be on their way.
+    onError: (_error, _vars, context) => context && setRead(context.was),
+    // The last one to finish fetches the list again, with whatever live updates held off.
+    onSettled: () =>
+      client.isMutating({ mutationKey: MARK_ISSUES }) === 1
+        ? client.invalidateQueries({ queryKey: queryKeys.issues })
+        : undefined,
   })
 }
 

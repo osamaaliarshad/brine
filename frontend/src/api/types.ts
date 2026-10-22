@@ -337,6 +337,12 @@ export type Issue = {
   read: boolean
 }
 
+export type MarkReadResult = {
+  marked: string[]
+  /** Still issues, but not as the page showed them: they stay unread. */
+  changed: string[]
+}
+
 export type Settings = {
   version: string
   salt_api: { url: string; username: string; eauth: string; verify_tls: boolean; timeout_seconds: number }
