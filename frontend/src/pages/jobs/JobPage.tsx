@@ -1,5 +1,5 @@
 import { ChevronLeft, ChevronRight, LoaderCircle, RotateCcw, Square } from 'lucide-react'
-import { type ReactNode, useState } from 'react'
+import { memo, type ReactNode, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router'
 import { ApiError } from '@/api/client'
 import { useCapabilities, useJob, useMe } from '@/api/queries'
@@ -18,14 +18,23 @@ function Fact({ label, children, title }: { label: string; children: ReactNode; 
   return (
     <Card className="px-5 py-4">
       <div className="text-sm text-muted">{label}</div>
-      <div className="mt-1 font-medium" title={title}>
+      <div className="mt-1 font-medium wrap-anywhere" title={title}>
         {children}
       </div>
     </Card>
   )
 }
 
-function ResultCard({ result, job, defaultOpen }: { result: JobResult; job: JobDetail; defaultOpen: boolean }) {
+// Memoized: the page re-renders as its clock ticks, and a job can have hundreds of results.
+const ResultCard = memo(function ResultCard({
+  result,
+  job,
+  defaultOpen,
+}: {
+  result: JobResult
+  job: JobDetail
+  defaultOpen: boolean
+}) {
   const [open, setOpen] = useState(defaultOpen)
   const failed = result.states?.filter((s) => s.result === false).length ?? 0
   return (
@@ -71,18 +80,47 @@ function ResultCard({ result, job, defaultOpen }: { result: JobResult; job: JobD
       )}
     </Card>
   )
-}
+})
 
 // Minions usually answer within seconds. Until this long after a job started, the ones still out
 // are waited for; after it, the page says they haven't returned.
 const ANSWER_WAIT_MS = 60_000
 
-/** "Waiting for answers from rover-01, rover-02…", with a spinner. */
-function Waiting({ minions, className }: { minions: string[]; className?: string }) {
+// The minions named while waiting; the rest are counted.
+const NAMED = 5
+
+/**
+ * Whether a job is young: started under ANSWER_WAIT_MS ago by its own time, and opened here under
+ * that long ago, so a browser clock behind the master's can't stretch the wait. Re-renders once,
+ * when it stops being young.
+ */
+function useYoung(startedAt: string | undefined): boolean {
+  const [openedAt] = useState(Date.now)
+  const [now, setNow] = useState(Date.now)
+  const until = startedAt ? Math.min(Date.parse(startedAt), openedAt) + ANSWER_WAIT_MS : -Infinity
+  useEffect(() => {
+    if (until === -Infinity) return
+    const id = setTimeout(() => setNow(Date.now()), Math.max(0, until - Date.now()))
+    return () => clearTimeout(id)
+  }, [until])
+  return now < until
+}
+
+/** "Waiting for 2 of 3 minions" (all a screen reader hears), with a spinner, then their names. */
+function Waiting({ missing, total, className }: { missing: string[]; total: number; className?: string }) {
+  const rest = missing.length - NAMED
   return (
-    <div role="status" className={cn('flex items-center gap-2 rounded-xl border px-4 py-3 text-sm text-muted', className)}>
-      <LoaderCircle className="size-4 shrink-0 animate-spin" aria-hidden />
-      {minions.length ? `Waiting for answers from ${minions.join(', ')}…` : 'Waiting for an answer…'}
+    <div className={cn('rounded-xl border px-4 py-3 text-sm text-muted', className)}>
+      <div role="status" className="flex items-center gap-2">
+        <LoaderCircle className="size-4 shrink-0 animate-spin" aria-hidden />
+        {total ? `Waiting for ${missing.length} of ${total} minion${total === 1 ? '' : 's'}` : 'Waiting for an answer'}
+      </div>
+      {missing.length > 0 && (
+        <p className="mt-1 pl-6">
+          {missing.slice(0, NAMED).join(', ')}
+          {rest > 0 && ` and ${rest} more`}
+        </p>
+      )}
     </div>
   )
 }
@@ -146,11 +184,10 @@ function JobActions({ job }: { job: JobDetail }) {
 
 export function JobPage() {
   const { jid = '' } = useParams()
-  // Ticks often, so a young job's wait turns into "No return" soon after it ends.
-  const now = useNow(5_000)
+  const now = useNow()
   const query = useJob(jid)
   const job = query.data
-  const young = !!job && now - Date.parse(job.started_at) < ANSWER_WAIT_MS
+  const young = useYoung(job?.started_at)
   const role = useMe().data?.role
   const canRun = !!useCapabilities(!!role && role !== 'viewer').data?.commands.length
 
@@ -210,7 +247,7 @@ export function JobPage() {
 
             {job.missing.length > 0 &&
               (young ? (
-                <Waiting minions={job.missing} className="mt-4" />
+                <Waiting missing={job.missing} total={job.minions.length} className="mt-4" />
               ) : (
                 <div className="mt-4 rounded-xl border border-warn/40 bg-warn/10 px-4 py-3 text-sm">
                   No return from {job.missing.join(', ')}. They may have been offline, or are still running it.
@@ -231,7 +268,7 @@ export function JobPage() {
               {job.results.length === 0 ? (
                 // While young, the line above already says it's waiting (and for whom).
                 young ? (
-                  job.missing.length === 0 && <Waiting minions={[]} />
+                  job.missing.length === 0 && <Waiting missing={[]} total={0} />
                 ) : (
                   <Card className="px-6 py-10 text-center text-muted">No results recorded yet.</Card>
                 )

@@ -1,4 +1,4 @@
-import { screen, within } from '@testing-library/react'
+import { act, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { JobDetail, JobSummary, StateRuns } from '@/api/types'
@@ -156,9 +156,20 @@ describe('JobPage', () => {
     }
     mockApi({ '/api/jobs/20261020120000000001': fresh, '/api/status': systemStatus() })
     renderApp('/jobs/20261020120000000001')
+    // A screen reader hears the count; the names are on screen beside it.
     const waiting = await screen.findByRole('status')
-    expect(waiting).toHaveTextContent('Waiting for answers from rover-02, rover-03…')
+    expect(waiting).toHaveTextContent(/^Waiting for 2 of 3 minions$/)
+    expect(screen.getByText('rover-02, rover-03')).toBeInTheDocument()
     expect(screen.queryByText(/No return from/)).toBeNull()
+  })
+
+  it('names the first few minions it waits for, and counts the rest', async () => {
+    const minions = Array.from({ length: 10 }, (_, i) => `rover-${String(i + 1).padStart(2, '0')}`)
+    const fresh: JobDetail = { ...DETAIL, started_at: ago(5), finished_at: null, returned: 2, minions, missing: minions.slice(2) }
+    mockApi({ '/api/jobs/20261020120000000001': fresh, '/api/status': systemStatus() })
+    renderApp('/jobs/20261020120000000001')
+    expect(await screen.findByRole('status')).toHaveTextContent(/^Waiting for 8 of 10 minions$/)
+    expect(screen.getByText('rover-03, rover-04, rover-05, rover-06, rover-07 and 3 more')).toBeInTheDocument()
   })
 
   it('waits for the first answer before saying there are no results', async () => {
@@ -174,8 +185,38 @@ describe('JobPage', () => {
     }
     mockApi({ '/api/jobs/20261020120000000001': fresh, '/api/status': systemStatus() })
     renderApp('/jobs/20261020120000000001')
-    expect(await screen.findByRole('status')).toHaveTextContent('Waiting for answers from rover-01, rover-02, rover-03…')
+    expect(await screen.findByRole('status')).toHaveTextContent(/^Waiting for 3 of 3 minions$/)
     expect(screen.queryByText('No results recorded yet.')).toBeNull()
+  })
+
+  describe('a minute on', () => {
+    const settle = (ms: number) => act(() => vi.advanceTimersByTimeAsync(ms))
+    const open = async (startedAt: string) => {
+      vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] })
+      vi.setSystemTime(NOW)
+      const fresh: JobDetail = { ...DETAIL, started_at: startedAt, finished_at: null, missing: ['rover-03'] }
+      mockApi({ '/api/jobs/20261020120000000001': fresh, '/api/status': systemStatus() })
+      renderApp('/jobs/20261020120000000001')
+      await settle(50)
+    }
+
+    it('says who never answered once the job is a minute old', async () => {
+      await open(ago(20))
+      expect(screen.getByRole('status')).toHaveTextContent('Waiting for 1 of 3 minions')
+      await settle(39_900) // just short of a minute since it started
+      expect(screen.getByRole('status')).toBeInTheDocument()
+      await settle(100)
+      expect(screen.queryByRole('status')).toBeNull()
+      expect(screen.getByText(/^No return from rover-03\./)).toBeInTheDocument()
+    })
+
+    it('waits no more than a minute from opening, even with this clock behind the master', async () => {
+      await open(new Date(NOW + 5 * 60_000).toISOString()) // "started" 5 minutes from now
+      expect(screen.getByRole('status')).toBeInTheDocument()
+      await settle(60_000)
+      expect(screen.queryByRole('status')).toBeNull()
+      expect(screen.getByText(/^No return from rover-03\./)).toBeInTheDocument()
+    })
   })
 
   it('says who never answered once the job is no longer young', async () => {
