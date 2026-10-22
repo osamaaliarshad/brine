@@ -258,7 +258,12 @@ export function attentionCount(issues: Issue[] | undefined): number | undefined 
 }
 
 export function useSettings() {
-  return useQuery({ queryKey: ['settings'], queryFn: () => fetchJson<Settings>('/api/settings') })
+  // Comes from the config file, which only changes with a restart; lists ask for it too.
+  return useQuery({
+    queryKey: ['settings'],
+    queryFn: () => fetchJson<Settings>('/api/settings'),
+    staleTime: 5 * 60_000,
+  })
 }
 
 export function useGrainValues(grain: string | null) {

@@ -50,12 +50,18 @@ export function Badge({ children, title, tone = 'muted' }: {
 }
 
 /**
- * A page's one big panel: down to the bottom of the window at least, with room to spare inside
- * when there isn't much in it; past it, the page scrolls. A column, so a part of it (a picker
- * list) can take the height that's left.
+ * `fill`: a page's one big panel. It reaches down to the bottom of the window at least, with room
+ * to spare inside when there isn't much in it; past it, the page scrolls. It's a column, so a part
+ * of it (a picker list) can take the height that's left.
  */
-export const FILL = 'flex grow flex-col'
-
-export function Card({ children, className }: { children: ReactNode; className?: string }) {
-  return <div className={cn('rounded-2xl border bg-surface', className)}>{children}</div>
+export function Card({
+  children,
+  className,
+  fill = false,
+}: {
+  children: ReactNode
+  className?: string
+  fill?: boolean
+}) {
+  return <div className={cn('rounded-2xl border bg-surface', fill && 'flex grow flex-col', className)}>{children}</div>
 }

@@ -5,12 +5,12 @@ import { ApiError } from '@/api/client'
 import { useCapabilities, useMe, useMinion } from '@/api/queries'
 import type { KeyState, MinionDetail } from '@/api/types'
 import { KeyActionDialog, type KeyActionTarget } from '@/components/KeyActionDialog'
-import { Card, FILL } from '@/components/ui'
+import { Card } from '@/components/ui'
 import { Tabs } from '@/components/Tabs'
+import { grainsAsOf } from '@/lib/freshness'
 import { type TabDef, useTab } from '@/lib/useTab'
 import { formatAbsolute, formatRelative, useNow } from '@/lib/time'
 import { ConnectionCell } from '@/pages/fleet/ConnectionCell'
-import { grainsAsOf } from '@/pages/fleet/model'
 import { commandLine } from '@/pages/jobs/format'
 import { KeyActions } from '@/pages/keys/KeyActions'
 import { ACTIONS_FOR, describeResult } from '@/pages/keys/rules'
@@ -170,7 +170,7 @@ export function MinionPage() {
               </div>
             )}
             <Facts minion={minion} now={now} />
-            <Card className={`${FILL} mt-4 overflow-hidden sm:mt-6`}>
+            <Card fill className="mt-4 overflow-hidden sm:mt-6">
               <div className="px-2 sm:px-4">
                 <Tabs tabs={TABS} active={tab} onSelect={setTab} label="Minion details" />
               </div>

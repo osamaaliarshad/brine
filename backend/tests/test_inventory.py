@@ -1178,7 +1178,7 @@ def test_fleet_columns_say_when_each_source_was_read(with_checks: tuple[Api, Fak
     now = datetime.now(UTC)
     read(api, "rover-01", {"rover-agent": "2.4.1"}, now - HOUR)
     read(api, "rover-01", {"": "rover-cli 1.2.0"}, now, source="rover-cli")
-    # Cut short, but read then: what it lists is as of that read.
+    # Cut short: no time, as what it doesn't list is unknown, not as of then.
     api.seed(
         api.ingest.inventory_read,
         "rover-02",
@@ -1201,7 +1201,7 @@ def test_fleet_columns_say_when_each_source_was_read(with_checks: tuple[Api, Fak
     assert read_at == {
         "dock-01": {"packages": None, "rover-cli": None},
         "rover-01": {"packages": now - HOUR, "rover-cli": now},
-        "rover-02": {"packages": now, "rover-cli": None},
+        "rover-02": {"packages": None, "rover-cli": None},
         "rover-03": {"packages": None, "rover-cli": None},
     }
     # The minion page goes by the default columns: grains only here.

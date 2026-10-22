@@ -76,8 +76,8 @@ async def inventory_cells(
     that isn't a package or a configured check is unknown everywhere (a browser may keep a
     removed check's column). The explorer and the fleet's columns both go by this.
 
-    Also when each minion's last good read of each of those sources was (cut short or not):
-    what its cells are as of."""
+    Also when each minion's last whole read of each of those sources was: what its cells are as
+    of. A read cut short has no time, as what it doesn't list isn't known as of then."""
     by_entry: dict[tuple[str, str], list[str]] = {}  # (source, name) -> its keys
     by_source: dict[str, list[str]] = {}
     for key in dict.fromkeys(keys):
@@ -89,18 +89,14 @@ async def inventory_cells(
     whose = [Minion.key_state == "accepted"]
     if minion is not None:
         whose.append(Minion.id == minion)
-    reads = (
-        select(
-            InventoryRead.minion_id,
-            InventoryRead.source,
-            InventoryRead.read_at,
-            InventoryRead.truncated,
-        )
+    whole = (
+        select(InventoryRead.minion_id, InventoryRead.source, InventoryRead.read_at)
         .join(Minion, Minion.id == InventoryRead.minion_id)
         .where(
             *whose,
             InventoryRead.source.in_(list(by_source)),
             InventoryRead.read_at.is_not(None),
+            InventoryRead.truncated.is_(False),
         )
     )
     entries = or_(*(and_(InventoryItem.source == s, InventoryItem.name == n) for s, n in by_entry))
@@ -113,11 +109,10 @@ async def inventory_cells(
     )
     cells: dict[str, dict[str, str | None]] = {}
     read_at: dict[str, dict[str, datetime | None]] = {}
-    for mid, source, at, truncated in await session.execute(reads):
+    for mid, source, at in await session.execute(whole):
         read_at.setdefault(mid, {})[source] = at
-        if not truncated:
-            for key in by_source[source]:
-                cells.setdefault(mid, {})[key] = None
+        for key in by_source[source]:
+            cells.setdefault(mid, {})[key] = None
     for mid, source, name, value in await session.execute(held):
         for key in by_entry[(source, name)]:
             cells.setdefault(mid, {})[key] = value

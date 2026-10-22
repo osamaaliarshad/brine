@@ -178,7 +178,7 @@ function Sidebar({
       )}
       {/* On a short window the links scroll on their own, rather than making the window scroll;
           the menus at the bottom stay put, so nothing clips them. */}
-      <nav aria-label="Main" className="-mx-1 flex min-h-0 flex-col gap-1 overflow-y-auto px-1">
+      <nav aria-label="Main" className="-m-1 flex min-h-0 flex-col gap-1 overflow-y-auto p-1">
         {mainNav.map((item) => (
           <NavRow
             key={item.to}
@@ -292,22 +292,23 @@ export function AppShell() {
           <Wordmark className="h-6" />
         </header>
         {/* Positioned, so screen-reader-only text deep in a long table stays inside this scroll
-            area instead of stretching the whole window (a second scrollbar). A flex column, so a
-            page's main panel can reach down to the bottom of the window (FILL). */}
-        <main className="relative flex min-w-0 flex-1 flex-col overflow-y-auto px-4 py-6 sm:px-8 lg:py-8">
-          {user?.provider === 'none' && (
-            <div
-              role="note"
-              className="mb-6 rounded-xl border border-warn/40 bg-warn/10 px-4 py-2.5 text-sm"
-            >
-              <span className="font-medium">Sign-in is off.</span>{' '}
-              <span className="text-muted">
-                Everyone who can open brine is treated as {user.role}. Fine for the demo; set up
-                sign-in (docs/oidc-providers.md) for anything real.
-              </span>
-            </div>
-          )}
-          <div className="flex shrink-0 grow flex-col">
+            area instead of stretching the whole window (a second scrollbar). Its one child fills
+            it, so a page's main panel (Card fill) can reach down to the bottom of the window; the
+            padding is on that child, as browsers differ on a scroll area's own bottom padding. */}
+        <main className="relative flex min-w-0 flex-1 flex-col overflow-y-auto">
+          <div className="flex shrink-0 grow flex-col px-4 py-6 sm:px-8 lg:py-8">
+            {user?.provider === 'none' && (
+              <div
+                role="note"
+                className="mb-6 rounded-xl border border-warn/40 bg-warn/10 px-4 py-2.5 text-sm"
+              >
+                <span className="font-medium">Sign-in is off.</span>{' '}
+                <span className="text-muted">
+                  Everyone who can open brine is treated as {user.role}. Fine for the demo; set up
+                  sign-in (docs/oidc-providers.md) for anything real.
+                </span>
+              </div>
+            )}
             <Outlet />
           </div>
         </main>

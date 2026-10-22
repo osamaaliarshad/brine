@@ -4,7 +4,7 @@ import type { MinionStatus } from '@/api/types'
 import { MinionChip } from '@/components/MinionChip'
 import { PageHeader } from '@/components/PageHeader'
 import { Tabs } from '@/components/Tabs'
-import { Badge, Card, FILL } from '@/components/ui'
+import { Badge, Card } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { formatAbsolute, formatRelative, useNow } from '@/lib/time'
 import { useTab } from '@/lib/useTab'
@@ -135,7 +135,7 @@ export function AutomationPage() {
   return (
     <>
       <PageHeader title="Automation" subtitle="What runs on its own: schedules and beacons across the fleet." />
-      <Card className={`${FILL} overflow-hidden`}>
+      <Card fill className="overflow-hidden">
         <div className="px-2 sm:px-4">
           <Tabs tabs={TABS} active={tab} onSelect={setTab} label="Automation views" />
         </div>

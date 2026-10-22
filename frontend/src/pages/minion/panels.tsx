@@ -12,10 +12,10 @@ import type { GrainsChange, InventoryChange, LiveKind, MinionDetail } from '@/ap
 import { JsonTree } from '@/components/JsonView'
 import { Badge, StatusDot } from '@/components/ui'
 import { cn } from '@/lib/cn'
+import { grainsAsOf } from '@/lib/freshness'
 import { formatAbsolute, formatDuration, formatRelative } from '@/lib/time'
 import { useKeptFor } from '@/lib/useKeptFor'
 import { ChangeList, FoundWhen } from '@/pages/fleet/ChangeList'
-import { grainsAsOf } from '@/pages/fleet/model'
 
 function Empty({ children }: { children: React.ReactNode }) {
   return <div className="px-6 py-12 text-center text-muted">{children}</div>

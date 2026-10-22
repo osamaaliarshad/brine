@@ -2,9 +2,10 @@ import type { ReactNode } from 'react'
 import { Link } from 'react-router'
 import type { MinionSummary } from '@/api/types'
 import { Pill } from '@/components/ui'
-import { keyDescription, missingFor, noAnswerFor } from '@/lib/inventoryKey'
+import { cellAsOf, grainsAsOf } from '@/lib/freshness'
+import { emptyFor, keyDescription, missingFor, noAnswerFor } from '@/lib/inventoryKey'
 import { ConnectionCell } from '@/pages/fleet/ConnectionCell'
-import { cellAsOf, columnCell, grainsAsOf, type SortKey } from '@/pages/fleet/model'
+import { columnCell, type SortKey } from '@/pages/fleet/model'
 
 export type TableColumn = {
   key: SortKey
@@ -60,7 +61,7 @@ export function grainColumn(grain: string, label: string): TableColumn {
           return <Pill title={hover(cell.text)}>{cell.text}</Pill>
         case 'empty':
           return (
-            <span className="text-muted" title={asOf ?? undefined}>
+            <span className="text-muted" title={hover(emptyFor(m.id, grain))}>
               (empty)
             </span>
           )

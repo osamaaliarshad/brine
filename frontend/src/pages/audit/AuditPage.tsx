@@ -80,7 +80,7 @@ export function AuditPage() {
   return (
     <>
       <PageHeader title="Audit log" subtitle="Who did what, and when." />
-      <Card className="overflow-hidden">
+      <Card fill className="overflow-hidden">
         <div role="tablist" aria-label="Filter the audit log" className="flex flex-wrap gap-2 p-3 sm:p-4">
           {FILTERS.map((f) => (
             <button

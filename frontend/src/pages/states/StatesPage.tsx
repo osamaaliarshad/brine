@@ -6,7 +6,7 @@ import type { MinionStatus } from '@/api/types'
 import { MinionChip } from '@/components/MinionChip'
 import { PageHeader } from '@/components/PageHeader'
 import { Tabs } from '@/components/Tabs'
-import { Card, FILL } from '@/components/ui'
+import { Card } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { formatAbsolute, formatRelative, useNow } from '@/lib/time'
 import { useTab } from '@/lib/useTab'
@@ -236,7 +236,7 @@ export function StatesPage() {
   return (
     <>
       <PageHeader title="States" subtitle="What the master tells each minion to be." />
-      <Card className={`${FILL} overflow-hidden`}>
+      <Card fill className="overflow-hidden">
         <div className="px-2 sm:px-4">
           <Tabs tabs={TABS} active={tab} onSelect={setTab} label="State views" />
         </div>

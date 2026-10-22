@@ -75,7 +75,7 @@ export function IssuesPage() {
   return (
     <>
       <PageHeader title="Issues" subtitle="Things in the fleet that need a human." />
-      <Card className="overflow-hidden">
+      <Card fill className="overflow-hidden">
         <div role="tablist" aria-label="Filter by severity" className="flex flex-wrap gap-2 p-3 sm:p-4">
           {FILTERS.map((f) => (
             <button

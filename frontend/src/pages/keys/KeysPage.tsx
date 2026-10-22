@@ -132,7 +132,7 @@ export function KeysPage() {
         </div>
       )}
 
-      <Card className="overflow-hidden">
+      <Card fill className="overflow-hidden">
         <div role="tablist" aria-label="Filter by key state" className="flex flex-wrap gap-2 p-3 sm:p-4">
           {STATES.filter((s) => s.value === 'all' || count(s.value) > 0 || filter === s.value).map((s) => (
             <button

@@ -5,7 +5,7 @@ import type { SaltEventEntry } from '@/api/types'
 import { JsonTree } from '@/components/JsonView'
 import { PageHeader } from '@/components/PageHeader'
 import { Tabs } from '@/components/Tabs'
-import { Card, FILL } from '@/components/ui'
+import { Card } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { formatAbsolute } from '@/lib/time'
 import { useTab } from '@/lib/useTab'
@@ -165,7 +165,7 @@ export function EventsPage() {
   return (
     <>
       <PageHeader title="Events" subtitle="The Salt event bus, live." />
-      <Card className={`${FILL} overflow-hidden`}>
+      <Card fill className="overflow-hidden">
         <div className="px-2 sm:px-4">
           <Tabs tabs={TABS} active={tab} onSelect={setTab} label="Event views" />
         </div>

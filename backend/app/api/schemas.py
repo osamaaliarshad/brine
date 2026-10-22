@@ -31,8 +31,8 @@ class MinionSummary(BaseModel):
     # the minion answered without it; a missing key means unknown (no good read of that
     # source yet, or the last one was cut short and doesn't list it).
     columns: dict[str, Any]
-    # When the minion's `@` column values are as of: each of their sources' last good read
-    # ("packages", a check's name), None when there's none yet.
+    # When the minion's `@` column values are as of: each of their sources' last whole read
+    # ("packages", a check's name); None before the first, or when the last was cut short.
     read_at: dict[str, datetime | None]
 
 

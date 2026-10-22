@@ -71,13 +71,16 @@ function Entries({
   // On a phone, since goes under the value: a third column would wrap it to a word a line.
   const wide = useMediaQuery('(min-width: 640px)')
   const single = entries.length === 1 && entries[0]!.name === ''
+  // Each value's hover says how fresh it is: as of the last good read.
+  const asOf = formatAsOf(s.read_at, now) ?? undefined
   if (single) {
     const entry = entries[0]!
+    const see = `See ${s.source} across the fleet`
     return (
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 px-4 pb-4 text-sm sm:px-6">
         <Link
           to={explorerLink(s.source, '')}
-          title={`See ${s.source} across the fleet`}
+          title={asOf ? `${see}\n${asOf}` : see}
           className="font-mono text-[13px] break-all whitespace-pre-wrap hover:text-accent"
         >
           <Value text={entry.value} />
@@ -90,7 +93,6 @@ function Entries({
       </div>
     )
   }
-  const asOf = formatAsOf(s.read_at, now) ?? undefined
   const firstRead = s.first_read_at
     ? `Already there when brine first read ${minion} on ${formatDay(s.first_read_at, now)}`
     : undefined

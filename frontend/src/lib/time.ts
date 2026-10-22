@@ -1,11 +1,19 @@
 import { useEffect, useState } from 'react'
 
+// Up to this old, a time is said as how long ago it was; older, as its date.
+const RELATIVE_DAYS = 30
+
+/** Whole seconds from `then` to `now`; 0 for a little clock skew into the future. */
+function ageSeconds(then: number, now: number): number {
+  return Math.max(0, Math.round((now - then) / 1000))
+}
+
 /** "just now", "20s ago", "4m ago", "2h ago", "3d ago", then a date. */
 export function formatRelative(iso: string | null | undefined, now: number = Date.now()): string {
   if (!iso) return 'never'
   const then = Date.parse(iso)
   if (Number.isNaN(then)) return 'unknown'
-  const seconds = Math.max(0, Math.round((now - then) / 1000))
+  const seconds = ageSeconds(then, now)
   if (seconds < 5) return 'just now'
   if (seconds < 60) return `${seconds}s ago`
   const minutes = Math.floor(seconds / 60)
@@ -13,7 +21,7 @@ export function formatRelative(iso: string | null | undefined, now: number = Dat
   const hours = Math.floor(minutes / 60)
   if (hours < 24) return `${hours}h ago`
   const days = Math.floor(hours / 24)
-  if (days < 30) return `${days}d ago`
+  if (days < RELATIVE_DAYS) return `${days}d ago`
   return new Date(then).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
@@ -35,12 +43,16 @@ export function formatDay(iso: string, now: number = Date.now()): string {
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year })
 }
 
+// Made once: building a formatter is slow next to using one, and a fleet table uses it per cell.
+const ABSOLUTE = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'medium' })
+const AS_OF = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+
 /** Local date and time, for tooltips: "Oct 21, 2026, 7:23:45 PM". */
 export function formatAbsolute(iso: string | null | undefined): string {
   if (!iso) return 'Never'
   const date = new Date(iso)
   if (Number.isNaN(date.getTime())) return 'Unknown'
-  return date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'medium' })
+  return ABSOLUTE.format(date)
 }
 
 /**
@@ -51,9 +63,9 @@ export function formatAsOf(iso: string | null | undefined, now: number = Date.no
   if (!iso) return null
   const date = new Date(iso)
   if (Number.isNaN(date.getTime())) return null
-  const when = date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
-  const relative = formatRelative(iso, now)
-  return relative === 'just now' || relative.endsWith(' ago') ? `As of ${relative} · ${when}` : `As of ${when}`
+  const when = AS_OF.format(date)
+  const relative = ageSeconds(date.getTime(), now) < RELATIVE_DAYS * 86_400
+  return relative ? `As of ${formatRelative(iso, now)} · ${when}` : `As of ${when}`
 }
 
 /** Re-render every `intervalMs` so relative times keep ticking. */

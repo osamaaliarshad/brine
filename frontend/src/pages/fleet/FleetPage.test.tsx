@@ -31,7 +31,7 @@ const PACKAGE_FLEET = fleet(
     }),
     minion('rover-03', { columns: {}, read_at: { packages: null, containers: null, 'rover-cli': null } }),
     minion('rover-04', {
-      columns: { '@packages:rover-agent': '2.4.1', '@containers:web': '', '@rover-cli': '1.2.0' },
+      columns: { '@packages:rover-agent': '2.4.1', '@containers:web': '', '@rover-cli': '' },
       read_at: READ_AT,
     }),
   ],
@@ -43,7 +43,12 @@ const PACKAGE_FLEET = fleet(
     ],
   },
 )
-const NO_ANSWER = "No answer yet, couldn't read, or the last answer was cut short"
+/** A minion's cell in the column with this heading. */
+function cellOf(id: string, column: string): HTMLElement {
+  const index = screen.getAllByRole('columnheader').findIndex((h) => h.textContent === column)
+  expect(index, `no ${column} column`).toBeGreaterThanOrEqual(0)
+  return within(screen.getByText(id).closest('tr')!).getAllByRole('cell')[index]!
+}
 
 function rows() {
   return screen
@@ -94,15 +99,13 @@ describe('FleetPage', () => {
     mockApi({ '/api/fleet': FLEET, '/api/status': systemStatus() })
     renderApp('/')
     await screen.findByText('rover-01')
-    const cells = (id: string) => within(screen.getByText(id).closest('tr')!).getAllByRole('cell')
-    const [, , os, site, version] = cells('rover-01')
     const asOf = formatAsOf(ago(240), NOW)
-    expect(within(site!).getByText('site-a')).toHaveAttribute('title', `site-a\n${asOf}`)
-    expect(within(version!).getByText('2.4.1')).toHaveAttribute('title', `2.4.1\n${asOf}`)
-    expect(os!.firstElementChild).toHaveAttribute('title', asOf) // OS and Salt come from grains too
+    expect(within(cellOf('rover-01', 'Site')).getByText('site-a')).toHaveAttribute('title', `site-a\n${asOf}`)
+    expect(within(cellOf('rover-01', 'App version')).getByText('2.4.1')).toHaveAttribute('title', `2.4.1\n${asOf}`)
+    // OS and Salt come from grains too.
+    expect(cellOf('rover-01', 'OS / Salt').firstElementChild).toHaveAttribute('title', asOf)
     // From the master's cache: when they were collected is unknown.
-    const [, , , , missing] = cells('dock-01')
-    expect(within(missing!).getByText('—')).toHaveAttribute(
+    expect(within(cellOf('dock-01', 'App version')).getByText('—')).toHaveAttribute(
       'title',
       "dock-01 doesn't report app_version\nFrom the master's cache; age unknown",
     )
@@ -211,31 +214,44 @@ describe('FleetPage', () => {
     mockApi({ '/api/fleet': PACKAGE_FLEET, '/api/status': systemStatus() })
     renderApp('/?dir=desc')
     await screen.findByText('rover-01')
-    const cells = (id: string) => within(screen.getByText(id).closest('tr')!).getAllByRole('cell').slice(3)
 
     // Each hover says how fresh it is: when that minion's packages, or that check, were read.
     const packagesRead = formatAsOf(ago(3600), NOW)
     const checkRead = formatAsOf(ago(600), NOW)
-    const [agent1, web1] = cells('rover-01')
-    expect(within(agent1!).getByText('2.4.1')).toHaveAttribute('title', `2.4.1\n${packagesRead}`)
-    expect(within(web1!).getByText('ghcr.io/acme/web:1.4')).toHaveAttribute(
+    expect(within(cellOf('rover-01', 'rover-agent')).getByText('2.4.1')).toHaveAttribute(
+      'title',
+      `2.4.1\n${packagesRead}`,
+    )
+    expect(within(cellOf('rover-01', 'web')).getByText('ghcr.io/acme/web:1.4')).toHaveAttribute(
       'title',
       `ghcr.io/acme/web:1.4\n${checkRead}`,
     )
-    // What's missing is said in full: which minion, which package or check.
-    const [agent2, web2, cli2] = cells('rover-02')
-    expect(within(agent2!).getByText('—')).toHaveAttribute(
+    // What's missing, or empty, is said in full: which minion, which package or check.
+    expect(within(cellOf('rover-02', 'rover-agent')).getByText('—')).toHaveAttribute(
       'title',
       `rover-02 doesn't have rover-agent installed\n${packagesRead}`,
     )
-    expect(within(web2!).getByText('—')).toHaveAttribute('title', `rover-02's containers check doesn't list web\n${checkRead}`)
-    expect(within(cli2!).getByText('—')).toHaveAttribute('title', `rover-02's rover-cli check reported nothing\n${checkRead}`)
-    for (const cell of cells('rover-03'))
-      expect(within(cell).getByText('?')).toHaveAttribute(
+    expect(within(cellOf('rover-02', 'web')).getByText('—')).toHaveAttribute(
+      'title',
+      `rover-02's containers check doesn't list web\n${checkRead}`,
+    )
+    expect(within(cellOf('rover-02', 'rover-cli')).getByText('—')).toHaveAttribute(
+      'title',
+      `rover-02's rover-cli check reported nothing\n${checkRead}`,
+    )
+    for (const column of ['rover-agent', 'web', 'rover-cli'])
+      expect(within(cellOf('rover-03', column)).getByText('?')).toHaveAttribute(
         'title',
         "No answer from rover-03 yet, couldn't read it, or its last answer was cut short",
       )
-    expect(within(cells('rover-04')[1]!).getByText('(empty)')).toHaveAttribute('title', checkRead)
+    expect(within(cellOf('rover-04', 'web')).getByText('(empty)')).toHaveAttribute(
+      'title',
+      `rover-04's containers check lists web, with an empty value\n${checkRead}`,
+    )
+    expect(within(cellOf('rover-04', 'rover-cli')).getByText('(empty)')).toHaveAttribute(
+      'title',
+      `rover-04's rover-cli check printed an empty value\n${checkRead}`,
+    )
 
     // Named in plain words, never by their @ keys.
     const header = screen.getByRole('columnheader', { name: /web/ })
@@ -265,7 +281,11 @@ describe('FleetPage', () => {
     expect(card('rover-01')).toHaveTextContent('web ghcr.io/acme/web:1.4')
     expect(card('rover-02')).toHaveTextContent('rover-agent: not installed')
     expect(card('rover-02')).toHaveTextContent('web: not reported')
-    expect(within(card('rover-03')).getByText('rover-agent: ?')).toHaveAttribute('title', NO_ANSWER)
+    // The label stays short; its hover is the table's.
+    expect(within(card('rover-03')).getByText('rover-agent: ?')).toHaveAttribute(
+      'title',
+      "No answer from rover-03 yet, couldn't read it, or its last answer was cut short",
+    )
     expect(card('rover-04')).toHaveTextContent('web: (empty)')
   })
 

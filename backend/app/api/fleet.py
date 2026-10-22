@@ -163,10 +163,11 @@ def summarize(
     columns: list[Column],
     cells: Mapping[str, Mapping[str, str | None]],
     read_at: Mapping[str, Mapping[str, datetime | None]],
+    sources: list[str],
     blind: set[str] | frozenset[str] = frozenset(),
 ) -> MinionSummary:
     """`cells` and `read_at`: the `@` columns' cells per minion, and when each of their sources
-    was read, from `inventory_cells`."""
+    was read, from `inventory_cells`; `sources`: those sources, from `column_sources`."""
     stale_after = timedelta(minutes=runtime.settings.fleet.stale_after_minutes)
     reads = read_at.get(minion.id, {})
     return MinionSummary(
@@ -188,7 +189,7 @@ def summarize(
         grains_at=minion.grains_at,
         grains_source=minion.grains_source,
         columns=column_values(minion, columns, cells.get(minion.id, {})),
-        read_at={source: reads.get(source) for source in column_sources(runtime, columns)},
+        read_at={source: reads.get(source) for source in sources},
     )
 
 
@@ -211,10 +212,19 @@ async def fleet(
     columns = requested_columns(runtime, column)
     blind = await presence_blind(session)
     cells, read_at = await inventory_cells(session, runtime.settings, (c.grain for c in columns))
+    sources = column_sources(runtime, columns)
     rows = (await session.scalars(select(Minion).order_by(Minion.id))).all()
     accepted = [
         summarize(
-            m, runtime, presence, now, columns=columns, cells=cells, read_at=read_at, blind=blind
+            m,
+            runtime,
+            presence,
+            now,
+            columns=columns,
+            cells=cells,
+            read_at=read_at,
+            sources=sources,
+            blind=blind,
         )
         for m in rows
         if m.key_state == "accepted"
@@ -312,6 +322,7 @@ async def minion_detail(
         columns=columns,
         cells=cells,
         read_at=read_at,
+        sources=column_sources(runtime, columns),
         blind=await presence_blind(session),
     )
 

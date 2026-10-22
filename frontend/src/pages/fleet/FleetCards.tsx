@@ -1,7 +1,7 @@
 import { Link } from 'react-router'
 import type { Column, MinionSummary } from '@/api/types'
 import { Pill } from '@/components/ui'
-import { isInventoryKey, missingLabel, NO_ANSWER_CELL } from '@/lib/inventoryKey'
+import { isInventoryKey, missingLabel, noAnswerFor } from '@/lib/inventoryKey'
 import { ConnectionCell } from '@/pages/fleet/ConnectionCell'
 import { type Cell, columnCell } from '@/pages/fleet/model'
 
@@ -9,14 +9,14 @@ import { type Cell, columnCell } from '@/pages/fleet/model'
  * One column's value on a card. A grain's value speaks for itself; a package's version or a
  * check's value goes with its name, and a card says when it's missing or unknown too.
  */
-function CardValue({ column, cell }: { column: Column; cell: Cell }) {
+function CardValue({ minion, column, cell }: { minion: string; column: Column; cell: Cell }) {
   const inventory = isInventoryKey(column.grain)
   if (cell.kind === 'value') {
     const text = inventory ? `${column.label} ${cell.text}` : cell.text
     return <Pill title={`${column.label}: ${cell.text}`}>{text}</Pill>
   }
   if (!inventory) return null
-  if (cell.kind === 'unknown') return <span title={NO_ANSWER_CELL}>{column.label}: ?</span>
+  if (cell.kind === 'unknown') return <span title={noAnswerFor(minion)}>{column.label}: ?</span>
   return (
     <span>
       {column.label}: {cell.kind === 'empty' ? '(empty)' : missingLabel(column.grain).toLowerCase()}
@@ -57,7 +57,7 @@ export function FleetCards({
                   </span>
                 )}
                 {columns.map((c) => (
-                  <CardValue key={c.grain} column={c} cell={columnCell(m, c.grain)} />
+                  <CardValue key={c.grain} minion={m.id} column={c} cell={columnCell(m, c.grain)} />
                 ))}
               </div>
             )}

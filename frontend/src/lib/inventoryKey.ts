@@ -44,15 +44,33 @@ export function missingLabel(key: string): string {
 
 /** A Fleet cell without it, in full: "dock-01 doesn't have rover-agent installed". */
 export function missingFor(minion: string, key: string): string {
-  const parsed = parseInventoryKey(key)
-  if (!parsed) return `${minion} doesn't report ${key}`
-  if (parsed.source === 'packages') return `${minion} doesn't have ${parsed.name} installed`
-  return parsed.name
-    ? `${minion}'s ${parsed.source} check doesn't list ${parsed.name}`
-    : `${minion}'s ${parsed.source} check reported nothing`
+  const { source, name } = parseInventoryKey(key) ?? { source: '', name: key }
+  switch (keyKind(key)) {
+    case 'grain':
+      return `${minion} doesn't report ${key}`
+    case 'package':
+      return `${minion} doesn't have ${name} installed`
+    case 'check':
+      return name ? `${minion}'s ${source} check doesn't list ${name}` : `${minion}'s ${source} check reported nothing`
+  }
 }
 
-/** A Fleet `?` cell, in full. */
+/** A Fleet cell that's there but empty, in full: "dock-01's rover-cli check printed an empty value". */
+export function emptyFor(minion: string, key: string): string {
+  const { source, name } = parseInventoryKey(key) ?? { source: '', name: key }
+  switch (keyKind(key)) {
+    case 'grain':
+      return `${minion}'s ${key} grain is empty`
+    case 'package':
+      return `${minion} has ${name} installed, with no version`
+    case 'check':
+      return name
+        ? `${minion}'s ${source} check lists ${name}, with an empty value`
+        : `${minion}'s ${source} check printed an empty value`
+  }
+}
+
+/** A Fleet `?` for one minion, in a table or on a phone card: no good answer for it yet. */
 export function noAnswerFor(minion: string): string {
   return `No answer from ${minion} yet, couldn't read it, or its last answer was cut short`
 }
@@ -63,8 +81,6 @@ export const NO_ANSWER_DETAIL = 'No answer yet, or the last answer was cut short
 /** Minions whose last answer for it was an error. */
 export const FAILED_ANSWER = "Couldn't read"
 export const FAILED_ANSWER_DETAIL = 'The minion answered with an error; its Packages tab shows it'
-/** Either, for one minion, on its `?` on a phone card. */
-export const NO_ANSWER_CELL = "No answer yet, couldn't read, or the last answer was cut short"
 
 /** Settings › Packages and checks: what brine reads, and the Salt permissions it needs. */
 export const INVENTORY_SETTINGS_ID = 'packages-and-checks'

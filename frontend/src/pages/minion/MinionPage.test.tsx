@@ -163,7 +163,10 @@ describe('MinionPage', () => {
     expect(within(cli).getByText("Couldn't read: exit 127: sh: rover-cli: not found")).toBeInTheDocument()
     // A check's single value is shown as it is, with when it changed.
     expect(within(cli).queryByRole('table')).toBeNull()
-    expect(within(cli).getByRole('link', { name: 'rover-cli 1.2.0' })).toHaveAttribute('href', '/?tab=grains&grain=%40rover-cli')
+    const value = within(cli).getByRole('link', { name: 'rover-cli 1.2.0' })
+    expect(value).toHaveAttribute('href', '/?tab=grains&grain=%40rover-cli')
+    // How fresh it is, like a version in a table: as of the last good read.
+    expect(value).toHaveAttribute('title', `See rover-cli across the fleet\n${formatAsOf(ago(3600), NOW)}`)
     expect(within(cli).getByText('since 1h ago')).toHaveAttribute('title', formatAbsolute(ago(3600)))
 
     const containers = region('containers')
