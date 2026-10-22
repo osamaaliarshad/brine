@@ -170,7 +170,8 @@ async def inventory_values(
     key: str = Query(..., min_length=1, description="`@packages:<name>`, or a check's key"),
 ) -> InventoryDistribution:
     """How one package's versions (or one check entry's values) are spread across the fleet:
-    which minions have which, which answered without it, and which haven't answered yet."""
+    which minions have which, which answered without it, which couldn't say, and which haven't
+    answered yet."""
     source, name = _split(key, runtime)
     accepted = (
         await session.scalars(
@@ -178,13 +179,22 @@ async def inventory_values(
         )
     ).all()
     cells = await inventory_cells(session, runtime.settings, [key])
+    # Whose last answer for the source was an error.
+    errored = set(
+        await session.scalars(
+            select(InventoryRead.minion_id).where(
+                InventoryRead.source == source, InventoryRead.error.is_not(None)
+            )
+        )
+    )
     groups: dict[str, list[str]] = {}
     missing: list[str] = []
+    failed: list[str] = []
     unknown: list[str] = []
     for mid in accepted:
         cell = cells.get(mid, {})
         if key not in cell:
-            unknown.append(mid)
+            (failed if mid in errored else unknown).append(mid)
         elif (value := cell[key]) is None:
             missing.append(mid)
         else:
@@ -214,6 +224,7 @@ async def inventory_values(
         total=len(accepted),
         values=[GrainValue(value=v, text=v, minions=mids) for v, mids in newest_first],
         missing=missing,
+        failed=failed,
         unknown=unknown,
         oldest_read_at=min(times, default=None),
         newest_read_at=max(times, default=None),
@@ -227,7 +238,7 @@ async def inventory_changes(
     session: SessionDep,
     key: str | None = Query(None, description="only this package or check entry"),
     minion: str | None = Query(None, description="only this minion"),
-    limit: int = Query(100, ge=1, le=500),
+    limit: int = Query(100, ge=1, le=1000),
 ) -> list[InventoryChangeView]:
     """What appeared, changed or went away, newest first."""
     query = select(InventoryChange)

@@ -288,10 +288,36 @@ def test_check_values_sort_in_natural_order() -> None:
         ("test.ping", False),
         ("grains.items", False),
         ("pkg.list_pkgs", False),
+        # Shows what a state would do, without doing it.
+        ("state.show_sls", False),
+        ("state.show_highstate", False),
+        ("state.show_lowstate", False),
     ],
 )
 def test_jobs_that_may_change_software(fun: str, changes: bool) -> None:
-    assert inv.may_change_software(fun) is changes
+    assert inv.may_change_software(fun, []) is changes
+
+
+@pytest.mark.parametrize(
+    ("args", "changes"),
+    [
+        # A dry run: keyword arguments come as a dict (the salt CLI sends them so) or as a
+        # name=value string (a salt-api client can).
+        (["web", {"test": True, "__kwarg__": True}], False),
+        (["web", "test=True"], False),
+        (["web", "test=true"], False),
+        ([{"test": "True"}], False),
+        ([{"test": 1}], False),
+        (["web"], True),
+        (["web", {"test": False}], True),
+        (["web", "test=False"], True),
+        (["web", {"pillar": {"test": True}}], True),  # a pillar value, not the flag
+        (["test"], True),  # the state named "test"
+        (None, True),
+    ],
+)
+def test_a_dry_run_changes_nothing(args: Any, changes: bool) -> None:
+    assert inv.may_change_software("state.apply", args) is changes
 
 
 def test_acl_without_checks_is_just_the_package_list() -> None:
@@ -355,10 +381,17 @@ def test_due_rules() -> None:
     assert inv.is_due(None, now=T0, every=every, back_at=None)
     assert not inv.is_due(read, now=T0 + timedelta(hours=1), every=every, back_at=None)
     assert inv.is_due(read, now=T0 + every, every=every, back_at=None)
-    # Back online since the last answer.
+    # Back online since brine last asked (both by brine's clock), or never asked by brine (the
+    # answer was someone else's).
+    by_brine = _state(asked_at=T0, answered_at=T0 + timedelta(seconds=5))
     back = T0 + 5 * minute
-    assert inv.is_due(read, now=T0 + timedelta(hours=1), every=every, back_at=back)
-    assert not inv.is_due(read, now=T0 + timedelta(hours=1), every=every, back_at=T0)
+    assert inv.is_due(by_brine, now=T0 + timedelta(hours=1), every=every, back_at=back)
+    assert not inv.is_due(by_brine, now=T0 + timedelta(hours=1), every=every, back_at=T0)
+    assert inv.is_due(read, now=T0 + timedelta(hours=1), every=every, back_at=T0 - minute)
+    # Not the master's clock: an answer stamped before the comeback (the master's clock is
+    # behind brine's) doesn't make brine ask again.
+    behind = _state(asked_at=back + minute, answered_at=back - minute)
+    assert not inv.is_due(behind, now=back + 2 * minute, every=every, back_at=back)
     # Wanted again (a start, a job), once that time comes.
     wanted = _state(answered_at=T0, wanted_at=T0 + 2 * minute)
     assert not inv.is_due(wanted, now=T0 + minute, every=every, back_at=None)
@@ -424,7 +457,7 @@ def test_the_ask_made_for_a_job_is_past_the_clock_margin() -> None:
     assert inv.CLOCK_MARGIN < inv.AFTER_JOB
 
 
-# --- the sweep and Ask now ------------------------------------------------------------------
+# --- the sweep and Read now -----------------------------------------------------------------
 
 SECOND, MINUTE = timedelta(seconds=1), timedelta(minutes=1)
 ONLINE = ["dock-01", "rover-01", "rover-02"]  # make_api: rover-03 offline, rover-04 pending
@@ -533,6 +566,34 @@ def test_a_minion_that_came_back_is_asked(admin: tuple[Api, FakeSalt]) -> None:
     api.seed(api.ingest.presence_change, new=back, lost=[], at=now + 20 * SECOND)
     sweep(api, now + MINUTE)
     assert salt.asked("pkg.list_pkgs") == [*ONLINE, *back]
+    # Once asked after it came back, it isn't asked again: its latest change is the comeback,
+    # not the drop.
+    for mid in back:
+        answer(api, mid, {"bash": "5.2"}, at=now + MINUTE + SECOND)
+    sweep(api, now + inv.ANSWER_WAIT + MINUTE)
+    assert salt.asked("pkg.list_pkgs") == [*ONLINE, *back]
+
+
+def test_a_minion_that_came_back_is_asked_once_whatever_the_masters_clock(
+    admin: tuple[Api, FakeSalt],
+) -> None:
+    api, salt = admin
+    behind = 30 * SECOND  # the master's clock is this far behind brine's
+    now = datetime.now(UTC)
+    sweep(api, now)
+    for mid in ONLINE:
+        answer(api, mid, {"bash": "5.2"}, at=now + SECOND - behind)
+    api.seed(api.ingest.presence_change, new=[], lost=["rover-02"], at=now + 10 * SECOND)
+    back = now + 20 * SECOND  # by brine's clock, like its asks
+    api.seed(api.ingest.presence_change, new=["rover-02"], lost=[], at=back)
+    asked = back + 15 * SECOND
+    sweep(api, asked)
+    assert salt.asked("pkg.list_pkgs") == [*ONLINE, "rover-02"]
+    # Its answer is stamped before it came back, by the master's clock: still not asked again.
+    answer(api, "rover-02", {"bash": "5.2"}, at=asked + SECOND - behind)
+    for later in (15 * SECOND, MINUTE, inv.ANSWER_WAIT):
+        sweep(api, asked + later)
+    assert salt.asked("pkg.list_pkgs") == [*ONLINE, "rover-02"]
 
 
 def test_checks_are_asked_with_their_exact_command(with_checks: tuple[Api, FakeSalt]) -> None:
@@ -746,7 +807,7 @@ def test_values_split_versions_missing_and_unknown(admin: tuple[Api, FakeSalt]) 
         "package",
         4,
     )
-    assert (d["missing"], d["unknown"], d["refused"]) == (["dock-01"], [], None)
+    assert (d["missing"], d["unknown"], d["failed"], d["refused"]) == (["dock-01"], [], [], None)
     assert (when(d["oldest_read_at"]), when(d["newest_read_at"])) == (now - HOUR, now)
 
 
@@ -754,7 +815,7 @@ def test_never_read_minions_are_unknown_not_missing(admin: tuple[Api, FakeSalt])
     api, _ = admin
     now = datetime.now(UTC)
     read(api, "rover-01", {"rover-agent": "2.4.1"}, now)
-    # Only a failed answer is still unknown. Pending and rejected keys aren't counted at all.
+    # Only a failed answer: couldn't read. Pending and rejected keys aren't counted at all.
     api.seed(api.ingest.inventory_failed, "rover-02", "packages", "locked", at=now, jid=None)
     api.seed(api.ingest.key_event, "rover-05", "reject")
     for mid in ("rover-04", "rover-05"):
@@ -762,7 +823,37 @@ def test_never_read_minions_are_unknown_not_missing(admin: tuple[Api, FakeSalt])
     d = values(api, "@packages:rover-agent")
     assert [(v["text"], v["minions"]) for v in d["values"]] == [("2.4.1", ["rover-01"])]
     assert (d["total"], d["missing"]) == (4, [])
-    assert d["unknown"] == ["dock-01", "rover-02", "rover-03"]
+    assert (d["unknown"], d["failed"]) == (["dock-01", "rover-03"], ["rover-02"])
+
+
+def test_a_failed_last_answer_is_couldnt_read_unless_a_good_read_says(
+    with_checks: tuple[Api, FakeSalt],
+) -> None:
+    api, _ = with_checks
+    now = datetime.now(UTC)
+
+    def failed(mid: str, at: datetime) -> None:
+        api.seed(api.ingest.inventory_failed, mid, "containers", "exit 1", at=at, jid=None)
+
+    def cut_short(mid: str, images: dict[str, str], at: datetime) -> None:
+        api.seed(
+            api.ingest.inventory_read, mid, "containers", images, at=at, jid=None, truncated=True
+        )
+
+    # dock-01: a whole read, then a failure: the last good read still says.
+    read(api, "dock-01", {"db": "postgres:16"}, now - HOUR, source="containers")
+    failed("dock-01", now)
+    # rover-01: cut short without it, then a failure: couldn't read.
+    cut_short("rover-01", {"db": "postgres:16"}, now - HOUR)
+    failed("rover-01", now)
+    # rover-02: a failure, then a good read: the failure is over.
+    failed("rover-02", now - HOUR)
+    read(api, "rover-02", {"web": "web:1.4"}, now, source="containers")
+    # rover-03: cut short without it, nothing failed: no answer yet, as far as it goes.
+    cut_short("rover-03", {"db": "postgres:16"}, now)
+    d = values(api, "@containers:web")
+    assert [(v["text"], v["minions"]) for v in d["values"]] == [("web:1.4", ["rover-02"])]
+    assert (d["missing"], d["failed"], d["unknown"]) == (["dock-01"], ["rover-01"], ["rover-03"])
 
 
 def test_values_say_when_salt_api_refuses_the_source(admin: tuple[Api, FakeSalt]) -> None:
@@ -877,6 +968,8 @@ def test_changes_newest_first_by_key_and_by_minion(admin: tuple[Api, FakeSalt]) 
     assert both == [upgrade]
     assert len(api.get("/api/inventory/changes")) == 3
     assert [c["minion_id"] for c in api.get("/api/inventory/changes", limit=1)] == ["dock-01"]
+    # A minion's History asks for one more than the 500 it shows, to tell whether there are more.
+    assert len(api.get("/api/inventory/changes", minion="rover-02", limit=501)) == 2
 
 
 def test_minion_inventory_lists_every_source(with_checks: tuple[Api, FakeSalt]) -> None:
@@ -988,13 +1081,16 @@ def test_fleet_columns_show_values_missing_and_unknown(with_checks: tuple[Api, F
         "rover-02": {"app_version": None, "@containers:web": "web:1.4"},
         "rover-03": {"app_version": None},
     }
-    # The explorer tells versions, missing and unknown apart the same way.
+    # The explorer tells versions, missing and unknown apart the same way, and splits the
+    # unknown by whether the last answer was an error (rover-02's packages).
     for key in keys:
         d = values(api, key)
         held = {mid: c[key] for mid, c in cells.items() if c.get(key) is not None}
         assert {mid: v["value"] for v in d["values"] for mid in v["minions"]} == held, key
         assert d["missing"] == [mid for mid, c in cells.items() if key in c and c[key] is None]
-        assert d["unknown"] == [mid for mid, c in cells.items() if key not in c], key
+        unknown = [mid for mid, c in cells.items() if key not in c]
+        assert sorted(d["unknown"] + d["failed"]) == unknown, key
+        assert d["failed"] == (["rover-02"] if key == "@packages:rover-agent" else []), key
 
 
 def test_fleet_columns_that_arent_a_package_or_a_check_are_unknown(

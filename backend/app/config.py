@@ -171,8 +171,8 @@ _LEADING_KWARG = re.compile(r"[^\d\W][\w.-]*=")
 class InventoryConfig(_Strict):
     """Packages and checks: what brine reads from each minion and keeps over time."""
 
-    # How often each connected minion is read again (also after people's jobs and on Read now).
-    # From every 15 minutes to once a month.
+    # How often each connected minion is read again (also after jobs that may change software,
+    # and on Read now). From every 15 minutes to once a month.
     refresh_hours: float = Field(default=6, ge=0.25, le=24 * 30)
     # name -> a read-only shell command, on one line, run with cmd.run_all. `name=value` lines
     # become one entry each; any other output is one value. Print nothing when the thing isn't

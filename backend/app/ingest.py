@@ -291,12 +291,13 @@ class Ingest:
     #   which costs one more ask, never a wrong credit.
     # * A source's first read records what's there without changes. A truncated answer (cut
     #   short, so some entries may be missing) adds and updates entries but removes none.
-    # * Clocks: answers, jobs and starts are timed by the master, asks by brine. brine assumes
-    #   they agree to within CLOCK_MARGIN (NTP); then skew costs at most one more ask (and a
-    #   credit lost, if the answer before it already saw the job's changes), never a wrong
-    #   credit. With brine's clock further ahead, an ask sent just before a job can look sent
-    #   after it, so what its answer found before the job is credited to the job. Further
-    #   behind is still never a wrong credit.
+    # * Clocks: answers, jobs and starts are timed by the master; asks, Read now and a minion
+    #   coming back by brine, which compares a comeback only with its own asks (`is_due`).
+    #   brine assumes the two agree to within CLOCK_MARGIN (NTP); then skew costs at most one
+    #   more ask (and a credit lost, if the answer before it already saw the job's changes),
+    #   never a wrong credit. With brine's clock further ahead, an ask sent just before a job
+    #   can look sent after it, so what its answer found before the job is credited to the
+    #   job. Further behind is still never a wrong credit.
 
     async def _read_row(self, s: AsyncSession, mid: str, source: str) -> InventoryRead:
         await self._get_or_create(s, mid, "accepted")
@@ -738,15 +739,18 @@ class Ingest:
         async with self._lock, self._sessions() as s, s.begin():
             for job in (await s.scalars(select(Job).where(Job.jid.in_(wanted)))).all():
                 job.user = actor
+            # A fleet change refreshes the explorer's change lists, which say who.
             for read in await s.scalars(
                 select(InventoryRead).where(InventoryRead.after_jid.in_(wanted))
             ):
                 read.after_user = actor
+                changes.fleet = True
             for change in await s.scalars(
                 select(InventoryChange).where(InventoryChange.jid.in_(wanted))
             ):
                 change.user = actor
                 changes.minions.add(change.minion_id)
+                changes.fleet = True
         return changes
 
     async def job_return(

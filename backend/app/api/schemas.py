@@ -222,8 +222,10 @@ class InventoryDistribution(BaseModel):
     total: int  # accepted minions
     values: list[GrainValue]  # newest version first
     missing: list[str]  # answered without it
-    # Never read (no answer yet, or only failed ones), or the last read was cut short and
-    # doesn't list it (it may be past the cut).
+    # The last answer was an error, and no good read says whether it has it.
+    failed: list[str]
+    # No answer yet, or the last answer was cut short and doesn't list it (it may be past the
+    # cut).
     unknown: list[str]
     oldest_read_at: datetime | None  # of the accepted minions' last good reads
     newest_read_at: datetime | None

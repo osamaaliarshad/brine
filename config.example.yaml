@@ -60,7 +60,8 @@ fleet:
 
 inventory:                         # packages and checks: what's installed where, kept over time
   refresh_hours: 6                 # read each online minion this often (0.25 to 720); also after
-                                   # people's jobs, when a minion comes back, and on Read now
+                                   # jobs that may change software, when a minion comes back,
+                                   # and on Read now
   # Packages come from each minion's package manager. Checks are optional: one-line commands for
   # what the package manager doesn't know about, run with cmd.run_all.
   # checks:

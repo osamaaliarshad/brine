@@ -2,7 +2,7 @@
 
 brine asks connected minions for ``pkg.list_pkgs`` (their package manager's own list) and for
 each check in ``inventory.checks`` (a read-only command, run with ``cmd.run_all``). It asks every
-``inventory.refresh_hours``, again after a person's job that could change software, when a minion
+``inventory.refresh_hours``, again after a person's job that may change software, when a minion
 starts or comes back, and when someone clicks Read now. The answers arrive on the event bus like
 any job return; ``Ingest`` keeps the current entries and every change.
 
@@ -25,7 +25,7 @@ CHECK_FUN = "cmd.run_all"
 
 # A minion asked and not answered after this long is asked again when it's due.
 ANSWER_WAIT = timedelta(minutes=10)
-# Read again this long after a person's job that could change software finishes.
+# Read again this long after a person's job that may change software finishes.
 AFTER_JOB = timedelta(seconds=60)
 # brine assumes its clock and the master's (asks are timed by brine's, jobs by the master's)
 # agree to within this, as NTP keeps them. An ask timed less than this after a job may have
@@ -58,6 +58,8 @@ _SOFTWARE_PREFIXES = (
     *("state.", "pkg.", "cmd.", "docker.", "file.", "archive.", "cp.", "service."),
     *("pip.", "snap.", "flatpak.", "npm."),
 )
+# These state functions only show what a state would do.
+_SHOWS_ONLY = "state.show_"
 # C0 control characters but tab and newline. PostgreSQL text can't hold NUL (and
 # /proc/device-tree/model ends in one); the rest only garble what's shown. Newlines stay: a
 # check's single value is its lines joined by them.
@@ -124,11 +126,47 @@ def configured_key(settings: Settings, key: str) -> tuple[str, str] | None:
     return parsed
 
 
-def may_change_software(fun: str) -> bool:
-    """Whether a job running ``fun`` could change what's installed, so worth reading again."""
+def _is_true(value: object) -> bool:
+    """A flag such as ``test`` as Salt reads it (salt.utils.data.is_true): a number above 0, or
+    "true" in any case."""
+    if isinstance(value, str):
+        try:
+            return float(value) > 0
+        except ValueError:
+            return value.strip().lower() == "true"
+    if isinstance(value, int | float):
+        return value > 0
+    return bool(value)
+
+
+def _dry_run(args: object) -> bool:
+    """Whether a job's arguments (``fun_args``) ask for a dry run: ``test=True``, as a keyword
+    argument (a dict, as the salt CLI sends them) or a ``name=value`` string (a salt-api client
+    can send those)."""
+    if not isinstance(args, list):
+        return False
+    for arg in args:
+        if isinstance(arg, dict):
+            if any(str(k).lower() == "test" and _is_true(v) for k, v in arg.items()):
+                return True
+        elif isinstance(arg, str):
+            name, equals, value = arg.partition("=")
+            if equals and name.strip().lower() == "test" and _is_true(value):
+                return True
+    return False
+
+
+def may_change_software(fun: str, args: object) -> bool:
+    """Whether a job running ``fun`` with ``args`` (its ``fun_args``) could change what's
+    installed, so worth reading again. Not state.show_*, nor a dry run (``test=True``)."""
     # pkg.list_pkgs is brine's own read. cmd.run_all counts: a person can install things with it,
     # and brine's own check jobs are told apart elsewhere, as its service user's housekeeping.
-    return fun.startswith(_SOFTWARE_PREFIXES) and fun != PACKAGES_FUN
+    return (
+        fun.startswith(_SOFTWARE_PREFIXES)
+        and fun != PACKAGES_FUN
+        and not fun.startswith(_SHOWS_ONLY)
+        and not _dry_run(args)
+    )
 
 
 def _clean(text: str) -> str:
@@ -260,19 +298,24 @@ class ReadState:
     """A minion's reads of one source, as ``InventoryRead`` keeps them."""
 
     asked_jid: str | None  # brine's ask still out, if any
-    asked_at: datetime | None  # by brine's clock
+    asked_at: datetime | None  # brine's last ask, by brine's clock
     answered_at: datetime | None  # the last answer, by the master's clock
-    wanted_at: datetime | None  # read again from then (a start, a job)
+    # Read again from then: a start or a job (by the master's clock), or Read now (by brine's).
+    wanted_at: datetime | None
 
 
 def is_due(
     read: ReadState | None, *, now: datetime, every: timedelta, back_at: datetime | None
 ) -> bool:
-    """Whether to ask a minion now. ``back_at`` is when it last came online."""
+    """Whether to ask a minion now (``now`` by brine's clock). ``back_at`` is when it last came
+    online, by brine's clock too.
+
+    The refresh and a want compare brine's clock with the master's: off by CLOCK_MARGIN, they
+    come that much early or late. Waiting for an answer, and coming back, compare only brine's
+    own times."""
     if read is None:
         return True
-    # brine's ask is out: give the answer a while before asking again. Only brine's own clock is
-    # compared here.
+    # brine's ask is out: give the answer a while before asking again.
     if (
         read.asked_jid is not None
         and read.asked_at is not None
@@ -285,4 +328,7 @@ def is_due(
     # A want stays until brine's answer clears it, so a lost answer is asked again.
     if read.wanted_at is not None and read.wanted_at <= now:
         return True
-    return back_at is not None and answered < back_at
+    # Back since brine last asked (or brine never asked: the answer was someone else's). Not
+    # compared with the answer's time: with the master's clock behind brine's, an answer to the
+    # ask made for the comeback could look older than it, and the minion be asked again.
+    return back_at is not None and (read.asked_at is None or read.asked_at < back_at)

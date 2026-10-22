@@ -138,13 +138,14 @@ async def sweep(runtime: Runtime, now: datetime | None = None) -> None:
                 .where(*CONNECTED)
             )
         }
-        # When each last came online: one back since its last answer is read again.
+        # When each last came online: one back since brine last asked it is asked again. For a
+        # connected minion that's its latest change, so the (minion_id, at) index finds it.
         back = {
             mid: at
             for mid, at in await s.execute(
                 select(PresenceChange.minion_id, func.max(PresenceChange.at))
                 .join(Minion, Minion.id == PresenceChange.minion_id)
-                .where(PresenceChange.connected.is_(True), *CONNECTED)
+                .where(*CONNECTED)
                 .group_by(PresenceChange.minion_id)
             )
         }

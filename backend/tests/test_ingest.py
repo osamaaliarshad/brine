@@ -793,7 +793,8 @@ async def test_an_orchestrations_steps_credit_the_person_who_ran_it(
     # "a" is read while the orchestration still runs: credited to "salt" for now.
     await brine_reads(ingest, {"agent": "2.4.1"}, at=job_at + MINUTE, jid="A1", mid="a")
     changes = await ingest.job_owner(["S1", "S2"], "alice@example.com")
-    assert "a" in changes.minions
+    # The explorer's change lists show who: they refresh on a fleet change.
+    assert "a" in changes.minions and changes.fleet
     last = await last_change(sessions, "a")
     assert (last.jid, last.user) == ("S1", "alice@example.com")
     # "b" still waits for its read: its credit is the person's too.
@@ -804,6 +805,21 @@ async def test_an_orchestrations_steps_credit_the_person_who_ran_it(
     assert (last.jid, last.user) == ("S1", "alice@example.com")
     # Other jobs are left alone.
     assert (await read_row(sessions, "c")).after_user == "salt"
+
+
+async def test_job_owner_moves_the_fleet_only_when_it_credits_someone(
+    ingest: Ingest, sessions: Sessions
+) -> None:
+    job_at = T0 + HOUR
+    await ingest.inventory_read("a", "packages", {"agent": "2.3.0"}, at=T0, jid=None)
+    await ingest.job_new(jid="S1", kind="local", fun="state.sls", at=job_at, user="salt")
+    # No package or check change, and no credit waiting: just the job.
+    changes = await ingest.job_owner(["S1"], "alice@example.com")
+    assert (changes.jobs, changes.fleet, changes.minions) == ({"S1"}, False, set())
+    # A credit waiting for brine's read: it changes hands, so the fleet refreshes.
+    await ingest.inventory_job_done("a", jid="S2", user="salt", at=job_at)
+    changes = await ingest.job_owner(["S2"], "alice@example.com")
+    assert changes.fleet
 
 
 async def test_a_step_reported_after_job_owner_credits_the_person(

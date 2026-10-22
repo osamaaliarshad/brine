@@ -151,9 +151,9 @@ updater, not `state.apply`.
   and robots that are offline get the command when they reconnect (for up to 7 days, by
   default).
 - **Packages and checks:** brine reads every robot's packages (so `nvidia-l4t-core` and
-  `nvidia-jetpack` too) every 6 hours by default, after people's jobs, and when a robot comes
-  back. Checks cover what apt doesn't know, such as the release the board reports. A check goes
-  under `inventory.checks` in brine's config, like
+  `nvidia-jetpack` too) every 6 hours by default, after jobs that may change software, and when
+  a robot comes back. Checks cover what apt doesn't know, such as the release the board
+  reports. A check goes under `inventory.checks` in brine's config, like
   `jetson: "head -1 /etc/nv_tegra_release 2>/dev/null || true"`, which prints a line like
   `# R36 (release), REVISION: 4.3, ...`. Checks need more from brine's Salt account than reading
   packages does (section 6). Fleet › Grains & packages shows which robots run which version;

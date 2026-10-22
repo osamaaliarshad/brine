@@ -401,9 +401,12 @@ class Collector:
         """Packages and checks from a job's return: an answer, or a job to read again after."""
         try:
             # An answer is a read-only call: it never wants a re-read or a credit.
-            if source := self._inventory_source(fun, d.get("fun_args")):
+            args = d.get("fun_args")
+            if source := self._inventory_source(fun, args):
                 return await self._inventory_answer(mid, jid, source, d, at)
-            if not self.ingest.is_housekeeping(user, fun) and inventory.may_change_software(fun):
+            if not self.ingest.is_housekeeping(user, fun) and inventory.may_change_software(
+                fun, args
+            ):
                 await self.ingest.inventory_job_done(mid, jid=jid, user=user, at=at)
         except Exception:  # derived data, read again anyway: not worth ending the session
             log.exception("couldn't record packages or checks from job %s on %s", jid, mid)

@@ -98,6 +98,11 @@ def test_everything_needs_a_user_except_sign_in_and_health(client: TestClient) -
         "/api/stream",
         "/api/events/stream",
         "/api/audit",
+        "/api/inventory/keys",
+        "/api/inventory/values?key=@packages:x",
+        "/api/inventory/changes",
+        "/api/inventory/compare?reference=x",
+        "/api/minions/x/inventory",
     ]:
         assert client.get(path).status_code == 401, path
     assert client.get("/api/healthz").status_code == 200

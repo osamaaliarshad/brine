@@ -182,17 +182,19 @@ Choices that keep it predictable:
 brine keeps each minion's `pkg.list_pkgs` and the output of optional checks (one-line commands
 run with `cmd.run_all`), over time. Not as grains: that would mean deploying a module, a much
 bigger `grains.items` on the CLI, and data only as fresh as the last grains refresh. brine asks
-the minions itself (every `inventory.refresh_hours`, a minute after a person's job that could
+the minions itself (every `inventory.refresh_hours`, a minute after a person's job that may
 change software, when a minion starts or comes back, and on Read now), so nothing changes on the
-master or the minions.
+master or the minions. `state.show_*` and runs with `test=True` change nothing, so they aren't
+followed by a read.
 
 A read only shows what changed since the one before, so a change is "found after" a job, never
 "made by" it. It's credited to a job only when brine's own read finds it, asked between 30
 seconds and about 13 minutes after the job; otherwise it shows the time between the two reads.
 After several jobs, none gets the credit. Anything uncertain costs a credit, never gives a wrong
 one, as long as brine's clock isn't more than 30 seconds ahead of the master's (NTP). What a
-minion hasn't reported, because it hasn't answered or its last answer was cut short, shows as
-"No answer yet" (`?`), never "Not installed"; a source cut short isn't compared.
+minion hasn't reported shows as "No answer yet" (it hasn't answered, or its last answer was cut
+short) or "Couldn't read" (its last answer was an error), `?` in a Fleet column, never "Not
+installed"; a source cut short isn't compared.
 
 Two gaps: minions presence can't see (decision 12) are never read, and jobs imported from the job
 cache after a reconnect don't trigger a read; the next read finds their changes, uncredited.
