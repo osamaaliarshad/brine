@@ -4,6 +4,7 @@ import { Link, useNavigate, useSearchParams } from 'react-router'
 import { useCapabilities, useCommandPreview, useRunCommand, useTemplates } from '@/api/queries'
 import type { CommandPreview, CommandRequest, CommandTemplate, TargetType } from '@/api/types'
 import { JsonTree } from '@/components/JsonView'
+import { Select } from '@/components/Listbox'
 import { PageHeader } from '@/components/PageHeader'
 import { Badge, Card } from '@/components/ui'
 import { cn } from '@/lib/cn'
@@ -258,25 +259,18 @@ export function RunPage() {
               }}
             >
               <div className={cn('flex flex-col gap-2 sm:flex-row', master && 'opacity-50')}>
-                <label className="sr-only" htmlFor="target-type">
-                  Target type
-                </label>
-                <select
-                  id="target-type"
+                <Select
+                  label="Target type"
                   value={targetType}
+                  options={TARGET_TYPES}
                   disabled={master}
-                  onChange={(event) => {
-                    setTargetType(asTargetType(event.target.value))
+                  onChange={(type) => {
+                    setTargetType(type)
                     changed()
                   }}
-                  className={cn(CONTROL, 'cursor-pointer sm:w-36')}
-                >
-                  {TARGET_TYPES.map((t) => (
-                    <option key={t.value} value={t.value}>
-                      {t.label}
-                    </option>
-                  ))}
-                </select>
+                  className="sm:w-36"
+                  buttonClassName={cn(CONTROL, 'cursor-pointer')}
+                />
                 <input
                   aria-label="Target"
                   value={master ? '' : target}

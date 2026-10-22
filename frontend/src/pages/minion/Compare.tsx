@@ -4,6 +4,7 @@ import { Link, useSearchParams } from 'react-router'
 import { ApiError } from '@/api/client'
 import { useComparison, useFleet, useFleetComparison } from '@/api/queries'
 import type { ComparedMinion, InventorySource, MinionStatus } from '@/api/types'
+import { Select } from '@/components/Listbox'
 import { MinionChip } from '@/components/MinionChip'
 import { cn } from '@/lib/cn'
 import { explorerPath, keyDescription, keyKind, keyLabel, keyOf, missingLabel } from '@/lib/inventoryKey'
@@ -222,19 +223,14 @@ export function Compare({ minionId, sources, now }: { minionId: string; sources:
   return (
     <div className="border-b">
       <div className="flex flex-wrap items-center gap-2 px-4 py-3 sm:px-6">
-        <select
-          aria-label="Compare with"
+        <Select
+          label="Compare with"
+          placeholder="Compare with…"
           value={other ?? ''}
-          onChange={(e) => setParams(withCompare(e.target.value || null), { replace: true })}
-          className="h-9 min-w-0 rounded-lg border bg-bg px-2 text-sm"
-        >
-          <option value="">Compare with…</option>
-          {others.map((id) => (
-            <option key={id} value={id}>
-              {id}
-            </option>
-          ))}
-        </select>
+          options={others.map((id) => ({ value: id, label: id }))}
+          onChange={(id) => setParams(withCompare(id), { replace: true })}
+          className="min-w-0"
+        />
         {other && (
           <button type="button" onClick={() => setParams(withCompare(null), { replace: true })} className={BUTTON}>
             <X className="size-4 shrink-0 text-muted" aria-hidden />

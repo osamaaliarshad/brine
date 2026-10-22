@@ -328,20 +328,30 @@ describe('MinionPage', () => {
     expect(screen.getByText('4 differences')).toBeInTheDocument()
     // Sources only one of them has read in full aren't compared, and it says which.
     expect(screen.getByText(/Not compared: the containers, ports and gpu checks/)).toBeInTheDocument()
-    const pick = screen.getByRole('combobox', { name: 'Compare with' })
-    expect(pick).toHaveValue('rover-03')
-    expect(within(pick).getAllByRole('option').map((o) => o.textContent)).toEqual([
-      'Compare with…',
-      'dock-01',
-      'rover-02',
-      'rover-03',
-    ])
+    // The current choice is in the button's name; the list marks it.
+    const pick = screen.getByRole('button', { name: 'Compare with rover-03' })
+    expect(pick).toHaveAttribute('aria-haspopup', 'listbox')
+    await user.click(pick)
+    const list = screen.getByRole('listbox', { name: 'Compare with' })
+    expect(list).toHaveFocus()
+    expect(within(list).getAllByRole('option').map((o) => o.textContent)).toEqual(['dock-01', 'rover-02', 'rover-03'])
+    expect(within(list).getByRole('option', { selected: true })).toHaveTextContent('rover-03')
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('listbox')).toBeNull()
+    expect(pick).toHaveFocus()
 
     await user.click(screen.getByRole('button', { name: 'Stop comparing' }))
     expect(screen.queryByRole('table', { name: /differ/ })).toBeNull()
     expect(Object.fromEntries(new URLSearchParams(router.state.location.search))).toEqual({ tab: 'packages' })
+    // Nothing chosen: it reads "Compare with…", and that's all its name says.
+    expect(pick).toHaveAccessibleName('Compare with')
+    expect(pick).toHaveTextContent('Compare with…')
 
-    await user.selectOptions(pick, 'dock-01')
+    await user.click(pick)
+    expect(within(screen.getByRole('listbox')).queryByRole('option', { selected: true })).toBeNull()
+    await user.click(screen.getByRole('option', { name: 'dock-01' }))
+    expect(screen.queryByRole('listbox')).toBeNull()
+    expect(pick).toHaveAccessibleName('Compare with dock-01')
     expect(Object.fromEntries(new URLSearchParams(router.state.location.search))).toEqual({
       tab: 'packages',
       compare: 'dock-01',
@@ -350,11 +360,14 @@ describe('MinionPage', () => {
   })
 
   it('ignores a comparison with itself', async () => {
+    const user = userEvent.setup()
     const fetchMock = renderWith({}, '/minions/rover-01?tab=packages&compare=rover-01').fetchMock
-    const pick = await screen.findByRole('combobox', { name: 'Compare with' })
-    await waitFor(() => expect(within(pick).getAllByRole('option')).toHaveLength(4))
-    expect(pick).toHaveValue('')
-    expect(within(pick).queryByRole('option', { name: 'rover-01' })).toBeNull()
+    const pick = await screen.findByRole('button', { name: 'Compare with' })
+    expect(pick).toHaveTextContent('Compare with…')
+    // Opens once the fleet is there to choose from.
+    await user.click(pick)
+    const list = await screen.findByRole('listbox', { name: 'Compare with' })
+    expect(within(list).getAllByRole('option').map((o) => o.textContent)).toEqual(['dock-01', 'rover-02', 'rover-03'])
     expect(screen.queryByRole('button', { name: 'Stop comparing' })).toBeNull()
     expect(fetchMock.mock.calls.some(([u]) => String(u).includes('/api/inventory/compare'))).toBe(false)
   })
@@ -423,7 +436,7 @@ describe('MinionPage', () => {
 
     await user.click(within(list).getByRole('link', { name: 'Compare with rover-03' }))
     expect(await screen.findByRole('table', { name: 'Where rover-01 and rover-03 differ' })).toBeInTheDocument()
-    expect(screen.getByRole('combobox', { name: 'Compare with' })).toHaveValue('rover-03')
+    expect(screen.getByRole('button', { name: 'Compare with rover-03' })).toHaveTextContent('rover-03')
   })
 
   it('says there is nothing to compare until this minion is read in full', async () => {

@@ -1,4 +1,4 @@
-import { screen, within } from '@testing-library/react'
+import { act, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 import type { Capabilities, CommandPreview, User } from '@/api/types'
@@ -100,11 +100,109 @@ describe('RunPage', () => {
     api()
     renderApp('/run?target=rover-01&type=list')
     expect(await screen.findByRole('textbox', { name: 'Target' })).toHaveValue('rover-01')
-    expect(screen.getByRole('combobox', { name: 'Target type' })).toHaveValue('list')
+    expect(screen.getByRole('button', { name: 'Target type List' })).toHaveTextContent('List')
     await user.type(screen.getByRole('textbox', { name: 'Command' }), 'test.ping{Enter}')
     expect(await screen.findByRole('button', { name: /Run on/ })).toBeInTheDocument()
     await user.type(screen.getByRole('textbox', { name: 'Command' }), ' extra')
     expect(screen.queryByRole('button', { name: /Run on/ })).toBeNull()
+  })
+
+  it('picks the target type from its own list, by keyboard', async () => {
+    const user = userEvent.setup()
+    const sent = api()
+    renderApp('/run')
+    const type = await screen.findByRole('button', { name: 'Target type Glob' })
+    expect(type).toHaveAttribute('aria-haspopup', 'listbox')
+    expect(type).toHaveAttribute('aria-expanded', 'false')
+
+    // Down opens it on the current choice, which is marked.
+    act(() => type.focus())
+    await user.keyboard('{ArrowDown}')
+    const list = screen.getByRole('listbox', { name: 'Target type' })
+    expect(type).toHaveAttribute('aria-expanded', 'true')
+    expect(type).toHaveAttribute('aria-controls', list.id)
+    expect(list).toHaveFocus()
+    expect(within(list).getAllByRole('option').map((o) => o.textContent)).toEqual([
+      'Glob', 'List', 'Compound', 'Grain', 'Nodegroup', 'Regex',
+    ])
+    const glob = within(list).getByRole('option', { name: 'Glob' })
+    expect(glob).toHaveAttribute('aria-selected', 'true')
+    expect(list).toHaveAttribute('aria-activedescendant', glob.id)
+
+    // Arrows move, Enter picks and goes back to the button.
+    await user.keyboard('{ArrowDown}{ArrowDown}{Enter}')
+    expect(screen.queryByRole('listbox')).toBeNull()
+    expect(type).toHaveFocus()
+    expect(type).toHaveAccessibleName('Target type Compound')
+    expect(screen.getByRole('textbox', { name: 'Target' })).toHaveAttribute('placeholder', 'G@os:Debian and rover-*')
+
+    // Space opens it too; End goes to the last, Space picks.
+    await user.keyboard(' ')
+    expect(screen.getByRole('listbox')).toHaveFocus()
+    await user.keyboard('{End} ')
+    expect(screen.queryByRole('listbox')).toBeNull()
+    expect(type).toHaveAccessibleName('Target type Regex')
+
+    // Enter opens it; Escape closes it unchanged, back on the button.
+    await user.keyboard('{Enter}{Home}{Escape}')
+    expect(screen.queryByRole('listbox')).toBeNull()
+    expect(type).toHaveFocus()
+    expect(type).toHaveAccessibleName('Target type Regex')
+
+    // A letter goes to the first option starting with it; the same letter again, to the next.
+    const highlighted = () => document.getElementById(screen.getByRole('listbox').getAttribute('aria-activedescendant')!)
+    await user.keyboard('{ArrowDown}g')
+    expect(highlighted()).toHaveTextContent('Glob')
+    await user.keyboard('g')
+    expect(highlighted()).toHaveTextContent('Grain')
+    // Typed quickly, letters spell out the start of one.
+    await user.keyboard('{Escape}{ArrowDown}no')
+    expect(highlighted()).toHaveTextContent('Nodegroup')
+    await user.keyboard('{Enter}')
+    expect(type).toHaveAccessibleName('Target type Nodegroup')
+
+    // The preview asks for that type.
+    await user.type(screen.getByRole('textbox', { name: 'Target' }), 'rovers')
+    await user.type(screen.getByRole('textbox', { name: 'Command' }), 'test.ping{Enter}')
+    await screen.findByRole('button', { name: /Run on/ })
+    expect(sent[0]!.body).toEqual({ command: 'test.ping', target: 'rovers', target_type: 'nodegroup' })
+  })
+
+  it('picks the target type with the mouse, and closes on a click elsewhere', async () => {
+    const user = userEvent.setup()
+    api()
+    renderApp('/run')
+    const type = await screen.findByRole('button', { name: 'Target type Glob' })
+    await user.click(type)
+    await user.click(screen.getByRole('option', { name: 'List' }))
+    expect(screen.queryByRole('listbox')).toBeNull()
+    expect(type).toHaveAccessibleName('Target type List')
+
+    await user.click(type)
+    expect(screen.getByRole('listbox')).toBeInTheDocument()
+    await user.click(type) // the button again closes it
+    expect(screen.queryByRole('listbox')).toBeNull()
+
+    await user.click(type)
+    await user.click(screen.getByRole('heading', { name: 'Run a command' }))
+    expect(screen.queryByRole('listbox')).toBeNull()
+    expect(type).toHaveAttribute('aria-expanded', 'false')
+    expect(type).toHaveAccessibleName('Target type List')
+  })
+
+  it("can't change the target type for a command that runs on the master", async () => {
+    const user = userEvent.setup()
+    api()
+    renderApp('/run')
+    await user.type(await screen.findByRole('textbox', { name: 'Command' }), 'runners.manage.status')
+    const type = screen.getByRole('button', { name: 'Target type Glob' })
+    expect(type).toBeDisabled()
+    await user.click(type)
+    expect(screen.queryByRole('listbox')).toBeNull()
+    // Nor reach it from the keyboard: Tab goes past it.
+    await user.tab({ shift: true })
+    expect(type).not.toHaveFocus()
+    expect(screen.queryByRole('listbox')).toBeNull()
   })
 
   it('opens a shared link already previewed, without running it', async () => {

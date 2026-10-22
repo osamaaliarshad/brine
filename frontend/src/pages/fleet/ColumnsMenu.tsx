@@ -1,14 +1,107 @@
 import { ArrowDown, ArrowUp, Columns3, Plus, X } from 'lucide-react'
-import { type FormEvent, useEffect, useId, useRef, useState } from 'react'
-import { Link, useSearchParams } from 'react-router'
-import { useGrainKeys } from '@/api/queries'
-import type { Column } from '@/api/types'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { INVENTORY_KEYS_LIMIT, useGrainKeys, useInventoryKeys } from '@/api/queries'
+import type { Column, InventoryKey } from '@/api/types'
+import { Combobox, type ComboboxOption } from '@/components/Listbox'
 import { cn } from '@/lib/cn'
 import { keyDescription, keyKind, keyLabel } from '@/lib/inventoryKey'
+import { useDebounced } from '@/lib/useDebounced'
 import { addGrain, moveGrain } from '@/pages/fleet/columnPrefs'
 
 const ICON_BTN =
   'flex size-7 items-center justify-center rounded-md text-muted hover:bg-surface-2 hover:text-fg disabled:opacity-30 disabled:hover:bg-transparent'
+
+// As in the explorer: packages are only searched from this many letters (one would match most
+// of them), once typing pauses.
+const MIN_SEARCH = 2
+const SEARCH_DELAY_MS = 250
+// More grains than this make a wall to scroll through: typing narrows them instead.
+const MAX_GRAINS = 50
+// The menu keeps this far from the screen's edges (as its max-w does: 100vw less 2rem).
+const GUTTER = 16
+
+const minions = (n: number) => `${n} minion${n === 1 ? '' : 's'}`
+
+/** Like the server's search: a package by its name, a check's entry by its name or the check's. */
+function matches(k: InventoryKey, needle: string): boolean {
+  return k.name.toLowerCase().includes(needle) || (k.kind === 'check' && k.source.toLowerCase().includes(needle))
+}
+
+function option(key: string, count: number, tag?: string): ComboboxOption {
+  return { value: key, label: keyLabel(key), tag, hint: minions(count), title: keyDescription(key) }
+}
+
+/** Add any grain, package or check as a column: suggested as you type, or a grain path typed out. */
+function AddColumn({ columns, onAdd }: { columns: string[]; onAdd: (key: string) => void }) {
+  const [draft, setDraft] = useState('')
+  const typed = draft.trim()
+  const needle = typed.toLowerCase()
+  const grainKeys = useGrainKeys(true)
+  const settled = useDebounced(typed, SEARCH_DELAY_MS)
+  const short = typed.length < MIN_SEARCH
+  // Back to the checks and the packages that differ as soon as the search is cleared, not after
+  // the pause.
+  const inventory = useInventoryKeys(short || settled.length < MIN_SEARCH ? '' : settled)
+  // What's typed hasn't been searched for yet (still typing, or the answer is on its way).
+  const searching = !short && (settled !== typed || inventory.isPlaceholderData)
+
+  const grains = (grainKeys.data ?? []).filter((k) => !columns.includes(k.key) && k.key.toLowerCase().includes(needle))
+  const found = (inventory.data ?? []).filter((k) => !columns.includes(k.key) && (!needle || matches(k, needle)))
+  // Not searching: the checks, then the packages that differ across the fleet.
+  const items = short ? [...found.filter((k) => k.kind === 'check'), ...found.filter((k) => k.kind === 'package')] : found
+  // Under the packages and checks: why there are none yet, or how to find others.
+  const inventoryNote = () => {
+    if (inventory.isError) return `Couldn't load packages and checks: ${inventory.error.message}`
+    if (searching) return 'Searching…'
+    if (!inventory.isSuccess) return undefined
+    if (short) return 'Type 2 or more letters to find any package'
+    return inventory.data.length >= INVENTORY_KEYS_LIMIT ? 'Type to narrow…' : undefined
+  }
+
+  const add = (key: string) => {
+    onAdd(key)
+    setDraft('')
+  }
+
+  return (
+    <form
+      onSubmit={(event) => {
+        event.preventDefault()
+        add(draft)
+      }}
+      className="mt-2"
+    >
+      <Combobox
+        label="Add a grain, package or check"
+        placeholder="Add a grain, package or check"
+        value={draft}
+        onChange={setDraft}
+        onPick={add}
+        groups={[
+          {
+            label: 'Grains',
+            options: grains.slice(0, MAX_GRAINS).map((k) => option(k.key, k.minions)),
+            note: grains.length > MAX_GRAINS ? 'Type to narrow…' : undefined,
+          },
+          {
+            label: 'Packages and checks',
+            options: items.map((k) => option(k.key, k.minions, k.kind)),
+            note: inventoryNote(),
+          },
+        ]}
+      >
+        <button
+          type="submit"
+          disabled={!typed}
+          className="flex h-9 items-center gap-1 rounded-lg bg-accent px-3 text-sm font-medium text-accent-fg disabled:opacity-40"
+        >
+          <Plus className="size-4" aria-hidden />
+          Add
+        </button>
+      </Combobox>
+    </form>
+  )
+}
 
 /** Beside a column's label: a grain's path when the label differs, or whether it's a package or check. */
 function ColumnNote({ column }: { column: Column }) {
@@ -41,15 +134,20 @@ export function ColumnsMenu({
   buttonClassName?: string
 }) {
   const [open, setOpen] = useState(false)
-  const [draft, setDraft] = useState('')
+  // How far right of its usual place (right edge under the button's) the menu goes.
+  const [shift, setShift] = useState(0)
   const ref = useRef<HTMLDivElement>(null)
-  const listId = useId()
-  const keys = useGrainKeys(open)
+  const dialog = useRef<HTMLDivElement>(null)
   const grains = grainColumns.map((c) => c.grain)
-  // The explorer tab, keeping the table's filters and sort for when the person comes back.
-  const [params] = useSearchParams()
-  const explorer = new URLSearchParams(params)
-  explorer.set('tab', 'grains')
+
+  // On a phone the button can be at the left of its row, where a menu hanging left from it would
+  // be off the screen: move it right, as far as it takes to stay on screen.
+  useLayoutEffect(() => {
+    const width = dialog.current?.offsetWidth
+    const button = ref.current?.getBoundingClientRect()
+    if (!open || !width || !button) return
+    setShift(Math.max(0, Math.min(GUTTER - (button.right - width), window.innerWidth - GUTTER - button.right)))
+  }, [open])
 
   useEffect(() => {
     if (!open) return
@@ -68,13 +166,6 @@ export function ColumnsMenu({
     }
   }, [open])
 
-  const add = (event: FormEvent) => {
-    event.preventDefault()
-    const next = addGrain(grains, draft)
-    if (next !== grains) onChangeGrains(next)
-    setDraft('')
-  }
-
   return (
     <div ref={ref} className="relative">
       <button
@@ -89,8 +180,10 @@ export function ColumnsMenu({
       </button>
       {open && (
         <div
+          ref={dialog}
           role="dialog"
           aria-label="Choose columns"
+          style={{ right: -shift }}
           className="absolute right-0 z-20 mt-2 w-80 max-w-[calc(100vw-2rem)] rounded-xl border bg-surface p-3 shadow-xl"
         >
           {builtins.map((col) => (
@@ -112,7 +205,7 @@ export function ColumnsMenu({
             Grains & packages
           </div>
           {grainColumns.length === 0 && (
-            <p className="px-2 py-1 text-sm text-muted">None. Add a grain below.</p>
+            <p className="px-2 py-1 text-sm text-muted">None. Add a grain, package or check below.</p>
           )}
           <ul>
             {grainColumns.map((col, i) => (
@@ -151,40 +244,13 @@ export function ColumnsMenu({
             ))}
           </ul>
 
-          <form onSubmit={add} className="mt-2 flex gap-2">
-            <input
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              list={listId}
-              placeholder="Add a grain, e.g. osfinger or hw:model"
-              aria-label="Grain to add"
-              className="h-9 min-w-0 flex-1 rounded-lg border bg-bg px-2.5 font-mono text-sm outline-none placeholder:font-sans placeholder:text-muted focus:border-accent"
-            />
-            <datalist id={listId}>
-              {keys.data
-                ?.filter((k) => !grains.includes(k.key))
-                .map((k) => (
-                  <option key={k.key} value={k.key}>
-                    {`${k.minions} minion${k.minions === 1 ? '' : 's'}`}
-                  </option>
-                ))}
-            </datalist>
-            <button
-              type="submit"
-              disabled={!draft.trim()}
-              className="flex h-9 items-center gap-1 rounded-lg bg-accent px-3 text-sm font-medium text-accent-fg disabled:opacity-40"
-            >
-              <Plus className="size-4" aria-hidden />
-              Add
-            </button>
-          </form>
-          <p className="mt-2 px-2 text-xs text-muted">
-            For a package or check, open{' '}
-            <Link to={{ search: `?${explorer}` }} className="text-fg underline underline-offset-2 hover:text-accent">
-              Grains & packages
-            </Link>{' '}
-            and pick Add as a Fleet column.
-          </p>
+          <AddColumn
+            columns={grains}
+            onAdd={(key) => {
+              const next = addGrain(grains, key)
+              if (next !== grains) onChangeGrains(next)
+            }}
+          />
 
           <div className="mt-3 flex items-center justify-between border-t px-2 pt-2 text-xs text-muted">
             <span>Saved in this browser</span>
