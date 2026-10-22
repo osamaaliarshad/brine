@@ -853,10 +853,17 @@ class Ingest:
                 delete(IssueRead).where(IssueRead.user == user, IssueRead.key.in_(list(keys)))
             )
 
-    async def issues_forget(self, keys: Iterable[str]) -> None:
-        """Everyone's marks on these issues, which have gone."""
+    def now(self) -> datetime:
+        """The time by brine's clock, as it stamps what it writes."""
+        return self._clock()
+
+    async def issues_forget(self, keys: Iterable[str], *, before: datetime) -> None:
+        """Everyone's marks on these issues, which have gone, made before `before` (when they
+        were seen gone): a mark made since is on the issue as it came back."""
         async with self._lock, self._sessions() as s, s.begin():
-            await s.execute(delete(IssueRead).where(IssueRead.key.in_(list(keys))))
+            await s.execute(
+                delete(IssueRead).where(IssueRead.key.in_(list(keys)), IssueRead.read_at < before)
+            )
 
     # --- system state ---------------------------------------------------------------------
 

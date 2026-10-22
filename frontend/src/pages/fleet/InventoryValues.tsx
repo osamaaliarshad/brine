@@ -110,7 +110,7 @@ function Changes({
         <button
           type="button"
           aria-expanded={open}
-          aria-controls={bodyId}
+          aria-controls={open ? bodyId : undefined}
           onClick={toggle}
           className="flex w-full items-center gap-2 px-4 py-3 text-xs font-medium uppercase tracking-wider text-muted hover:text-fg sm:px-6"
         >

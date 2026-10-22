@@ -372,3 +372,18 @@ async def test_old_read_marks_are_pruned(
     )
     assert deleted["issue_reads"] == 1
     assert await kept() == ["job-missing:2"]
+
+
+async def test_forgetting_spares_marks_made_since_the_issues_were_listed(
+    ingest: Ingest, clock: FakeClock, sessions: async_sessionmaker[AsyncSession]
+) -> None:
+    # One person's page found K gone; meanwhile K came back and someone marked it read again.
+    await ingest.issues_read("alice", {"k": "f1"})
+    clock.advance(minutes=1)
+    listed_at = ingest.now()
+    clock.advance(seconds=1)
+    await ingest.issues_read("bob", {"k": "f2"})
+    await ingest.issues_forget({"k"}, before=listed_at)
+    async with sessions() as s:
+        kept = [(r.user, r.key) for r in await s.scalars(select(IssueRead))]
+    assert kept == [("bob", "k")]

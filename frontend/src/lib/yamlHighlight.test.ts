@@ -50,6 +50,15 @@ describe('highlightYaml', () => {
     ])
   })
 
+  it('reads files with Windows line endings the same', () => {
+    expect(tokens('nginx:\r\n  pkg.installed:\r\n    -\r\n')).toEqual([
+      [['nginx', 'key'], [':', 'punct'], ['\r', '']],
+      [['  ', ''], ['pkg.installed', 'fn'], [':', 'punct'], ['\r', '']],
+      [['    ', ''], ['-', 'punct'], ['\r', '']],
+      [],
+    ])
+  })
+
   it('keeps every character, so the lines read as they are', () => {
     const source = "a:\n  - [1, two]\n  - {k: v}\n---\n\tweird: 'it''s'  # ok"
     expect(highlightYaml(source).map((line) => line.map((t) => t.text).join(''))).toEqual(source.split('\n'))

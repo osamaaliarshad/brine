@@ -125,12 +125,13 @@ function ThemeSwitch({ collapsed }: { collapsed: boolean }) {
         aria-label="Dark theme"
         title={`Switch to ${dark ? 'light' : 'dark'} theme`}
         onClick={() => setTheme(dark ? 'light' : 'dark')}
-        className="relative flex shrink-0 rounded-full border bg-surface-2 p-0.5 text-muted hover:text-fg"
+        className="relative flex shrink-0 rounded-full border bg-surface-2 p-0.5 text-muted transition-colors hover:bg-border"
       >
+        {/* The knob: raised on paper, a lighter disc in the dark (a shadow doesn't show there). */}
         <span
           aria-hidden
           className={cn(
-            'absolute top-0.5 left-0.5 size-6 rounded-full bg-surface shadow-sm transition-transform',
+            'absolute top-0.5 left-0.5 size-6 rounded-full bg-surface shadow-sm transition-transform dark:bg-fg/15 dark:shadow-none',
             dark && 'translate-x-6',
           )}
         />

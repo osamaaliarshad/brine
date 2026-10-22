@@ -89,8 +89,10 @@ def _issue(
 
 @router.get("/issues", response_model=list[Issue])
 async def issues(runtime: RuntimeDep, session: SessionDep, user: CurrentUser) -> list[Issue]:
+    # Marks made from here on are on issues as this list doesn't know them: forgetting spares them.
+    listed_at = runtime.ingest.now()
     found = await current_issues(runtime, session)
-    await forget_gone(runtime, session, found)
+    await forget_gone(runtime, session, found, listed_at)
     mine = select(IssueRead.key, IssueRead.fingerprint).where(IssueRead.user == user.email)
     read = {key: fingerprint for key, fingerprint in await session.execute(mine)}
     for issue in found:
@@ -112,15 +114,17 @@ async def mark_read(
     return MarkReadResult(marked=list(marked), changed=changed)
 
 
-async def forget_gone(runtime: RuntimeDep, session: SessionDep, found: list[Issue]) -> None:
+async def forget_gone(
+    runtime: RuntimeDep, session: SessionDep, found: list[Issue], listed_at: datetime
+) -> None:
     """Drop everyone's marks on issues that have gone: fixed, nothing of them is kept, and one that
     comes back is new. Not while brine can't see the fleet, when an issue can vanish unfixed."""
     current = {issue.key for issue in found}
     if current & BLINDING:
         return
-    marked = set(await session.scalars(select(IssueRead.key).distinct()))
-    if gone := marked - current:
-        await runtime.ingest.issues_forget(gone)
+    older = select(IssueRead.key).where(IssueRead.read_at < listed_at).distinct()
+    if gone := set(await session.scalars(older)) - current:
+        await runtime.ingest.issues_forget(gone, before=listed_at)
 
 
 @router.post("/issues/unread", status_code=204)

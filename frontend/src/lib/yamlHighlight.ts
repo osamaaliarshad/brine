@@ -137,7 +137,14 @@ function valueTokens(line: string, from: number, out: Token[]): boolean {
 export function highlightYaml(source: string): Token[][] {
   // Inside a block of text (after `key: |`): lines indented past the key's line are text.
   let blockIndent: number | null = null
-  return source.split('\n').map((line) => {
+  return source.split('\n').map((full) => {
+    // A Windows line ending stays, as plain text, but doesn't count as part of the line.
+    const line = full.endsWith('\r') ? full.slice(0, -1) : full
+    const tokens = highlightLine(line)
+    return line === full ? tokens : [...tokens, { text: '\r' }]
+  })
+
+  function highlightLine(line: string): Token[] {
     const indent = matchAt(INDENT, line, 0) ?? ''
     if (blockIndent !== null) {
       if (!line.trim()) return line ? [{ text: line }] : []
@@ -165,5 +172,5 @@ export function highlightYaml(source: string): Token[][] {
     }
     if (valueTokens(line, i, out)) blockIndent = indent.length
     return out
-  })
+  }
 }
