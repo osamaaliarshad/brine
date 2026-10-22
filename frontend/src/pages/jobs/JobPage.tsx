@@ -237,8 +237,8 @@ function JobView({ jid }: { jid: string }) {
   const young = useYoung(job?.started_at)
   const role = useMe().data?.role
   const canRun = !!useCapabilities(!!role && role !== 'viewer').data?.commands.length
-  // Missing minions still catching up are waited for in their own catch-up job (with its own
-  // Stop); only the rest may still be running this one.
+  // Minions waiting to catch up are waited for in their own catch-up job (with its own Stop);
+  // only the missing ones may still be running this one.
   const { catchingUp, noReturn } = job ? splitMissing(job) : { catchingUp: [], noReturn: [] }
   const running = noReturn.map(([mid]) => mid)
 
@@ -321,7 +321,7 @@ function JobView({ jid }: { jid: string }) {
               {job.results.length === 0 ? (
                 // While young, the line above already says it's waiting (and for whom).
                 young ? (
-                  job.missing.length === 0 && <Waiting missing={[]} total={0} />
+                  job.missing.length === 0 && catchingUp.length === 0 && <Waiting missing={[]} total={0} />
                 ) : (
                   <Card className="px-6 py-10 text-center text-muted">No results recorded yet.</Card>
                 )

@@ -24,20 +24,20 @@ export const STILL_CATCHING_UP: Partial<Record<CatchUpRun['state'], string>> = {
 }
 
 export type Missing = {
-  /** May still catch up, with the run that will. */
+  /** Waiting to catch up, with the run that may still bring the answer. */
   catchingUp: [string, CatchUpRun][]
   /** No return, and none to come from a catch-up run; with the run that came to nothing, if any. */
   noReturn: [string, CatchUpRun | undefined][]
 }
 
-/** A job's missing minions: those still catching up, and the rest. */
+/** A job's minions without a result: those waiting to catch up, and those missing. */
 export function splitMissing(job: JobDetail): Missing {
+  const answered = new Set(job.results.map((r) => r.minion_id))
   const runOf = new Map(job.catch_up.map((run) => [run.minion_id, run]))
-  const missing: Missing = { catchingUp: [], noReturn: [] }
-  for (const mid of job.missing) {
-    const run = runOf.get(mid)
-    if (run && run.state in STILL_CATCHING_UP) missing.catchingUp.push([mid, run])
-    else missing.noReturn.push([mid, run])
+  return {
+    catchingUp: job.catch_up
+      .filter((run) => run.state in STILL_CATCHING_UP && !answered.has(run.minion_id))
+      .map((run) => [run.minion_id, run]),
+    noReturn: job.missing.map((mid) => [mid, runOf.get(mid)]),
   }
-  return missing
 }

@@ -142,6 +142,8 @@ export type JobSummary = {
   failed: number
   /** Minions that missed it and answered a catch-up run of it later. */
   caught_up: number
+  /** Minions that missed it whose catch-up run may still bring an answer. */
+  catching_up: number
 }
 
 export type JobPage = { jobs: JobSummary[]; next_before: string | null }
@@ -173,7 +175,7 @@ export type JobResult = {
 export type JobDetail = JobSummary & {
   args: unknown[]
   minions: string[]
-  /** No return, here or from a catch-up run. */
+  /** No return, here or from a catch-up run, and none to come: no catch-up, or one that came to nothing. */
   missing: string[]
   /** The catch-ups' answers too, marked caught_up. */
   results: JobResult[]

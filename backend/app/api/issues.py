@@ -16,7 +16,7 @@ from app import inventory
 from app.api.deps import RuntimeDep, SessionDep
 from app.api.fleet import grain_value, presence_blind, presence_info
 from app.api.inventory import refused_sources
-from app.api.jobs import NONE_LATE, caught_up, latest_state_runs
+from app.api.jobs import NO_CATCH_UPS, catch_ups, latest_state_runs
 from app.api.schemas import Issue
 from app.models import Job, JobReturn, Minion
 from app.status import Status, minion_status
@@ -223,8 +223,9 @@ async def issues(runtime: RuntimeDep, session: SessionDep) -> list[Issue]:
             .order_by(Job.started_at.desc())
         )
     ).all()
-    # Minions that missed a job and have answered a catch-up run of it since aren't missing.
-    late = await caught_up(session, select(Job.jid).where(is_recent))
+    # Minions that missed a job and have answered a catch-up run of it since aren't missing,
+    # nor are those whose catch-up run may still bring their answer.
+    late = await catch_ups(session, select(Job.jid).where(is_recent))
     state_jids = {run.jid for run in runs.runs}
     for job, n_returned, n_failed in recent:
         if n_failed and job.jid not in state_jids:
@@ -238,7 +239,8 @@ async def issues(runtime: RuntimeDep, session: SessionDep) -> list[Issue]:
                     jid=job.jid,
                 )
             )
-        missing = len(job.minions) - n_returned - late.get(job.jid, NONE_LATE).minions
+        later = late.get(job.jid, NO_CATCH_UPS)
+        missing = len(job.minions) - n_returned - later.caught_up - later.catching_up
         if missing > 0 and now - job.started_at > NO_RETURN_AFTER:
             found.append(
                 _issue(

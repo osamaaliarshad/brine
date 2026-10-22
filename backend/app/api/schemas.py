@@ -359,6 +359,7 @@ class JobSummary(BaseModel):
     succeeded: int
     failed: int
     caught_up: int  # minions that missed it and answered a catch-up run of it later
+    catching_up: int  # minions that missed it whose catch-up run may still bring an answer
 
 
 class JobPage(BaseModel):
@@ -430,7 +431,9 @@ class CatchUpRun(BaseModel):
 class JobDetail(JobSummary):
     args: list[Any]
     minions: list[str]
-    missing: list[str]  # expected minions with no return, here or from a catch-up run
+    # Expected minions with no return, here or from a catch-up run, and none to come: no
+    # catch-up run, or one that came to nothing (cancelled, expired, replaced, refused, failed).
+    missing: list[str]
     results: list[JobResult]  # the catch-ups' answers too, marked caught_up
     catch_up: list[CatchUpRun]  # minions that missed it and get it when they're back
     catch_up_of: str | None  # this job caught a minion up on that one

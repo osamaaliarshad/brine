@@ -36,14 +36,15 @@ const JOB: JobDetail = {
   user: 'o@example.com',
   started_at: ago(600),
   finished_at: ago(598),
-  expected: 3,
+  expected: 5,
   returned: 2,
   succeeded: 2,
   failed: 0,
   caught_up: 0,
+  catching_up: 2,
   args: ['hello world'],
-  minions: ['rover-01', 'rover-02', 'rover-03'],
-  missing: ['rover-03'],
+  minions: ['rover-01', 'rover-02', 'rover-03', 'rover-04', 'rover-05'],
+  missing: ['rover-05'],
   results: [],
   catch_up: [
     catchUp({}),
@@ -111,8 +112,11 @@ describe('catch-up runs', () => {
   it('shows the result of a minion that caught up with the others, and where it came from', async () => {
     open({
       ...JOB,
+      expected: 3,
       succeeded: 3,
       caught_up: 1,
+      catching_up: 0,
+      minions: ['rover-01', 'rover-02', 'rover-03'],
       missing: [],
       results: [
         result('rover-01'),
@@ -144,8 +148,9 @@ describe('catch-up runs', () => {
       expected: 4,
       returned: 1,
       succeeded: 1,
+      catching_up: 2,
       minions: ['rover-01', 'rover-02', 'rover-03', 'rover-04'],
-      missing: ['rover-02', 'rover-03', 'rover-04'],
+      missing: ['rover-02'],
       results: [result('rover-01')],
       catch_up: [
         catchUp({}),
@@ -158,21 +163,53 @@ describe('catch-up runs', () => {
     expect(screen.getByText(/^No return from/)).toHaveTextContent(
       'No return from rover-02. They may have been offline, or are still running it.',
     )
-    expect(screen.getByText('Results').nextSibling).toHaveTextContent('1/4· 3 missing')
+    // Waiting to catch up isn't missing.
+    expect(screen.getByText('Results').nextSibling).toHaveTextContent('1/4· 2 waiting to catch up· 1 missing')
     const [, sent] = await panelRows()
     expect(sent).toHaveTextContent('rover-04SentSent 1m ago, no answer yet · its job')
   })
 
   it('while the job is young, waits only for the minions that got it', async () => {
-    open({ ...JOB, started_at: ago(5), finished_at: null, missing: ['rover-02', 'rover-03'], results: [result('rover-01')] })
+    open({
+      ...JOB,
+      started_at: ago(5),
+      finished_at: null,
+      expected: 3,
+      returned: 1,
+      catching_up: 1,
+      minions: ['rover-01', 'rover-02', 'rover-03'],
+      missing: ['rover-02'],
+      results: [result('rover-01')],
+      catch_up: [catchUp({})],
+    })
     expect(await screen.findByRole('status')).toHaveTextContent(/^Waiting for 1 of 3 minions$/)
     expect(screen.getByText('rover-02')).toBeInTheDocument()
     expect(screen.getByText(/^Waiting to catch up/)).toHaveTextContent("Waiting to catch up: rover-03 (runs when it's back).")
   })
 
+  it('while the job is young, waits for no answer when every minion is to catch up', async () => {
+    open({
+      ...JOB,
+      started_at: ago(5),
+      finished_at: null,
+      expected: 1,
+      returned: 0,
+      succeeded: 0,
+      catching_up: 1,
+      minions: ['rover-03'],
+      missing: [],
+      catch_up: [catchUp({})],
+    })
+    expect(await screen.findByText(/^Waiting to catch up/)).toHaveTextContent("Waiting to catch up: rover-03 (runs when it's back).")
+    expect(screen.queryByRole('status')).toBeNull()
+  })
+
   it('says why a minion whose catch-up came to nothing is still missing', async () => {
     open({
       ...JOB,
+      expected: 3,
+      catching_up: 0,
+      minions: ['rover-01', 'rover-02', 'rover-03'],
       missing: ['rover-02', 'rover-03'],
       catch_up: [
         catchUp({ minion_id: 'rover-02', state: 'refused', reason: 'o@example.com may no longer run test.echo' }),

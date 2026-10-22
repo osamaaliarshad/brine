@@ -135,6 +135,7 @@ describe('an orchestration job', () => {
       succeeded: 0,
       failed: 1,
       caught_up: 0,
+      catching_up: 0,
       args: ['orch.rollout'],
       minions: ['master'],
       missing: [],

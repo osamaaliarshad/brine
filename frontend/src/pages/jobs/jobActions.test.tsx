@@ -19,6 +19,7 @@ const JOB: JobDetail = {
   succeeded: 2,
   failed: 0,
   caught_up: 0,
+  catching_up: 0,
   args: ['motd', { test: true, __kwarg__: true }],
   minions: ['rover-01', 'rover-02', 'rover-03'],
   missing: ['rover-03'],
@@ -69,7 +70,7 @@ describe('job actions', () => {
       created_at: ago(60), expires_at: ago(-86400), state: 'waiting' as const, reason: null,
       sent_jid: null, sent_at: null, answered_at: null,
     }
-    api({ ...JOB, missing: ['rover-02', 'rover-03'], catch_up: [waiting] }, ['saltutil.*'])
+    api({ ...JOB, missing: ['rover-02'], catching_up: 1, catch_up: [waiting] }, ['saltutil.*'])
     renderApp(`/jobs/${JOB.jid}`)
     const kill = await screen.findByRole('link', { name: 'Kill' })
     expect(new URL(kill.getAttribute('href')!, 'http://x').searchParams.get('target')).toBe('rover-02')
@@ -81,7 +82,7 @@ describe('job actions', () => {
       created_at: ago(60), expires_at: ago(-86400), state: 'waiting' as const, reason: null,
       sent_jid: null, sent_at: null, answered_at: null,
     }
-    api({ ...JOB, catch_up: [waiting] }, ['saltutil.*'])
+    api({ ...JOB, missing: [], catching_up: 1, catch_up: [waiting] }, ['saltutil.*'])
     renderApp(`/jobs/${JOB.jid}`)
     expect(await screen.findByRole('link', { name: 'Run again' })).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: 'Stop' })).toBeNull()

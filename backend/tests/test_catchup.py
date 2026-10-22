@@ -243,8 +243,9 @@ def summary(api: Api, jid: str) -> Any:
     return found
 
 
-def counts(job: Any) -> tuple[int, int, int, int, int]:
-    return (job["expected"], job["returned"], job["caught_up"], job["succeeded"], job["failed"])
+def counts(job: Any) -> tuple[int, ...]:
+    keys = ("expected", "returned", "caught_up", "catching_up", "succeeded", "failed")
+    return tuple(job[k] for k in keys)
 
 
 def test_a_minion_that_caught_up_is_no_longer_missing(setup: tuple[Api, FakeSalt]) -> None:
@@ -257,11 +258,11 @@ def test_a_minion_that_caught_up_is_no_longer_missing(setup: tuple[Api, FakeSalt
     (run_,) = api.get(f"/api/jobs/{JID}")["catch_up"]
     late_jid = run_["sent_jid"]
 
-    # Sent, no answer yet: still missing, waiting on the catch-up.
+    # Sent, no answer yet: still catching up, not missing.
     job = api.get(f"/api/jobs/{JID}")
-    assert job["missing"] == ["rover-03"] and job["catch_up"][0]["answered_at"] is None
+    assert job["missing"] == [] and job["catch_up"][0]["answered_at"] is None
     assert [r["minion_id"] for r in job["results"]] == ["rover-01", "rover-02"]
-    assert counts(job) == counts(summary(api, JID)) == (3, 2, 0, 2, 0)
+    assert counts(job) == counts(summary(api, JID)) == (3, 2, 0, 1, 2, 0)
 
     returns(api, late_jid, "rover-03", success=False)
     job = api.get(f"/api/jobs/{JID}")
@@ -274,14 +275,14 @@ def test_a_minion_that_caught_up_is_no_longer_missing(setup: tuple[Api, FakeSalt
     assert job["results"][2]["data"] == "boom"
     assert job["catch_up"][0]["answered_at"] == job["results"][2]["returned_at"]
     # Two returned on time and one caught up; its failure counts.
-    assert counts(job) == counts(summary(api, JID)) == (3, 2, 1, 2, 1)
+    assert counts(job) == counts(summary(api, JID)) == (3, 2, 1, 0, 2, 1)
     assert job["finished_at"] < job["results"][2]["returned_at"]  # how long the job took
 
     # The catch-up run's own job is as it was.
     late = api.get(f"/api/jobs/{late_jid}")
     assert late["catch_up_of"] == JID and late["missing"] == []
     assert [r["caught_up"] for r in late["results"]] == [None]
-    assert counts(late) == (1, 1, 0, 0, 1)
+    assert counts(late) == (1, 1, 0, 0, 0, 1)
 
 
 def test_a_minion_that_answered_both_counts_once(setup: tuple[Api, FakeSalt]) -> None:
@@ -294,48 +295,97 @@ def test_a_minion_that_answered_both_counts_once(setup: tuple[Api, FakeSalt]) ->
     returns(api, JID, "rover-03")  # it had the job after all
     job = api.get(f"/api/jobs/{JID}")
     assert [(r["minion_id"], r["caught_up"]) for r in job["results"]] == [("rover-03", None)]
-    assert counts(job) == counts(summary(api, JID)) == (3, 1, 0, 1, 0)
+    assert job["missing"] == ["rover-01", "rover-02"]
+    assert counts(job) == counts(summary(api, JID)) == (3, 1, 0, 0, 1, 0)
 
 
-@pytest.mark.parametrize("cancel", [False, True])
-def test_a_minion_still_to_catch_up_is_missing(setup: tuple[Api, FakeSalt], cancel: bool) -> None:
+def _sending(api: Api, run_id: int) -> None:
+    assert api.seed(api.ingest.catch_up_claim, run_id)
+
+
+def _closed(state: str) -> Any:
+    def close(api: Api, run_id: int) -> None:
+        api.seed(api.ingest.catch_up_close, run_id, state=state, reason=state)
+
+    return close
+
+
+def _expired(api: Api, _: int) -> None:
+    api.seed(api.ingest.catch_up_expire, datetime.now(UTC) + timedelta(days=8))
+
+
+def _failed(api: Api, run_id: int) -> None:
+    _sending(api, run_id)
+    api.seed(api.ingest.catch_up_unsent, run_id, state="failed", reason="lost")
+
+
+@pytest.mark.parametrize(
+    ("state", "becomes", "catching_up"),
+    [
+        ("waiting", None, True),
+        ("sending", _sending, True),
+        ("cancelled", _closed("cancelled"), False),
+        ("refused", _closed("refused"), False),
+        ("expired", _expired, False),
+        ("failed", _failed, False),
+    ],
+)
+def test_a_minion_waiting_to_catch_up_is_not_missing(
+    setup: tuple[Api, FakeSalt], state: str, becomes: Any, catching_up: bool
+) -> None:
     api, _ = setup
     run(api, command="test.echo hello", catch_up=True)
     returns(api, JID, "rover-01")
     returns(api, JID, "rover-02")
-    if cancel:
-        run_id = api.get(f"/api/jobs/{JID}")["catch_up"][0]["id"]
-        api.client.post(f"/api/commands/catch-up/{run_id}/cancel", headers=CSRF)
+    if becomes is not None:
+        becomes(api, api.get(f"/api/jobs/{JID}")["catch_up"][0]["id"])
     job = api.get(f"/api/jobs/{JID}")
-    assert job["missing"] == ["rover-03"]
-    assert [r["state"] for r in job["catch_up"]] == ["cancelled" if cancel else "waiting"]
-    assert counts(job) == counts(summary(api, JID)) == (3, 2, 0, 2, 0)
+    assert [r["state"] for r in job["catch_up"]] == [state]
+    # Only a catch-up that came to nothing leaves it missing.
+    assert job["missing"] == ([] if catching_up else ["rover-03"])
+    expected = (3, 2, 0, 1 if catching_up else 0, 2, 0)
+    assert counts(job) == counts(summary(api, JID)) == expected
 
 
-def test_issues_dont_count_minions_that_caught_up(
-    setup: tuple[Api, FakeSalt], monkeypatch: pytest.MonkeyPatch
-) -> None:
+def missing_issues(api: Api) -> dict[str, str]:
+    return {
+        i["key"]: i["title"] for i in api.get("/api/issues") if i["key"].startswith("job-missing:")
+    }
+
+
+@pytest.fixture
+def no_wait(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Issues name jobs with missing returns at once, not after 10 minutes."""
     from app.api import issues
 
     monkeypatch.setattr(issues, "NO_RETURN_AFTER", timedelta(0))
+
+
+@pytest.mark.usefixtures("no_wait")
+def test_issues_dont_count_minions_catching_up_or_caught_up(setup: tuple[Api, FakeSalt]) -> None:
     api, _ = setup
     run(api, command="test.echo hello", catch_up=True)
     returns(api, JID, "rover-01")
     returns(api, JID, "rover-02")
+    assert missing_issues(api) == {}  # rover-03 gets it when it's back
+
     comes_back(api)
     sweep(api)
     late_jid = api.get(f"/api/jobs/{JID}")["catch_up"][0]["sent_jid"]
-
-    def missing() -> dict[str, str]:
-        return {
-            i["key"]: i["title"]
-            for i in api.get("/api/issues")
-            if i["key"].startswith("job-missing:")
-        }
-
-    assert missing() == {
-        f"job-missing:{JID}": "test.echo: no return from 1 minion",
-        f"job-missing:{late_jid}": "test.echo: no return from 1 minion",
-    }
+    # Its catch-up job hasn't had the answer yet; the original waits on that.
+    assert missing_issues(api) == {f"job-missing:{late_jid}": "test.echo: no return from 1 minion"}
     returns(api, late_jid, "rover-03")
-    assert missing() == {}
+    assert missing_issues(api) == {}
+
+
+@pytest.mark.usefixtures("no_wait")
+def test_issues_count_a_minion_whose_catch_up_came_to_nothing(
+    setup: tuple[Api, FakeSalt],
+) -> None:
+    api, _ = setup
+    run(api, command="test.echo hello", catch_up=True)
+    returns(api, JID, "rover-01")
+    returns(api, JID, "rover-02")
+    run_id = api.get(f"/api/jobs/{JID}")["catch_up"][0]["id"]
+    api.client.post(f"/api/commands/catch-up/{run_id}/cancel", headers=CSRF)
+    assert missing_issues(api) == {f"job-missing:{JID}": "test.echo: no return from 1 minion"}

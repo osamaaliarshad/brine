@@ -20,6 +20,7 @@ function job(jid: string, patch: Partial<JobSummary> = {}): JobSummary {
     succeeded: 4,
     failed: 0,
     caught_up: 0,
+    catching_up: 0,
     ...patch,
   }
 }
@@ -70,22 +71,26 @@ describe('JobsPage', () => {
     expect(within(runner).getByText('Done')).toBeInTheDocument()
   })
 
-  it('counts minions that caught up later apart from those still missing', async () => {
+  it('counts minions that caught up later or are waiting to, apart from those missing', async () => {
     mockApi({
       '/api/jobs': {
         jobs: [
           job('1', { fun: 'test.version', returned: 3, caught_up: 1 }),
-          job('2', { fun: 'test.ping', returned: 2, caught_up: 1 }),
+          job('2', { fun: 'test.ping', returned: 2, caught_up: 1, catching_up: 1 }),
+          job('3', { fun: 'test.echo', returned: 2, catching_up: 1 }),
+          job('4', { fun: 'test.true', returned: 0, succeeded: 0, catching_up: 4 }),
         ],
         next_before: null,
       },
       '/api/status': systemStatus(),
     })
     renderApp('/jobs')
-    const done = (await screen.findByRole('link', { name: 'test.version' })).closest('tr')!
-    expect(within(done).getByText('3/4').parentElement).toHaveTextContent(/^3\/4· 1 caught up$/)
-    const partly = screen.getByRole('link', { name: 'test.ping' }).closest('tr')!
-    expect(within(partly).getByText('2/4').parentElement).toHaveTextContent(/^2\/4· 1 caught up· 1 missing$/)
+    const outcome = (fun: string) => screen.getByRole('link', { name: fun }).closest('tr')!.lastElementChild
+    await screen.findByRole('link', { name: 'test.version' })
+    expect(outcome('test.version')).toHaveTextContent(/^3\/4· 1 caught up$/)
+    expect(outcome('test.ping')).toHaveTextContent(/^2\/4· 1 caught up· 1 waiting to catch up$/)
+    expect(outcome('test.echo')).toHaveTextContent(/^2\/4· 1 waiting to catch up· 1 missing$/)
+    expect(outcome('test.true')).toHaveTextContent(/^0\/4 returned· 4 waiting to catch up$/)
   })
 
   it('searches, filters by kind, and loads older pages', async () => {

@@ -47,18 +47,24 @@ def _with_counts() -> Select[Job, int, Any, Any, Any]:
     )
 
 
-class Late(NamedTuple):
-    """A job's minions that missed it and answered a catch-up run of it later."""
+# A catch-up run in these states may still bring the minion's answer; sent, until it does.
+STILL_OUT = ("waiting", "sending", "sent")
 
-    minions: int = 0
+
+class CatchUps(NamedTuple):
+    """A job's minions that missed it: those that have answered a catch-up run of it since
+    (and how that went), and those whose catch-up run may still bring their answer."""
+
+    caught_up: int = 0
     succeeded: int = 0
     failed: int = 0
+    catching_up: int = 0
 
 
-NONE_LATE = Late()
+NO_CATCH_UPS = CatchUps()
 
 
-def _summary(row: Row[Job, int, Any, Any, Any], late: Late = NONE_LATE) -> JobSummary:
+def _summary(row: Row[Job, int, Any, Any, Any], late: CatchUps = NO_CATCH_UPS) -> JobSummary:
     job, returned, succeeded, failed, finished = row
     return JobSummary(
         jid=job.jid,
@@ -74,28 +80,37 @@ def _summary(row: Row[Job, int, Any, Any, Any], late: Late = NONE_LATE) -> JobSu
         returned=returned,
         succeeded=(succeeded or 0) + late.succeeded,
         failed=(failed or 0) + late.failed,
-        caught_up=late.minions,
+        caught_up=late.caught_up,
+        catching_up=late.catching_up,
     )
 
 
-async def caught_up(session: AsyncSession, jids: Iterable[str] | Select[str]) -> dict[str, Late]:
+async def catch_ups(
+    session: AsyncSession, jids: Iterable[str] | Select[str]
+) -> dict[str, CatchUps]:
     """For each of these jobs (a list, or a query of jids) that has any: its minions that
-    missed it and have answered a catch-up run of it since. One that answered the job itself
-    after all isn't counted twice."""
+    missed it and have answered a catch-up run of it since, and those whose run may still
+    bring an answer. One that answered the job itself after all counts as neither."""
     answer, own = aliased(JobReturn), aliased(JobReturn)
+    answered = answer.minion_id.is_not(None)
     rows = await session.execute(
         select(
             PendingRun.source_jid,
-            func.count(),
+            func.sum(case((answered, 1), else_=0)),
             func.sum(case((answer.success.is_(True), 1), else_=0)),
             func.sum(case((answer.success.is_(False), 1), else_=0)),
+            func.sum(case((answered, 0), else_=1)),
         )
-        .join(
+        .outerjoin(
             answer,
-            and_(answer.jid == PendingRun.sent_jid, answer.minion_id == PendingRun.minion_id),
+            and_(
+                PendingRun.state == "sent",
+                answer.jid == PendingRun.sent_jid,
+                answer.minion_id == PendingRun.minion_id,
+            ),
         )
         .where(
-            PendingRun.state == "sent",
+            PendingRun.state.in_(STILL_OUT),
             PendingRun.source_jid.in_(jids),
             ~select(own.jid)
             .where(own.jid == PendingRun.source_jid, own.minion_id == PendingRun.minion_id)
@@ -103,7 +118,9 @@ async def caught_up(session: AsyncSession, jids: Iterable[str] | Select[str]) ->
         )
         .group_by(PendingRun.source_jid)
     )
-    return {jid: Late(count, ok or 0, bad or 0) for jid, count, ok, bad in rows}
+    return {
+        jid: CatchUps(late or 0, ok or 0, bad or 0, out or 0) for jid, late, ok, bad, out in rows
+    }
 
 
 @router.get("/jobs", response_model=JobPage)
@@ -149,8 +166,8 @@ async def list_jobs(
         )
     ).all()
     page = rows[:limit]
-    late = await caught_up(session, [row[0].jid for row in page])
-    jobs = [_summary(row, late.get(row[0].jid, NONE_LATE)) for row in page]
+    late = await catch_ups(session, [row[0].jid for row in page])
+    jobs = [_summary(row, late.get(row[0].jid, NO_CATCH_UPS)) for row in page]
     return JobPage(jobs=jobs, next_before=jobs[-1].jid if len(rows) > limit else None)
 
 
@@ -271,7 +288,7 @@ async def job_detail(jid: str, session: SessionDep, user: CurrentUser) -> JobDet
     }
     results = {r.minion_id: result(r) for r in returns}
     catch_up: list[CatchUpRun] = []
-    late = NONE_LATE
+    late = NO_CATCH_UPS
     for run in runs:
         answer = answers.get((run.sent_jid or "", run.minion_id)) if run.state == "sent" else None
         catch_up.append(
@@ -282,11 +299,16 @@ async def job_detail(jid: str, session: SessionDep, user: CurrentUser) -> JobDet
         if answer is not None and run.minion_id not in results:
             at = run.sent_at or answer.returned_at
             results[run.minion_id] = result(answer, CaughtUp(jid=answer.jid, at=at))
-            late = Late(
-                late.minions + 1,
-                late.succeeded + (answer.success is True),
-                late.failed + (answer.success is False),
+            late = late._replace(
+                caught_up=late.caught_up + 1,
+                succeeded=late.succeeded + (answer.success is True),
+                failed=late.failed + (answer.success is False),
             )
+    # Waiting to catch up: not missing, as their answer may still come.
+    catching_up = {
+        r.minion_id for r in catch_up if r.state in STILL_OUT and r.minion_id not in results
+    }
+    late = late._replace(catching_up=len(catching_up))
     caught_up_from = await session.scalar(
         select(PendingRun.source_jid).where(PendingRun.sent_jid == jid).limit(1)
     )
@@ -296,6 +318,6 @@ async def job_detail(jid: str, session: SessionDep, user: CurrentUser) -> JobDet
         catch_up_of=caught_up_from,
         args=job.args,
         minions=job.minions,
-        missing=sorted(set(job.minions) - results.keys()),
+        missing=sorted(set(job.minions) - results.keys() - catching_up),
         results=[results[mid] for mid in sorted(results)],
     )
