@@ -305,13 +305,13 @@ checks Salt won't let it read). Each links to the minion, job or setting. The co
 on the Fleet page and in the sidebar.
 
 Mark an issue as read (or all of them at once) and it's out of your way, and out of your count,
-until it changes: a minion going offline again, other states failing. It's only for you;
-everyone else still sees it. With sign-in off everyone is the same person, so marks are shared.
-Read issues are a click away, to mark as unread.
+until it changes: a minion going offline again, other states failing, a state failing again
+after a clean run. It's only for you; everyone else still sees it. With sign-in off everyone is
+the same person, so marks are shared. Read issues are a click away, to mark as unread.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/issues-dark.png">
-  <img alt="The Issues page: a failed state on dock-01, rover-03 offline, rover-04 waiting for key approval" src="docs/assets/screenshots/issues-light.png">
+  <img alt="The Issues page: a failed state on dock-01, rover-03 offline, rover-04 waiting for key approval, each with Mark as read" src="docs/assets/screenshots/issues-light.png">
 </picture>
 
 ### Audit log
