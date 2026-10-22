@@ -1,6 +1,6 @@
 import { screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
-import type { JobDetail, User } from '@/api/types'
+import type { CatchUpRun, JobDetail, User } from '@/api/types'
 import { ago, mockApi, renderApp, systemStatus } from '@/test/render'
 
 const OPERATOR: User = { email: 'o@example.com', name: 'Otto', picture: null, role: 'operator', provider: 'oidc' }
@@ -64,29 +64,37 @@ describe('job actions', () => {
     expect(help).toHaveTextContent('Both open Run first; nothing runs until you click Run.')
   })
 
-  it('stops it only where it may be running, not on minions still to catch up on it', async () => {
-    const waiting = {
-      id: 1, minion_id: 'rover-03', source_jid: JOB.jid, fun: JOB.fun, args: JOB.args, actor: OPERATOR.email,
-      created_at: ago(60), expires_at: ago(-86400), state: 'waiting' as const, reason: null,
-      sent_jid: null, sent_at: null, answered_at: null,
-    }
-    api({ ...JOB, missing: ['rover-02'], catching_up: 1, catch_up: [waiting] }, ['saltutil.*'])
+  // rover-03 is still to catch up; rover-04's catch-up was sent and never answered, so it's
+  // missing, but what it may be running is the catch-up's job (with its own Stop), not this one.
+  const run = (minion: string, patch: Partial<CatchUpRun>): CatchUpRun => ({
+    id: 1, minion_id: minion, source_jid: JOB.jid, fun: JOB.fun, args: JOB.args, actor: OPERATOR.email,
+    created_at: ago(7200), expires_at: ago(-86400), state: 'waiting', reason: null,
+    sent_jid: null, sent_at: null, answered_at: null, ...patch,
+  })
+  const waiting = run('rover-03', {})
+  const unanswered = run('rover-04', { id: 2, state: 'sent', sent_jid: '20261020121000000009', sent_at: ago(3600) })
+
+  it('stops it only where it may be running, not on minions caught up in a catch-up', async () => {
+    api(
+      { ...JOB, missing: ['rover-02', 'rover-04'], catching_up: 1, catch_up: [waiting, unanswered] },
+      ['saltutil.*'],
+    )
     renderApp(`/jobs/${JOB.jid}`)
     const kill = await screen.findByRole('link', { name: 'Kill' })
     expect(new URL(kill.getAttribute('href')!, 'http://x').searchParams.get('target')).toBe('rover-02')
+    const stop = screen.getByRole('link', { name: 'Stop' })
+    expect(new URL(stop.getAttribute('href')!, 'http://x').searchParams.get('target')).toBe('rover-02')
+    // Still said to be missing.
+    expect(screen.getByText(/^No return from/)).toHaveTextContent('rover-04 (catch-up sent, no answer)')
   })
 
-  it('offers no Stop when every missing minion is still to catch up', async () => {
-    const waiting = {
-      id: 1, minion_id: 'rover-03', source_jid: JOB.jid, fun: JOB.fun, args: JOB.args, actor: OPERATOR.email,
-      created_at: ago(60), expires_at: ago(-86400), state: 'waiting' as const, reason: null,
-      sent_jid: null, sent_at: null, answered_at: null,
-    }
-    api({ ...JOB, missing: [], catching_up: 1, catch_up: [waiting] }, ['saltutil.*'])
+  it('offers no Stop when no missing minion may be running it', async () => {
+    api({ ...JOB, missing: ['rover-04'], catching_up: 1, catch_up: [waiting, unanswered] }, ['saltutil.*'])
     renderApp(`/jobs/${JOB.jid}`)
     expect(await screen.findByRole('link', { name: 'Run again' })).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: 'Stop' })).toBeNull()
     expect(screen.queryByText(/^Stop asks/)).toBeNull()
+    expect(screen.getByText(/^No return from/)).toHaveTextContent('rover-04 (catch-up sent, no answer)')
   })
 
   it('re-runs targets the Run page cannot take on the minions the job reached', async () => {

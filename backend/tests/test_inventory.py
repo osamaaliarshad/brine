@@ -1000,6 +1000,24 @@ def test_keys_list_checks_and_find_packages(with_checks: tuple[Api, FakeSalt]) -
     assert api.client.get("/api/inventory/keys", params={"limit": 0}).status_code == 422
 
 
+def test_check_entries_keep_their_order_beside_packages_that_differ(
+    with_checks: tuple[Api, FakeSalt],
+) -> None:
+    api, _ = with_checks
+    now = datetime.now(UTC)
+    # Packages curl and db differ, in that order; the containers check has a db entry too.
+    read(api, "rover-01", {"curl": "8.0", "db": "1.0"}, now)
+    read(api, "rover-02", {"curl": "8.1", "db": "1.1"}, now)
+    images = {"db": "postgres:16", "web": "ghcr.io/acme/web:1.4"}
+    read(api, "rover-01", images, now, source="containers")
+    assert [k["key"] for k in api.get("/api/inventory/keys")] == [
+        "@containers:db",
+        "@containers:web",
+        "@packages:curl",
+        "@packages:db",
+    ]
+
+
 def test_keys_without_checks(admin: tuple[Api, FakeSalt]) -> None:
     api, _ = admin
     assert api.get("/api/inventory/keys") == []

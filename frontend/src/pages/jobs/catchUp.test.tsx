@@ -224,6 +224,10 @@ describe('catch-up runs', () => {
     )
     // Never under both.
     expect(screen.queryByText(/Waiting to catch up/)).toBeNull()
+    // The catch-up list agrees: no answer, not "yet".
+    const rows = await panelRows()
+    expect(rows[2]).toHaveTextContent('rover-04No answerSent 1h ago, no answer · its job')
+    expect(within(rows[2]!).getByText('No answer')).toHaveClass('text-danger')
   })
 
   it('says when a job was itself a catch-up run', async () => {

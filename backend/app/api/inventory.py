@@ -209,7 +209,12 @@ async def inventory_keys(
     if not needle:
         # The checks first, as the picker lists them first; then the packages in their order.
         rank = {name: i for i, name in enumerate(differing)}
-        rows.sort(key=lambda r: (r[0] == inventory.PACKAGES, rank.get(r[1], 0)))
+        rows.sort(
+            key=lambda r: (
+                r[0] == inventory.PACKAGES,
+                rank.get(r[1], 0) if r[0] == inventory.PACKAGES else 0,
+            )
+        )
         del rows[limit:]
     return [
         InventoryKey(

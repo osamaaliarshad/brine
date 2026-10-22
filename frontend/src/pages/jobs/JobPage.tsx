@@ -11,7 +11,7 @@ import { formatAbsolute, formatDuration, formatRelative, useNow } from '@/lib/ti
 import { ResultLabel } from '@/pages/minion/panels'
 import { CONTROL } from '@/pages/fleet/FleetToolbar'
 import { CatchUpPanel } from '@/pages/jobs/CatchUp'
-import { cameToNothing, catchingUpAs, type Missing, splitMissing } from '@/pages/jobs/catchUpRuns'
+import { cameToNothing, catchingUpAs, type Missing, splitMissing, unanswered } from '@/pages/jobs/catchUpRuns'
 import { commandLine, formatArgs } from '@/pages/jobs/format'
 import { JobOutcome, StateDots, StateTable, Target } from '@/pages/jobs/parts'
 
@@ -237,10 +237,12 @@ function JobView({ jid }: { jid: string }) {
   const young = useYoung(job?.started_at)
   const role = useMe().data?.role
   const canRun = !!useCapabilities(!!role && role !== 'viewer').data?.commands.length
-  // Minions waiting to catch up are waited for in their own catch-up job (with its own Stop);
-  // only the missing ones may still be running this one.
   const { catchingUp, noReturn } = job ? splitMissing(job) : { catchingUp: [], noReturn: [] }
-  const running = noReturn.map(([mid]) => mid)
+  const missing = noReturn.map(([mid]) => mid)
+  // Stop and Kill are for the missing minions that may still be running this job. Not those whose
+  // catch-up was sent and never answered: what they may be running is that catch-up's job, whose
+  // own page has a Stop (as it has for those still to catch up).
+  const running = noReturn.filter(([, run]) => !run || !unanswered(run)).map(([mid]) => mid)
 
   return (
     <>
@@ -296,9 +298,9 @@ function JobView({ jid }: { jid: string }) {
               </Fact>
             </div>
 
-            {running.length > 0 &&
+            {missing.length > 0 &&
               (young ? (
-                <Waiting missing={running} total={job.minions.length} className="mt-4" />
+                <Waiting missing={missing} total={job.minions.length} className="mt-4" />
               ) : (
                 <div className="mt-4 rounded-xl border border-warn/40 bg-warn/10 px-4 py-3 text-sm">
                   No return from {noReturn.map(noReturnName).join(', ')}. They may have been offline, or are still
@@ -315,7 +317,7 @@ function JobView({ jid }: { jid: string }) {
                 ran, so brine ran it here once it was back.
               </div>
             )}
-            <CatchUpPanel runs={job.catch_up} now={now} />
+            <CatchUpPanel runs={job.catch_up} now={now} missing={job.missing} />
 
             <div className="mt-4 flex flex-col gap-3 sm:mt-6">
               {job.results.length === 0 ? (
