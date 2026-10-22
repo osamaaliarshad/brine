@@ -228,9 +228,14 @@ that changed in the meantime stays unread, and the page says so. Read issues can
 and they don't count towards "need attention". Not audited: like the fleet's columns, it's how
 one person looks at brine.
 
-Gaps: an issue that goes away and comes back the same stays read. That's an issue with no start
-time worded the same, a minion presence can't see again, or the same pending key sent again.
-And marks are pruned after `retention.history_days` (those on a job's issues, which last a day,
-after two days), as are the presence changes an offline minion's mark goes by, so an issue still
-there by then comes back. The same goes for a failed state run's latest clean run: it's a job, so
-it goes after `retention.jobs_days`, the fingerprint changes, and the issue comes back once.
+A mark goes with its issue: once the issue has gone (fixed), everyone's mark on it is deleted
+the next time anyone's brine asks for issues, so nothing is left behind, and an issue that comes
+back is new, even worded the same. Not while salt-api is unreachable or presence is stale: then an
+issue can vanish without being fixed (an offline minion turns stale), so marks wait.
+
+Gaps: an issue that goes away and comes back while no brine page is open, or while brine can't
+see the fleet, stays read. Marks on issues that last are pruned after `retention.history_days`
+(those on a job's issues, which last a day, after two days), as are the presence changes an
+offline minion's mark goes by, so an issue still there by then comes back. The same goes for a
+failed state run's latest clean run: it's a job, so it goes after `retention.jobs_days`, the
+fingerprint changes, and the issue comes back once.

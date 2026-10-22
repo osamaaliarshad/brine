@@ -853,6 +853,11 @@ class Ingest:
                 delete(IssueRead).where(IssueRead.user == user, IssueRead.key.in_(list(keys)))
             )
 
+    async def issues_forget(self, keys: Iterable[str]) -> None:
+        """Everyone's marks on these issues, which have gone."""
+        async with self._lock, self._sessions() as s, s.begin():
+            await s.execute(delete(IssueRead).where(IssueRead.key.in_(list(keys))))
+
     # --- system state ---------------------------------------------------------------------
 
     async def _set_state(self, s: AsyncSession, key: str, value: Any) -> None:

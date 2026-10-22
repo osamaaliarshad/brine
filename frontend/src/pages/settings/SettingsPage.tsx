@@ -322,7 +322,7 @@ export function SettingsPage() {
                 <Row label="Job backfill" hint="Jobs imported from the master's job cache on each connect.">
                   up to {s.jobs_backfill_limit}
                 </Row>
-                <Row label="History kept" hint="retention: in the config. Older history is pruned hourly; a job's issues stay marked read for two days.">
+                <Row label="History kept" hint="retention: in the config. Older history is pruned hourly.">
                   {[
                     `jobs ${keptFor(s.retention.jobs_days)}`,
                     `presence, grains, packages and issues marked read ${keptFor(s.retention.history_days)}`,

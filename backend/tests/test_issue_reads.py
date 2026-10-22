@@ -75,6 +75,26 @@ def back_and_offline_again(api: Api, mid: str) -> None:
     api.seed(api.ingest.presence, sorted({"a", "b", "c"} - {mid}), at=NOW, method="events")
 
 
+def connect(api: Api) -> None:
+    """salt-api answers: brine can see the fleet."""
+    collector = api.client.app.state.runtime.collector  # type: ignore[attr-defined]
+
+    async def up() -> None:
+        collector._set_connected(True)
+
+    api.seed(up)
+
+
+def stored(api: Api) -> list[str]:
+    """Everyone's marks, as kept in the database."""
+
+    async def keys() -> list[str]:
+        async with api.client.app.state.runtime.sessions() as s:  # type: ignore[attr-defined]
+            return sorted((await s.scalars(select(IssueRead.key))).all())
+
+    return api.seed(keys)  # type: ignore[no-any-return]
+
+
 def state_run(api: Api, jid: str, failing: list[str], at: datetime) -> None:
     """A state.apply on a where these states fail and one more passes; none failing: clean."""
     data = {
@@ -236,6 +256,42 @@ def test_a_minion_presence_cant_see_stays_read_when_it_answers_a_job(api: Api) -
     assert after["since"] != before and after["read"] is True
 
 
+def test_a_mark_goes_once_its_issue_has_gone(api: Api) -> None:
+    seed(api)
+    connect(api)
+    c = api.client
+    mark(c, "offline:b", "version:c")
+    api.seed(api.ingest.presence, ["a", "b", "c"], at=NOW, method="events")  # b is back
+    assert "offline:b" not in issues(c)
+    assert stored(api) == ["version:c"]
+
+
+def test_an_issue_that_comes_back_after_going_away_is_new(api: Api) -> None:
+    # Worded the same and with no start time, so only its mark going with it brings it back.
+    seed(api)
+    connect(api)
+    c = api.client
+    mark(c, "version:c")
+    at = NOW - timedelta(seconds=30)
+    api.seed(api.ingest.grains, "c", {"saltversion": "3006.28"}, at=at, source="minion")
+    assert "version:c" not in issues(c)
+    api.seed(api.ingest.grains, "c", {"saltversion": "3006.9"}, at=NOW, source="minion")
+    assert issues(c)["version:c"]["read"] is False
+
+
+def test_marks_wait_while_brine_cant_see_the_fleet(api: Api) -> None:
+    # Without salt-api (or fresh presence), an issue can vanish without being fixed.
+    seed(api)
+    c = api.client
+    mark(c, "offline:b")
+    api.seed(api.ingest.presence, ["a", "b", "c"], at=NOW, method="events")
+    assert "offline:b" not in issues(c) and "salt-api" in issues(c)
+    assert stored(api) == ["offline:b"]
+    connect(api)
+    issues(c)
+    assert stored(api) == []
+
+
 def test_only_issues_as_they_still_are_are_marked(api: Api) -> None:
     seed(api)
     c = api.client
@@ -252,11 +308,7 @@ def test_only_issues_as_they_still_are_are_marked(api: Api) -> None:
     assert resp.json() == {"marked": ["version:c"], "changed": ["offline:b"]}
     assert read_keys(c) == {"version:c"}
 
-    async def stored() -> list[str]:
-        async with api.client.app.state.runtime.sessions() as s:  # type: ignore[attr-defined]
-            return list((await s.scalars(select(IssueRead.key))).all())
-
-    assert api.seed(stored) == ["version:c"]
+    assert stored(api) == ["version:c"]
 
 
 def test_writes_need_the_csrf_header_and_stay_within_limits(api: Api) -> None:

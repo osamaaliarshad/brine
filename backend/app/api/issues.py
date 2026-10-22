@@ -1,7 +1,8 @@
 """Things in the fleet that need a human: SaltGUI's Issues detectors plus brine's own.
 
 Computed on request from what brine already knows; nothing here calls minions. Each person can
-mark issues as read, which hides them from that person until they change.
+mark issues as read, which hides them from that person until they change; a mark goes with its
+issue.
 """
 
 from __future__ import annotations
@@ -31,6 +32,9 @@ router = APIRouter()
 RECENT = timedelta(hours=24)
 NO_RETURN_AFTER = timedelta(minutes=10)
 SEVERITY_ORDER = {"critical": 0, "warning": 1, "info": 2}
+# While one of these is up, brine can't see the fleet properly: other issues can vanish without
+# being fixed (an offline minion, once presence is stale).
+BLINDING = {"salt-api", "presence"}
 
 Severity = Literal["critical", "warning", "info"]
 
@@ -86,6 +90,7 @@ def _issue(
 @router.get("/issues", response_model=list[Issue])
 async def issues(runtime: RuntimeDep, session: SessionDep, user: CurrentUser) -> list[Issue]:
     found = await current_issues(runtime, session)
+    await forget_gone(runtime, session, found)
     mine = select(IssueRead.key, IssueRead.fingerprint).where(IssueRead.user == user.email)
     read = {key: fingerprint for key, fingerprint in await session.execute(mine)}
     for issue in found:
@@ -105,6 +110,17 @@ async def mark_read(
     await runtime.ingest.issues_read(user.email, marked)
     changed = [i.key for i in body.issues if i.key in now and i.key not in marked]
     return MarkReadResult(marked=list(marked), changed=changed)
+
+
+async def forget_gone(runtime: RuntimeDep, session: SessionDep, found: list[Issue]) -> None:
+    """Drop everyone's marks on issues that have gone: fixed, nothing of them is kept, and one that
+    comes back is new. Not while brine can't see the fleet, when an issue can vanish unfixed."""
+    current = {issue.key for issue in found}
+    if current & BLINDING:
+        return
+    marked = set(await session.scalars(select(IssueRead.key).distinct()))
+    if gone := marked - current:
+        await runtime.ingest.issues_forget(gone)
 
 
 @router.post("/issues/unread", status_code=204)

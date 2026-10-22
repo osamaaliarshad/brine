@@ -304,10 +304,12 @@ brine's own view (salt-api unreachable, stale presence, minions presence can't s
 checks Salt won't let it read). Each links to the minion, job or setting. The count also appears
 on the Fleet page and in the sidebar.
 
+Issues aren't stored: each is worked out from the fleet as it is, so once it's fixed it's gone.
 Mark an issue as read (or all of them at once) and it's out of your way, and out of your count,
 until it changes: a minion going offline again, other states failing, a state failing again
-after a clean run. It's only for you; everyone else still sees it. With sign-in off everyone is
-the same person, so marks are shared. Read issues are a click away, to mark as unread.
+after a clean run. Your mark goes when the issue does, so if it comes back, it's new. It's only
+for you; everyone else still sees it. With sign-in off everyone is the same person, so marks are
+shared. Read issues are a click away, to mark as unread.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/issues-dark.png">
