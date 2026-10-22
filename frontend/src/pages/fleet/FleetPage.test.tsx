@@ -1,6 +1,7 @@
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { formatAsOf } from '@/lib/time'
 import { FakeEventSource } from '@/test/setup'
 import { ago, DEFAULT_COLUMNS, fleet, minion, mockApi, NOW, renderApp, systemStatus } from '@/test/render'
 
@@ -15,18 +16,30 @@ const FLEET = fleet([
   minion('dock-01', { grains_source: 'master_cache', grains_at: null, columns: { site: 'site-b' } }),
 ])
 
-// A package column and a check column: a value, answered without it, no answer yet, empty.
+// A package column and two check columns: a value, answered without it, no answer yet, empty.
+// Each source was read at its own time.
+const READ_AT = { packages: ago(3600), containers: ago(600), 'rover-cli': ago(600) }
 const PACKAGE_FLEET = fleet(
   [
-    minion('rover-01', { columns: { '@packages:rover-agent': '2.4.1', '@containers:web': 'ghcr.io/acme/web:1.4' } }),
-    minion('rover-02', { columns: { '@packages:rover-agent': null, '@containers:web': null } }),
-    minion('rover-03', { columns: {} }),
-    minion('rover-04', { columns: { '@packages:rover-agent': '2.4.1', '@containers:web': '' } }),
+    minion('rover-01', {
+      columns: { '@packages:rover-agent': '2.4.1', '@containers:web': 'ghcr.io/acme/web:1.4', '@rover-cli': '1.2.0' },
+      read_at: READ_AT,
+    }),
+    minion('rover-02', {
+      columns: { '@packages:rover-agent': null, '@containers:web': null, '@rover-cli': null },
+      read_at: READ_AT,
+    }),
+    minion('rover-03', { columns: {}, read_at: { packages: null, containers: null, 'rover-cli': null } }),
+    minion('rover-04', {
+      columns: { '@packages:rover-agent': '2.4.1', '@containers:web': '', '@rover-cli': '1.2.0' },
+      read_at: READ_AT,
+    }),
   ],
   {
     columns: [
       { grain: '@packages:rover-agent', label: 'rover-agent' },
       { grain: '@containers:web', label: 'web' },
+      { grain: '@rover-cli', label: 'rover-cli' },
     ],
   },
 )
@@ -75,6 +88,24 @@ describe('FleetPage', () => {
 
     const live = screen.getByText('rover-01').closest('tr')!
     expect(within(live).queryByText('Cached')).toBeNull()
+  })
+
+  it("says how fresh each grain is on hover, and names what a minion doesn't report", async () => {
+    mockApi({ '/api/fleet': FLEET, '/api/status': systemStatus() })
+    renderApp('/')
+    await screen.findByText('rover-01')
+    const cells = (id: string) => within(screen.getByText(id).closest('tr')!).getAllByRole('cell')
+    const [, , os, site, version] = cells('rover-01')
+    const asOf = formatAsOf(ago(240), NOW)
+    expect(within(site!).getByText('site-a')).toHaveAttribute('title', `site-a\n${asOf}`)
+    expect(within(version!).getByText('2.4.1')).toHaveAttribute('title', `2.4.1\n${asOf}`)
+    expect(os!.firstElementChild).toHaveAttribute('title', asOf) // OS and Salt come from grains too
+    // From the master's cache: when they were collected is unknown.
+    const [, , , , missing] = cells('dock-01')
+    expect(within(missing!).getByText('—')).toHaveAttribute(
+      'title',
+      "dock-01 doesn't report app_version\nFrom the master's cache; age unknown",
+    )
   })
 
   it('filters by status tab, search, and site', async () => {
@@ -182,15 +213,29 @@ describe('FleetPage', () => {
     await screen.findByText('rover-01')
     const cells = (id: string) => within(screen.getByText(id).closest('tr')!).getAllByRole('cell').slice(3)
 
+    // Each hover says how fresh it is: when that minion's packages, or that check, were read.
+    const packagesRead = formatAsOf(ago(3600), NOW)
+    const checkRead = formatAsOf(ago(600), NOW)
     const [agent1, web1] = cells('rover-01')
-    expect(agent1).toHaveTextContent('2.4.1')
-    expect(web1).toHaveTextContent('ghcr.io/acme/web:1.4')
-    const [agent2, web2] = cells('rover-02')
-    expect(within(agent2!).getByText('—')).toHaveAttribute('title', 'Not installed')
-    expect(within(web2!).getByText('—')).toHaveAttribute('title', 'Not reported')
+    expect(within(agent1!).getByText('2.4.1')).toHaveAttribute('title', `2.4.1\n${packagesRead}`)
+    expect(within(web1!).getByText('ghcr.io/acme/web:1.4')).toHaveAttribute(
+      'title',
+      `ghcr.io/acme/web:1.4\n${checkRead}`,
+    )
+    // What's missing is said in full: which minion, which package or check.
+    const [agent2, web2, cli2] = cells('rover-02')
+    expect(within(agent2!).getByText('—')).toHaveAttribute(
+      'title',
+      `rover-02 doesn't have rover-agent installed\n${packagesRead}`,
+    )
+    expect(within(web2!).getByText('—')).toHaveAttribute('title', `rover-02's containers check doesn't list web\n${checkRead}`)
+    expect(within(cli2!).getByText('—')).toHaveAttribute('title', `rover-02's rover-cli check reported nothing\n${checkRead}`)
     for (const cell of cells('rover-03'))
-      expect(within(cell).getByText('?')).toHaveAttribute('title', NO_ANSWER)
-    expect(cells('rover-04')[1]).toHaveTextContent('(empty)')
+      expect(within(cell).getByText('?')).toHaveAttribute(
+        'title',
+        "No answer from rover-03 yet, couldn't read it, or its last answer was cut short",
+      )
+    expect(within(cells('rover-04')[1]!).getByText('(empty)')).toHaveAttribute('title', checkRead)
 
     // Named in plain words, never by their @ keys.
     const header = screen.getByRole('columnheader', { name: /web/ })
@@ -198,7 +243,7 @@ describe('FleetPage', () => {
     await user.click(screen.getByRole('button', { name: 'Columns' }))
     const menu = screen.getByRole('dialog', { name: 'Choose columns' })
     expect(within(menu).getByText('package')).toBeInTheDocument()
-    expect(within(menu).getByText('check')).toBeInTheDocument()
+    expect(within(menu).getAllByText('check')).toHaveLength(2)
     expect(within(menu).queryByText(/@packages|@containers/)).toBeNull()
     // Keeps the table's own settings for when you come back.
     expect(within(menu).getByRole('link', { name: 'Grains & packages' })).toHaveAttribute('href', '/?dir=desc&tab=grains')

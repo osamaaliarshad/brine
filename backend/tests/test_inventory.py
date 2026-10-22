@@ -1173,6 +1173,41 @@ def test_fleet_columns_that_arent_a_package_or_a_check_are_unknown(
     assert cells == {mid: {} for mid in ("dock-01", "rover-01", "rover-02", "rover-03")}
 
 
+def test_fleet_columns_say_when_each_source_was_read(with_checks: tuple[Api, FakeSalt]) -> None:
+    api, _ = with_checks
+    now = datetime.now(UTC)
+    read(api, "rover-01", {"rover-agent": "2.4.1"}, now - HOUR)
+    read(api, "rover-01", {"": "rover-cli 1.2.0"}, now, source="rover-cli")
+    # Cut short, but read then: what it lists is as of that read.
+    api.seed(
+        api.ingest.inventory_read,
+        "rover-02",
+        "packages",
+        {"bash": "5.2"},
+        at=now,
+        jid=None,
+        truncated=True,
+    )
+    # Only an error: no good read yet.
+    api.seed(api.ingest.inventory_failed, "dock-01", "packages", "locked", at=now, jid=None)
+    keys = ["app_version", "@packages:rover-agent", "@packages:bash", "@rover-cli", "@gone"]
+    resp = api.client.get("/api/fleet", params=[("column", c) for c in keys])
+    assert resp.status_code == 200, resp.text
+    read_at = {
+        m["id"]: {source: when(at) for source, at in m["read_at"].items()}
+        for m in resp.json()["minions"]
+    }
+    # Each source of the @ columns asked for, once; not a grain's, nor a check not configured.
+    assert read_at == {
+        "dock-01": {"packages": None, "rover-cli": None},
+        "rover-01": {"packages": now - HOUR, "rover-cli": now},
+        "rover-02": {"packages": now, "rover-cli": None},
+        "rover-03": {"packages": None, "rover-cli": None},
+    }
+    # The minion page goes by the default columns: grains only here.
+    assert api.get("/api/minions/rover-01")["read_at"] == {}
+
+
 def test_default_columns_can_be_packages(tmp_path: Path) -> None:
     columns = (
         "fleet: {columns: [{grain: '@packages:rover-agent'},"

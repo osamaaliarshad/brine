@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatAbsolute, formatRelative, relativeRange } from '@/lib/time'
+import { formatAbsolute, formatAsOf, formatRelative, relativeRange } from '@/lib/time'
 
 const NOW = Date.parse('2026-10-20T12:00:00Z')
 const ago = (seconds: number) => new Date(NOW - seconds * 1000).toISOString()
@@ -40,9 +40,33 @@ describe('relativeRange', () => {
   })
 })
 
+/** The local date and time, as this machine's locale writes it. */
+const local = (iso: string, timeStyle: 'short' | 'medium') =>
+  new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle })
+
 describe('formatAbsolute', () => {
-  it('shows UTC alongside local time', () => {
-    expect(formatAbsolute('2026-10-20T12:00:00Z')).toContain('2026-10-20 12:00:00 UTC')
+  it('shows the local date and time only', () => {
+    const text = formatAbsolute('2026-10-20T12:00:00Z')
+    expect(text).toBe(local('2026-10-20T12:00:00Z', 'medium'))
+    expect(text).toContain('2026')
+    expect(text).not.toContain('UTC')
     expect(formatAbsolute(null)).toBe('Never')
+    expect(formatAbsolute('not a date')).toBe('Unknown')
+  })
+})
+
+describe('formatAsOf', () => {
+  it('says how old a value is, then when that was', () => {
+    expect(formatAsOf(ago(10 * 60), NOW)).toBe(`As of 10m ago · ${local(ago(10 * 60), 'short')}`)
+    expect(formatAsOf(ago(2), NOW)).toBe(`As of just now · ${local(ago(2), 'short')}`)
+  })
+
+  it('gives just the date and time once it is over a month old', () => {
+    expect(formatAsOf(ago(90 * 86400), NOW)).toBe(`As of ${local(ago(90 * 86400), 'short')}`)
+  })
+
+  it('is null when there is no time to go by', () => {
+    expect(formatAsOf(null, NOW)).toBeNull()
+    expect(formatAsOf('not a date', NOW)).toBeNull()
   })
 })

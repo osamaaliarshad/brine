@@ -21,6 +21,7 @@ export function minion(id: string, patch: Partial<MinionSummary> = {}): MinionSu
     grains_at: ago(240),
     grains_source: 'minion',
     columns: { site: 'site-a', app_version: '2.4.1' },
+    read_at: {},
     ...patch,
   }
 }

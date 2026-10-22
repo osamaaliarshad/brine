@@ -2,9 +2,9 @@ import type { ReactNode } from 'react'
 import { Link } from 'react-router'
 import type { MinionSummary } from '@/api/types'
 import { Pill } from '@/components/ui'
-import { keyDescription, missingLabel, NO_ANSWER_CELL } from '@/lib/inventoryKey'
+import { keyDescription, missingFor, noAnswerFor } from '@/lib/inventoryKey'
 import { ConnectionCell } from '@/pages/fleet/ConnectionCell'
-import { columnCell, type SortKey } from '@/pages/fleet/model'
+import { cellAsOf, columnCell, grainsAsOf, type SortKey } from '@/pages/fleet/model'
 
 export type TableColumn = {
   key: SortKey
@@ -19,12 +19,14 @@ export function baseColumns(): TableColumn[] {
     {
       key: 'id',
       label: 'Minion',
-      render: (m) => (
+      render: (m, now) => (
         <div>
           <Link to={`/minions/${encodeURIComponent(m.id)}`} className="font-medium hover:text-accent">
             {m.id}
           </Link>
-          <div className="text-sm text-muted">{m.ip ?? '—'}</div>
+          <div className="text-sm text-muted" title={grainsAsOf(m, now) ?? undefined}>
+            {m.ip ?? '—'}
+          </div>
         </div>
       ),
     },
@@ -32,8 +34,8 @@ export function baseColumns(): TableColumn[] {
     {
       key: 'os',
       label: 'OS / Salt',
-      render: (m) => (
-        <div>
+      render: (m, now) => (
+        <div title={grainsAsOf(m, now) ?? undefined}>
           <div>{m.os ?? '—'}</div>
           <div className="text-sm text-muted">{m.salt_version ? `Salt ${m.salt_version}` : ''}</div>
         </div>
@@ -42,28 +44,35 @@ export function baseColumns(): TableColumn[] {
   ]
 }
 
-/** A grain's, package's or check's column. */
+/** A grain's, package's or check's column. Each cell's hover says what it is in full, then how
+ * fresh it is (the grains', or that package's or check's last read). */
 export function grainColumn(grain: string, label: string): TableColumn {
   return {
     key: `col:${grain}`,
     label,
     title: keyDescription(grain),
-    render: (m) => {
+    render: (m, now) => {
       const cell = columnCell(m, grain)
+      const asOf = cellAsOf(m, grain, now)
+      const hover = (text: string) => (asOf ? `${text}\n${asOf}` : text)
       switch (cell.kind) {
         case 'value':
-          return <Pill title={cell.text}>{cell.text}</Pill>
+          return <Pill title={hover(cell.text)}>{cell.text}</Pill>
         case 'empty':
-          return <span className="text-muted">(empty)</span>
+          return (
+            <span className="text-muted" title={asOf ?? undefined}>
+              (empty)
+            </span>
+          )
         case 'missing':
           return (
-            <span className="text-muted" title={missingLabel(grain)}>
+            <span className="text-muted" title={hover(missingFor(m.id, grain))}>
               —
             </span>
           )
         case 'unknown':
           return (
-            <span className="text-muted" title={NO_ANSWER_CELL}>
+            <span className="text-muted" title={noAnswerFor(m.id)}>
               ?
             </span>
           )

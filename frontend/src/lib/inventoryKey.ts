@@ -42,13 +42,28 @@ export function missingLabel(key: string): string {
   return keyKind(key) === 'package' ? 'Not installed' : 'Not reported'
 }
 
+/** A Fleet cell without it, in full: "dock-01 doesn't have rover-agent installed". */
+export function missingFor(minion: string, key: string): string {
+  const parsed = parseInventoryKey(key)
+  if (!parsed) return `${minion} doesn't report ${key}`
+  if (parsed.source === 'packages') return `${minion} doesn't have ${parsed.name} installed`
+  return parsed.name
+    ? `${minion}'s ${parsed.source} check doesn't list ${parsed.name}`
+    : `${minion}'s ${parsed.source} check reported nothing`
+}
+
+/** A Fleet `?` cell, in full. */
+export function noAnswerFor(minion: string): string {
+  return `No answer from ${minion} yet, couldn't read it, or its last answer was cut short`
+}
+
 /** Minions with no good answer for a package or check yet; the rarer reason is in the detail. */
 export const NO_ANSWER = 'No answer yet'
 export const NO_ANSWER_DETAIL = 'No answer yet, or the last answer was cut short'
 /** Minions whose last answer for it was an error. */
 export const FAILED_ANSWER = "Couldn't read"
 export const FAILED_ANSWER_DETAIL = 'The minion answered with an error; its Packages tab shows it'
-/** Either, for one minion, on its `?` cell. */
+/** Either, for one minion, on its `?` on a phone card. */
 export const NO_ANSWER_CELL = "No answer yet, couldn't read, or the last answer was cut short"
 
 /** Settings › Packages and checks: what brine reads, and the Salt permissions it needs. */

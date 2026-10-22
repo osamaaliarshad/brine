@@ -6,7 +6,7 @@ import type { InventoryEntry, InventorySource, MinionDetail } from '@/api/types'
 import { Badge } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { describeSource, explorerPath, INVENTORY_SETTINGS, keyOf } from '@/lib/inventoryKey'
-import { formatAbsolute, formatDay, formatRelative } from '@/lib/time'
+import { formatAbsolute, formatAsOf, formatDay, formatRelative } from '@/lib/time'
 import { useMediaQuery } from '@/lib/useMediaQuery'
 import { useReadNow } from '@/lib/useReadNow'
 import { ReadNowBar } from '@/pages/fleet/ReadNowBar'
@@ -90,6 +90,7 @@ function Entries({
       </div>
     )
   }
+  const asOf = formatAsOf(s.read_at, now) ?? undefined
   const firstRead = s.first_read_at
     ? `Already there when brine first read ${minion} on ${formatDay(s.first_read_at, now)}`
     : undefined
@@ -114,7 +115,7 @@ function Entries({
                 {entry.name}
               </Link>
             </td>
-            <td className="px-4 py-2 font-mono text-[13px] break-all">
+            <td className="px-4 py-2 font-mono text-[13px] break-all" title={asOf}>
               <Value text={entry.value} />
               {!wide && !sinceFirstRead(entry, s) && (
                 <div className="mt-0.5 font-sans text-xs break-normal text-muted">

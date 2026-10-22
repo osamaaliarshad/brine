@@ -2,6 +2,7 @@ import { act, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { GrainDistribution, InventoryChange, InventoryDistribution, InventoryKey, User } from '@/api/types'
+import { formatAbsolute } from '@/lib/time'
 import { FakeEventSource } from '@/test/setup'
 import { ago, fleet, minion, mockApi, NOW, renderApp, systemStatus } from '@/test/render'
 
@@ -211,8 +212,8 @@ describe('Fleet › Grains & packages', () => {
 
     const footer = screen.getByRole('button', { name: 'Read now' }).parentElement!
     expect(footer).toHaveTextContent('Read between 3h and 20m ago')
-    expect(within(footer).getByText('3h')).toHaveAttribute('title', expect.stringContaining('UTC'))
-    expect(within(footer).getByText('20m ago')).toHaveAttribute('title', expect.stringContaining('UTC'))
+    expect(within(footer).getByText('3h')).toHaveAttribute('title', formatAbsolute(ago(3 * 3600)))
+    expect(within(footer).getByText('20m ago')).toHaveAttribute('title', formatAbsolute(ago(20 * 60)))
 
     const changes = await screen.findByRole('list', { name: 'Changes to rover-agent' })
     const [byJob, byPerson, between, appeared] = within(changes).getAllByRole('listitem')
@@ -221,7 +222,7 @@ describe('Fleet › Grains & packages', () => {
       'href',
       '/jobs/20261020114000000001',
     )
-    expect(within(byJob!).getByText('20m ago')).toHaveAttribute('title', expect.stringContaining('UTC'))
+    expect(within(byJob!).getByText('20m ago')).toHaveAttribute('title', formatAbsolute(ago(20 * 60)))
     expect(byPerson).toHaveTextContent('1h ago rover-02 2.3.0 → 2.4.1 found after jobs by bob@example.com')
     expect(between).toHaveTextContent('2h ago rover-03 2.3.0 (removed) sometime between 8h and 2h ago')
     expect(appeared).toHaveTextContent('5h ago dock-01 2.3.0 (new) found after job 20261020070000000002')

@@ -148,6 +148,12 @@ def column_values(
     return values
 
 
+def column_sources(runtime: Runtime, columns: list[Column]) -> list[str]:
+    """The sources the `@` columns come from ("packages", a check's name), each once."""
+    keys = (inventory.configured_key(runtime.settings, c.grain) for c in columns)
+    return list(dict.fromkeys(parsed[0] for parsed in keys if parsed is not None))
+
+
 def summarize(
     minion: Minion,
     runtime: Runtime,
@@ -156,10 +162,13 @@ def summarize(
     *,
     columns: list[Column],
     cells: Mapping[str, Mapping[str, str | None]],
+    read_at: Mapping[str, Mapping[str, datetime | None]],
     blind: set[str] | frozenset[str] = frozenset(),
 ) -> MinionSummary:
-    """`cells`: the `@` columns' cells per minion, from `inventory_cells`."""
+    """`cells` and `read_at`: the `@` columns' cells per minion, and when each of their sources
+    was read, from `inventory_cells`."""
     stale_after = timedelta(minutes=runtime.settings.fleet.stale_after_minutes)
+    reads = read_at.get(minion.id, {})
     return MinionSummary(
         id=minion.id,
         status=minion_status(
@@ -179,6 +188,7 @@ def summarize(
         grains_at=minion.grains_at,
         grains_source=minion.grains_source,
         columns=column_values(minion, columns, cells.get(minion.id, {})),
+        read_at={source: reads.get(source) for source in column_sources(runtime, columns)},
     )
 
 
@@ -200,10 +210,12 @@ async def fleet(
     presence = await presence_info(session)
     columns = requested_columns(runtime, column)
     blind = await presence_blind(session)
-    cells = await inventory_cells(session, runtime.settings, (c.grain for c in columns))
+    cells, read_at = await inventory_cells(session, runtime.settings, (c.grain for c in columns))
     rows = (await session.scalars(select(Minion).order_by(Minion.id))).all()
     accepted = [
-        summarize(m, runtime, presence, now, columns=columns, cells=cells, blind=blind)
+        summarize(
+            m, runtime, presence, now, columns=columns, cells=cells, read_at=read_at, blind=blind
+        )
         for m in rows
         if m.key_state == "accepted"
     ]
@@ -291,13 +303,15 @@ async def minion_detail(
     presence = await presence_info(session)
     columns = configured_columns(runtime)
     keys = (c.grain for c in columns)
+    cells, read_at = await inventory_cells(session, runtime.settings, keys, minion=minion_id)
     summary = summarize(
         minion,
         runtime,
         presence,
         datetime.now(UTC),
         columns=columns,
-        cells=await inventory_cells(session, runtime.settings, keys, minion=minion_id),
+        cells=cells,
+        read_at=read_at,
         blind=await presence_blind(session),
     )
 

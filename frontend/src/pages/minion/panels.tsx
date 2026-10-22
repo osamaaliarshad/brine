@@ -14,6 +14,7 @@ import { Badge, StatusDot } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { formatAbsolute, formatDuration, formatRelative } from '@/lib/time'
 import { ChangeList, FoundWhen } from '@/pages/fleet/ChangeList'
+import { grainsAsOf } from '@/pages/fleet/model'
 
 function Empty({ children }: { children: React.ReactNode }) {
   return <div className="px-6 py-12 text-center text-muted">{children}</div>
@@ -23,6 +24,7 @@ export function GrainsPanel({ minion, now }: { minion: MinionDetail; now: number
   const [q, setQ] = useState('')
   if (!minion.grains) return <Empty>brine hasn't received grains from {minion.id} yet.</Empty>
   const needle = q.trim().toLowerCase()
+  const asOf = grainsAsOf(minion, now) ?? undefined
   const entries = Object.entries(minion.grains)
     .filter(([k, v]) => !needle || k.toLowerCase().includes(needle) || JSON.stringify(v).toLowerCase().includes(needle))
     .sort(([a], [b]) => a.localeCompare(b))
@@ -58,7 +60,7 @@ export function GrainsPanel({ minion, now }: { minion: MinionDetail; now: number
               <th scope="row" className="w-1/4 px-4 py-2 text-left font-mono font-normal text-muted sm:pl-6">
                 {key}
               </th>
-              <td className="px-4 py-2">
+              <td className="px-4 py-2" title={asOf}>
                 <JsonTree value={value} />
               </td>
             </tr>

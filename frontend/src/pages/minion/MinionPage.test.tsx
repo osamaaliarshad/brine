@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { GRAINS_HISTORY_LIMIT, MINION_CHANGES_LIMIT } from '@/api/queries'
 import type { InventoryChange, InventorySource, MinionComparison, MinionDetail, MinionInventory } from '@/api/types'
+import { formatAbsolute, formatAsOf } from '@/lib/time'
 import { FakeEventSource } from '@/test/setup'
 import { ago, fleet, minion, mockApi, NOW, renderApp, systemStatus } from '@/test/render'
 
@@ -101,6 +102,20 @@ describe('MinionPage', () => {
     expect(screen.getByText('Online since').nextSibling).toHaveTextContent('1h ago')
     expect(screen.getByText('As of 4m ago, from the minion')).toBeInTheDocument()
     expect(screen.getByRole('rowheader', { name: 'app_version' })).toBeInTheDocument()
+    // Each grain's value, and what the header takes from grains, say how fresh they are.
+    const value = within(screen.getByRole('rowheader', { name: 'app_version' }).closest('tr')!).getByRole('cell')
+    expect(value).toHaveAttribute('title', formatAsOf(ago(240), NOW))
+    expect(screen.getByText('10.0.0.11 · Debian 12 · Salt 3006.28')).toHaveAttribute('title', formatAsOf(ago(240), NOW))
+  })
+
+  it("says when grains come from the master's cache, age unknown", async () => {
+    mockApi({
+      '/api/minions/rover-01': { ...DETAIL, grains_source: 'master_cache', grains_at: null },
+      '/api/status': systemStatus(),
+    })
+    renderApp('/minions/rover-01')
+    const key = await screen.findByRole('rowheader', { name: 'app_version' })
+    expect(within(key.closest('tr')!).getByRole('cell')).toHaveAttribute('title', "From the master's cache; age unknown")
   })
 
   it('filters grains by name or value', async () => {
@@ -119,7 +134,7 @@ describe('MinionPage', () => {
 
     const packages = await screen.findByRole('region', { name: 'Packages' })
     expect(packages).toHaveTextContent(`Read 2h ago · first read ${day(ago(17 * DAY))}`)
-    expect(within(packages).getByText('Read 2h ago')).toHaveAttribute('title', expect.stringContaining('UTC'))
+    expect(within(packages).getByText('Read 2h ago')).toHaveAttribute('title', formatAbsolute(ago(2 * 3600)))
     expect(within(packages).getByRole('columnheader', { name: 'Version' })).toBeInTheDocument()
     // Only what appeared or changed since brine first looked has a time, so it stands out; the
     // rest is blank but for screen readers.
@@ -132,7 +147,9 @@ describe('MinionPage', () => {
     const [, , since] = within(rows[0]!).getAllByRole('cell')
     expect(within(since!).getByText("Already there at brine's first read")).toHaveClass('sr-only')
     expect(since).toHaveAttribute('title', `Already there when brine first read rover-01 on ${day(ago(17 * DAY))}`)
-    expect(within(packages).getByText('5h ago')).toHaveAttribute('title', expect.stringContaining('UTC'))
+    // A version says how fresh it is: as of that read.
+    expect(within(rows[1]!).getAllByRole('cell')[1]).toHaveAttribute('title', formatAsOf(ago(2 * 3600), NOW))
+    expect(within(packages).getByText('5h ago')).toHaveAttribute('title', formatAbsolute(ago(5 * 3600)))
     // One click to who else has it.
     expect(within(packages).getByRole('link', { name: 'rover-agent' })).toHaveAttribute(
       'href',
@@ -147,7 +164,7 @@ describe('MinionPage', () => {
     // A check's single value is shown as it is, with when it changed.
     expect(within(cli).queryByRole('table')).toBeNull()
     expect(within(cli).getByRole('link', { name: 'rover-cli 1.2.0' })).toHaveAttribute('href', '/?tab=grains&grain=%40rover-cli')
-    expect(within(cli).getByText('since 1h ago')).toHaveAttribute('title', expect.stringContaining('UTC'))
+    expect(within(cli).getByText('since 1h ago')).toHaveAttribute('title', formatAbsolute(ago(3600)))
 
     const containers = region('containers')
     expect(containers).toHaveTextContent('The last answer was cut short; some entries may be missing.')

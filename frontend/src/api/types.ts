@@ -16,6 +16,8 @@ export type MinionSummary = {
   grains_at: string | null
   grains_source: 'minion' | 'master_cache' | null
   columns: Record<string, unknown>
+  /** When the `@` columns' values are as of: each source's last good read ("packages", a check's name). */
+  read_at: Record<string, string | null>
 }
 
 export type PresenceInfo = {

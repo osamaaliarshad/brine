@@ -10,6 +10,7 @@ import { Tabs } from '@/components/Tabs'
 import { type TabDef, useTab } from '@/lib/useTab'
 import { formatAbsolute, formatRelative, useNow } from '@/lib/time'
 import { ConnectionCell } from '@/pages/fleet/ConnectionCell'
+import { grainsAsOf } from '@/pages/fleet/model'
 import { commandLine } from '@/pages/jobs/format'
 import { KeyActions } from '@/pages/keys/KeyActions'
 import { ACTIONS_FOR, describeResult } from '@/pages/keys/rules'
@@ -99,7 +100,11 @@ export function MinionPage() {
       <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
         <div className="min-w-0">
           <h1 className="text-4xl font-semibold tracking-tight break-all">{id}</h1>
-          {subtitle && <p className="mt-1 text-lg text-muted">{subtitle}</p>}
+          {subtitle && (
+            <p className="mt-1 text-lg text-muted" title={(minion && grainsAsOf(minion, now)) ?? undefined}>
+              {subtitle}
+            </p>
+          )}
         </div>
         <div className="flex flex-wrap gap-2">
           {canRun && minion?.key_state === 'accepted' && (

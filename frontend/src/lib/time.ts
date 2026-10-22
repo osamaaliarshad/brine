@@ -35,14 +35,25 @@ export function formatDay(iso: string, now: number = Date.now()): string {
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year })
 }
 
-/** Local time with UTC alongside, for tooltips. */
+/** Local date and time, for tooltips: "Oct 21, 2026, 7:23:45 PM". */
 export function formatAbsolute(iso: string | null | undefined): string {
   if (!iso) return 'Never'
   const date = new Date(iso)
   if (Number.isNaN(date.getTime())) return 'Unknown'
-  const local = date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'medium' })
-  const utc = date.toISOString().replace('T', ' ').slice(0, 19)
-  return `${local} (${utc} UTC)`
+  return date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'medium' })
+}
+
+/**
+ * How fresh a value brine keeps is, for its tooltip: "As of 10m ago · Oct 21, 2026, 7:23 PM", or
+ * "As of Oct 6, 2026, 7:23 PM" once it's over a month old. null with no time to go by.
+ */
+export function formatAsOf(iso: string | null | undefined, now: number = Date.now()): string | null {
+  if (!iso) return null
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return null
+  const when = date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+  const relative = formatRelative(iso, now)
+  return relative === 'just now' || relative.endsWith(' ago') ? `As of ${relative} · ${when}` : `As of ${when}`
 }
 
 /** Re-render every `intervalMs` so relative times keep ticking. */

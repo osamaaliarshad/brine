@@ -69,12 +69,15 @@ async def refused_sources(session: AsyncSession, settings: Settings) -> dict[str
 
 async def inventory_cells(
     session: AsyncSession, settings: Settings, keys: Iterable[str], minion: str | None = None
-) -> dict[str, dict[str, str | None]]:
+) -> tuple[dict[str, dict[str, str | None]], dict[str, dict[str, datetime | None]]]:
     """What the accepted minions (or just `minion`) have for each key: the value, or None
     (missing) when the minion's last good read of that source is whole and doesn't list it.
     A key left out is unknown: no good read yet, or one cut short that doesn't list it. A key
     that isn't a package or a configured check is unknown everywhere (a browser may keep a
-    removed check's column). The explorer and the fleet's columns both go by this."""
+    removed check's column). The explorer and the fleet's columns both go by this.
+
+    Also when each minion's last good read of each of those sources was (cut short or not):
+    what its cells are as of."""
     by_entry: dict[tuple[str, str], list[str]] = {}  # (source, name) -> its keys
     by_source: dict[str, list[str]] = {}
     for key in dict.fromkeys(keys):
@@ -82,18 +85,22 @@ async def inventory_cells(
             by_entry.setdefault(parsed, []).append(key)
             by_source.setdefault(parsed[0], []).append(key)
     if not by_entry:
-        return {}
+        return {}, {}
     whose = [Minion.key_state == "accepted"]
     if minion is not None:
         whose.append(Minion.id == minion)
-    whole = (
-        select(InventoryRead.minion_id, InventoryRead.source)
+    reads = (
+        select(
+            InventoryRead.minion_id,
+            InventoryRead.source,
+            InventoryRead.read_at,
+            InventoryRead.truncated,
+        )
         .join(Minion, Minion.id == InventoryRead.minion_id)
         .where(
             *whose,
             InventoryRead.source.in_(list(by_source)),
             InventoryRead.read_at.is_not(None),
-            InventoryRead.truncated.is_(False),
         )
     )
     entries = or_(*(and_(InventoryItem.source == s, InventoryItem.name == n) for s, n in by_entry))
@@ -105,13 +112,16 @@ async def inventory_cells(
         .where(*whose, entries)
     )
     cells: dict[str, dict[str, str | None]] = {}
-    for mid, source in await session.execute(whole):
-        for key in by_source[source]:
-            cells.setdefault(mid, {})[key] = None
+    read_at: dict[str, dict[str, datetime | None]] = {}
+    for mid, source, at, truncated in await session.execute(reads):
+        read_at.setdefault(mid, {})[source] = at
+        if not truncated:
+            for key in by_source[source]:
+                cells.setdefault(mid, {})[key] = None
     for mid, source, name, value in await session.execute(held):
         for key in by_entry[(source, name)]:
             cells.setdefault(mid, {})[key] = value
-    return cells
+    return cells, read_at
 
 
 def _has(column: Any, needle: str) -> Any:
@@ -178,7 +188,7 @@ async def inventory_values(
             select(Minion.id).where(Minion.key_state == "accepted").order_by(Minion.id)
         )
     ).all()
-    cells = await inventory_cells(session, runtime.settings, [key])
+    cells, _ = await inventory_cells(session, runtime.settings, [key])
     # Whose last answer for the source was an error.
     errored = set(
         await session.scalars(
