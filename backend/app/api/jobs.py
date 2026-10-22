@@ -1,14 +1,17 @@
 from __future__ import annotations
 
-from typing import Any, Literal
+from collections.abc import Iterable
+from typing import Any, Literal, NamedTuple
 
 from fastapi import APIRouter, HTTPException, Query
-from sqlalchemy import Select, and_, case, func, or_, select
+from sqlalchemy import Row, Select, and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.api.deps import SessionDep
 from app.api.schemas import (
     CatchUpRun,
+    CaughtUp,
     JobDetail,
     JobPage,
     JobResult,
@@ -44,9 +47,19 @@ def _with_counts() -> Select[Job, int, Any, Any, Any]:
     )
 
 
-def _summary(
-    job: Job, returned: int, succeeded: int | None, failed: int | None, finished: Any
-) -> JobSummary:
+class Late(NamedTuple):
+    """A job's minions that missed it and answered a catch-up run of it later."""
+
+    minions: int = 0
+    succeeded: int = 0
+    failed: int = 0
+
+
+NONE_LATE = Late()
+
+
+def _summary(row: Row[Job, int, Any, Any, Any], late: Late = NONE_LATE) -> JobSummary:
+    job, returned, succeeded, failed, finished = row
     return JobSummary(
         jid=job.jid,
         kind=job.kind,
@@ -55,12 +68,42 @@ def _summary(
         target_type=job.target_type,
         user=job.user,
         started_at=job.started_at,
+        # The job's own returns: a catch-up's answer can come days later.
         finished_at=finished,
         expected=len(job.minions),
         returned=returned,
-        succeeded=succeeded or 0,
-        failed=failed or 0,
+        succeeded=(succeeded or 0) + late.succeeded,
+        failed=(failed or 0) + late.failed,
+        caught_up=late.minions,
     )
+
+
+async def caught_up(session: AsyncSession, jids: Iterable[str] | Select[str]) -> dict[str, Late]:
+    """For each of these jobs (a list, or a query of jids) that has any: its minions that
+    missed it and have answered a catch-up run of it since. One that answered the job itself
+    after all isn't counted twice."""
+    answer, own = aliased(JobReturn), aliased(JobReturn)
+    rows = await session.execute(
+        select(
+            PendingRun.source_jid,
+            func.count(),
+            func.sum(case((answer.success.is_(True), 1), else_=0)),
+            func.sum(case((answer.success.is_(False), 1), else_=0)),
+        )
+        .join(
+            answer,
+            and_(answer.jid == PendingRun.sent_jid, answer.minion_id == PendingRun.minion_id),
+        )
+        .where(
+            PendingRun.state == "sent",
+            PendingRun.source_jid.in_(jids),
+            ~select(own.jid)
+            .where(own.jid == PendingRun.source_jid, own.minion_id == PendingRun.minion_id)
+            .exists(),
+        )
+        .group_by(PendingRun.source_jid)
+    )
+    return {jid: Late(count, ok or 0, bad or 0) for jid, count, ok, bad in rows}
 
 
 @router.get("/jobs", response_model=JobPage)
@@ -105,7 +148,9 @@ async def list_jobs(
             query.order_by(Job.started_at.desc(), Job.jid.desc()).limit(limit + 1)
         )
     ).all()
-    jobs = [_summary(*row) for row in rows[:limit]]
+    page = rows[:limit]
+    late = await caught_up(session, [row[0].jid for row in page])
+    jobs = [_summary(row, late.get(row[0].jid, NONE_LATE)) for row in page]
     return JobPage(jobs=jobs, next_before=jobs[-1].jid if len(rows) > limit else None)
 
 
@@ -192,28 +237,65 @@ async def job_detail(jid: str, session: SessionDep, user: CurrentUser) -> JobDet
     # Pillar values (pillar.items and friends) are for admins only.
     hidden = user.role != "admin" and reveals_pillar(job.fun)
 
-    catch_up = await session.scalars(
-        select(PendingRun).where(PendingRun.source_jid == jid).order_by(PendingRun.minion_id)
-    )
+    def result(r: JobReturn, late_in: CaughtUp | None = None) -> JobResult:
+        return JobResult(
+            minion_id=r.minion_id,
+            returned_at=r.returned_at,
+            success=r.success,
+            retcode=r.retcode,
+            data=HIDDEN if hidden else r.data,
+            states=states(r.data),
+            caught_up=late_in,
+        )
+
+    runs = (
+        await session.scalars(
+            select(PendingRun).where(PendingRun.source_jid == jid).order_by(PendingRun.minion_id)
+        )
+    ).all()
+    # The answers to its catch-up runs: a minion that missed the job and has answered one is
+    # caught up, its result shown here with the others.
+    answers = {
+        (r.jid, r.minion_id): r
+        for r in await session.scalars(
+            select(JobReturn).join(
+                PendingRun,
+                and_(
+                    PendingRun.sent_jid == JobReturn.jid,
+                    PendingRun.minion_id == JobReturn.minion_id,
+                    PendingRun.source_jid == jid,
+                    PendingRun.state == "sent",
+                ),
+            )
+        )
+    }
+    results = {r.minion_id: result(r) for r in returns}
+    catch_up: list[CatchUpRun] = []
+    late = NONE_LATE
+    for run in runs:
+        answer = answers.get((run.sent_jid or "", run.minion_id)) if run.state == "sent" else None
+        catch_up.append(
+            CatchUpRun.model_validate(run).model_copy(
+                update={"answered_at": answer.returned_at if answer else None}
+            )
+        )
+        if answer is not None and run.minion_id not in results:
+            at = run.sent_at or answer.returned_at
+            results[run.minion_id] = result(answer, CaughtUp(jid=answer.jid, at=at))
+            late = Late(
+                late.minions + 1,
+                late.succeeded + (answer.success is True),
+                late.failed + (answer.success is False),
+            )
     caught_up_from = await session.scalar(
         select(PendingRun.source_jid).where(PendingRun.sent_jid == jid).limit(1)
     )
     return JobDetail(
-        **_summary(*row).model_dump(),
-        catch_up=[CatchUpRun.model_validate(r) for r in catch_up],
+        **_summary(row, late).model_dump(),
+        catch_up=catch_up,
         catch_up_of=caught_up_from,
         args=job.args,
         minions=job.minions,
-        missing=sorted(set(job.minions) - {r.minion_id for r in returns}),
-        results=[
-            JobResult(
-                minion_id=r.minion_id,
-                returned_at=r.returned_at,
-                success=r.success,
-                retcode=r.retcode,
-                data=HIDDEN if hidden else r.data,
-                states=states(r.data),
-            )
-            for r in returns
-        ],
+        missing=sorted(set(job.minions) - results.keys()),
+        results=[results[mid] for mid in sorted(results)],
     )

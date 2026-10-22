@@ -218,3 +218,124 @@ def test_retries_only_what_certainly_did_not_go_out(setup: tuple[Api, FakeSalt])
     salt.start_error = None
     sweep(api)
     assert len(sent(salt)) == 2  # the two attempts above; a failed one is never retried
+
+
+# --- the original job, once its minions catch up ----------------------------------------------
+
+
+def returns(api: Api, jid: str, minion: str, *, success: bool = True) -> None:
+    api.seed(
+        api.ingest.job_return,
+        jid=jid,
+        kind="local",
+        minion_id=minion,
+        fun="test.echo",
+        at=datetime.now(UTC),
+        data="hello" if success else "boom",
+        success=success,
+        retcode=0 if success else 1,
+        user="local",
+    )
+
+
+def summary(api: Api, jid: str) -> Any:
+    (found,) = [j for j in api.get("/api/jobs")["jobs"] if j["jid"] == jid]
+    return found
+
+
+def counts(job: Any) -> tuple[int, int, int, int, int]:
+    return (job["expected"], job["returned"], job["caught_up"], job["succeeded"], job["failed"])
+
+
+def test_a_minion_that_caught_up_is_no_longer_missing(setup: tuple[Api, FakeSalt]) -> None:
+    api, _ = setup
+    run(api, command="test.echo hello", catch_up=True)
+    returns(api, JID, "rover-01")
+    returns(api, JID, "rover-02")
+    comes_back(api)
+    sweep(api)
+    (run_,) = api.get(f"/api/jobs/{JID}")["catch_up"]
+    late_jid = run_["sent_jid"]
+
+    # Sent, no answer yet: still missing, waiting on the catch-up.
+    job = api.get(f"/api/jobs/{JID}")
+    assert job["missing"] == ["rover-03"] and job["catch_up"][0]["answered_at"] is None
+    assert [r["minion_id"] for r in job["results"]] == ["rover-01", "rover-02"]
+    assert counts(job) == counts(summary(api, JID)) == (3, 2, 0, 2, 0)
+
+    returns(api, late_jid, "rover-03", success=False)
+    job = api.get(f"/api/jobs/{JID}")
+    assert job["missing"] == []
+    assert [(r["minion_id"], r["caught_up"]) for r in job["results"]] == [
+        ("rover-01", None),
+        ("rover-02", None),
+        ("rover-03", {"jid": late_jid, "at": run_["sent_at"]}),
+    ]
+    assert job["results"][2]["data"] == "boom"
+    assert job["catch_up"][0]["answered_at"] == job["results"][2]["returned_at"]
+    # Two returned on time and one caught up; its failure counts.
+    assert counts(job) == counts(summary(api, JID)) == (3, 2, 1, 2, 1)
+    assert job["finished_at"] < job["results"][2]["returned_at"]  # how long the job took
+
+    # The catch-up run's own job is as it was.
+    late = api.get(f"/api/jobs/{late_jid}")
+    assert late["catch_up_of"] == JID and late["missing"] == []
+    assert [r["caught_up"] for r in late["results"]] == [None]
+    assert counts(late) == (1, 1, 0, 0, 1)
+
+
+def test_a_minion_that_answered_both_counts_once(setup: tuple[Api, FakeSalt]) -> None:
+    api, _ = setup
+    run(api, command="test.echo hello", catch_up=True)
+    comes_back(api)
+    sweep(api)
+    late_jid = api.get(f"/api/jobs/{JID}")["catch_up"][0]["sent_jid"]
+    returns(api, late_jid, "rover-03")
+    returns(api, JID, "rover-03")  # it had the job after all
+    job = api.get(f"/api/jobs/{JID}")
+    assert [(r["minion_id"], r["caught_up"]) for r in job["results"]] == [("rover-03", None)]
+    assert counts(job) == counts(summary(api, JID)) == (3, 1, 0, 1, 0)
+
+
+@pytest.mark.parametrize("cancel", [False, True])
+def test_a_minion_still_to_catch_up_is_missing(setup: tuple[Api, FakeSalt], cancel: bool) -> None:
+    api, _ = setup
+    run(api, command="test.echo hello", catch_up=True)
+    returns(api, JID, "rover-01")
+    returns(api, JID, "rover-02")
+    if cancel:
+        run_id = api.get(f"/api/jobs/{JID}")["catch_up"][0]["id"]
+        api.client.post(f"/api/commands/catch-up/{run_id}/cancel", headers=CSRF)
+    job = api.get(f"/api/jobs/{JID}")
+    assert job["missing"] == ["rover-03"]
+    assert [r["state"] for r in job["catch_up"]] == ["cancelled" if cancel else "waiting"]
+    assert counts(job) == counts(summary(api, JID)) == (3, 2, 0, 2, 0)
+
+
+def test_issues_dont_count_minions_that_caught_up(
+    setup: tuple[Api, FakeSalt], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.api import issues
+
+    monkeypatch.setattr(issues, "NO_RETURN_AFTER", timedelta(0))
+    api, _ = setup
+    run(api, command="test.echo hello", catch_up=True)
+    returns(api, JID, "rover-01")
+    returns(api, JID, "rover-02")
+    comes_back(api)
+    sweep(api)
+    late_jid = api.get(f"/api/jobs/{JID}")["catch_up"][0]["sent_jid"]
+
+    def missing() -> dict[str, str]:
+        return {
+            i["key"]: i["title"]
+            for i in api.get("/api/issues")
+            if i["key"].startswith("job-missing:")
+        }
+
+    assert missing() == {
+        f"job-missing:{JID}": "test.echo: no return from 1 minion",
+        f"job-missing:{late_jid}": "test.echo: no return from 1 minion",
+    }
+    returns(api, late_jid, "rover-03")
+    assert missing() == {}

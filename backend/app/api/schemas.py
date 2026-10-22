@@ -355,13 +355,20 @@ class JobSummary(BaseModel):
     finished_at: datetime | None  # latest return so far
     expected: int
     returned: int
+    # Of the returns and the catch-ups' answers.
     succeeded: int
     failed: int
+    caught_up: int  # minions that missed it and answered a catch-up run of it later
 
 
 class JobPage(BaseModel):
     jobs: list[JobSummary]
     next_before: str | None  # pass as ?before= for the next (older) page
+
+
+class CaughtUp(BaseModel):
+    jid: str  # the catch-up run's job
+    at: datetime  # when brine ran it there
 
 
 class JobResult(BaseModel):
@@ -371,6 +378,7 @@ class JobResult(BaseModel):
     retcode: int | None
     data: Any
     states: list[StateResult] | None = None  # parsed, for state.apply/highstate/sls jobs
+    caught_up: CaughtUp | None = None  # missed the job: this is its answer to a catch-up run
 
 
 class StateDot(BaseModel):
@@ -412,17 +420,18 @@ class CatchUpRun(BaseModel):
     actor: str
     created_at: datetime
     expires_at: datetime
-    state: str  # waiting, sent, expired, cancelled, replaced, refused
+    state: str  # waiting, sending, sent, expired, cancelled, replaced, refused, failed
     reason: str | None
     sent_jid: str | None  # the job that ran it on the minion
     sent_at: datetime | None
+    answered_at: datetime | None = None  # when the minion answered that job (job pages only)
 
 
 class JobDetail(JobSummary):
     args: list[Any]
     minions: list[str]
-    missing: list[str]  # expected minions that haven't returned
-    results: list[JobResult]
+    missing: list[str]  # expected minions with no return, here or from a catch-up run
+    results: list[JobResult]  # the catch-ups' answers too, marked caught_up
     catch_up: list[CatchUpRun]  # minions that missed it and get it when they're back
     catch_up_of: str | None  # this job caught a minion up on that one
 

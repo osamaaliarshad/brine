@@ -10,13 +10,13 @@ from datetime import UTC, datetime, timedelta
 from typing import Literal
 
 from fastapi import APIRouter
-from sqlalchemy import case, func, select
+from sqlalchemy import and_, case, func, select
 
 from app import inventory
 from app.api.deps import RuntimeDep, SessionDep
 from app.api.fleet import grain_value, presence_blind, presence_info
 from app.api.inventory import refused_sources
-from app.api.jobs import latest_state_runs
+from app.api.jobs import NONE_LATE, caught_up, latest_state_runs
 from app.api.schemas import Issue
 from app.models import Job, JobReturn, Minion
 from app.status import Status, minion_status
@@ -213,15 +213,18 @@ async def issues(runtime: RuntimeDep, session: SessionDep) -> list[Issue]:
 
     failed = func.sum(case((JobReturn.success.is_(False), 1), else_=0))
     returned = func.count(JobReturn.minion_id)
+    is_recent = and_(Job.kind == "local", Job.started_at >= now - RECENT)
     recent = (
         await session.execute(
             select(Job, returned, failed)
             .outerjoin(JobReturn, JobReturn.jid == Job.jid)
-            .where(Job.kind == "local", Job.started_at >= now - RECENT)
+            .where(is_recent)
             .group_by(Job.jid)
             .order_by(Job.started_at.desc())
         )
     ).all()
+    # Minions that missed a job and have answered a catch-up run of it since aren't missing.
+    late = await caught_up(session, select(Job.jid).where(is_recent))
     state_jids = {run.jid for run in runs.runs}
     for job, n_returned, n_failed in recent:
         if n_failed and job.jid not in state_jids:
@@ -235,7 +238,7 @@ async def issues(runtime: RuntimeDep, session: SessionDep) -> list[Issue]:
                     jid=job.jid,
                 )
             )
-        missing = len(job.minions) - n_returned
+        missing = len(job.minions) - n_returned - late.get(job.jid, NONE_LATE).minions
         if missing > 0 and now - job.started_at > NO_RETURN_AFTER:
             found.append(
                 _issue(

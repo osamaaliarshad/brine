@@ -19,6 +19,7 @@ function job(jid: string, patch: Partial<JobSummary> = {}): JobSummary {
     returned: 4,
     succeeded: 4,
     failed: 0,
+    caught_up: 0,
     ...patch,
   }
 }
@@ -69,6 +70,24 @@ describe('JobsPage', () => {
     expect(within(runner).getByText('Done')).toBeInTheDocument()
   })
 
+  it('counts minions that caught up later apart from those still missing', async () => {
+    mockApi({
+      '/api/jobs': {
+        jobs: [
+          job('1', { fun: 'test.version', returned: 3, caught_up: 1 }),
+          job('2', { fun: 'test.ping', returned: 2, caught_up: 1 }),
+        ],
+        next_before: null,
+      },
+      '/api/status': systemStatus(),
+    })
+    renderApp('/jobs')
+    const done = (await screen.findByRole('link', { name: 'test.version' })).closest('tr')!
+    expect(within(done).getByText('3/4').parentElement).toHaveTextContent(/^3\/4· 1 caught up$/)
+    const partly = screen.getByRole('link', { name: 'test.ping' }).closest('tr')!
+    expect(within(partly).getByText('2/4').parentElement).toHaveTextContent(/^2\/4· 1 caught up· 1 missing$/)
+  })
+
   it('searches, filters by kind, and loads older pages', async () => {
     const user = userEvent.setup()
     const api = mockApi({
@@ -115,11 +134,11 @@ const DETAIL: JobDetail = {
   catch_up_of: null,
   results: [
     {
-      minion_id: 'rover-01', returned_at: ago(595), success: true, retcode: 0, data: {},
+      minion_id: 'rover-01', returned_at: ago(595), success: true, retcode: 0, data: {}, caught_up: null,
       states: [{ id: '/etc/motd', name: '/etc/motd', function: 'file.managed', sls: 'motd', result: true, changed: true, comment: 'File updated', duration_ms: 11.1 }],
     },
     {
-      minion_id: 'rover-02', returned_at: ago(594), success: false, retcode: 2, data: {},
+      minion_id: 'rover-02', returned_at: ago(594), success: false, retcode: 2, data: {}, caught_up: null,
       states: [{ id: 'calibrate', name: 'calibrate', function: 'cmd.run', sls: 'dock', result: false, changed: false, comment: 'Command failed', duration_ms: 1500 }],
     },
   ],
@@ -264,7 +283,7 @@ describe('JobPage', () => {
   it('shows plain returns as a tree', async () => {
     mockApi({
       '/api/jobs/9': { ...DETAIL, jid: '9', fun: 'grains.item', args: ['os'], missing: [], results: [
-        { minion_id: 'rover-01', returned_at: ago(1), success: true, retcode: 0, data: { os: 'Debian' }, states: null },
+        { minion_id: 'rover-01', returned_at: ago(1), success: true, retcode: 0, data: { os: 'Debian' }, states: null, caught_up: null },
       ] },
       '/api/status': systemStatus(),
     })

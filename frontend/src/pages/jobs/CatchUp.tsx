@@ -4,17 +4,7 @@ import type { CatchUpRun } from '@/api/types'
 import { Card } from '@/components/ui'
 import { cn } from '@/lib/cn'
 import { formatAbsolute, formatDuration, formatRelative } from '@/lib/time'
-
-const STATE_LABEL: Record<CatchUpRun['state'], string> = {
-  waiting: 'Waiting',
-  sending: 'Sending',
-  failed: 'Failed',
-  sent: 'Caught up',
-  expired: 'Expired',
-  cancelled: 'Cancelled',
-  replaced: 'Replaced',
-  refused: 'Not sent',
-}
+import { STATE_LABEL, unanswered } from '@/pages/jobs/catchUpRuns'
 
 const STATE_STYLE: Record<CatchUpRun['state'], string> = {
   waiting: 'bg-warn/15 text-warn',
@@ -37,7 +27,8 @@ function Detail({ run, now }: { run: CatchUpRun; now: number }) {
   if (run.state === 'sent')
     return (
       <span title={formatAbsolute(run.sent_at)}>
-        Ran {formatRelative(run.sent_at, now)} ·{' '}
+        {unanswered(run) ? 'Sent' : 'Ran'} {formatRelative(run.sent_at, now)}
+        {unanswered(run) && ', no answer yet'} ·{' '}
         <Link to={`/jobs/${run.sent_jid}`} className="text-accent hover:underline">
           its job
         </Link>
@@ -68,8 +59,13 @@ export function CatchUpPanel({ runs, now }: { runs: CatchUpRun[]; now: number })
             <Link to={`/minions/${encodeURIComponent(run.minion_id)}`} className="font-mono hover:text-accent">
               {run.minion_id}
             </Link>
-            <span className={cn('rounded-md px-2 py-0.5 text-xs font-medium', STATE_STYLE[run.state])}>
-              {STATE_LABEL[run.state]}
+            <span
+              className={cn(
+                'rounded-md px-2 py-0.5 text-xs font-medium',
+                unanswered(run) ? STATE_STYLE.sending : STATE_STYLE[run.state],
+              )}
+            >
+              {unanswered(run) ? 'Sent' : STATE_LABEL[run.state]}
             </span>
             <span className="min-w-0 flex-1 text-muted">
               <Detail run={run} now={now} />

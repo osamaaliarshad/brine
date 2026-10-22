@@ -18,6 +18,7 @@ const JOB: JobDetail = {
   returned: 2,
   succeeded: 2,
   failed: 0,
+  caught_up: 0,
   args: ['motd', { test: true, __kwarg__: true }],
   minions: ['rover-01', 'rover-02', 'rover-03'],
   missing: ['rover-03'],
@@ -60,6 +61,31 @@ describe('job actions', () => {
     expect(help).toHaveTextContent('Stop asks it to end (saltutil.term_job): it gets a chance to clean up.')
     expect(help).toHaveTextContent('Kill ends it at once (saltutil.kill_job), like kill -9.')
     expect(help).toHaveTextContent('Both open Run first; nothing runs until you click Run.')
+  })
+
+  it('stops it only where it may be running, not on minions still to catch up on it', async () => {
+    const waiting = {
+      id: 1, minion_id: 'rover-03', source_jid: JOB.jid, fun: JOB.fun, args: JOB.args, actor: OPERATOR.email,
+      created_at: ago(60), expires_at: ago(-86400), state: 'waiting' as const, reason: null,
+      sent_jid: null, sent_at: null, answered_at: null,
+    }
+    api({ ...JOB, missing: ['rover-02', 'rover-03'], catch_up: [waiting] }, ['saltutil.*'])
+    renderApp(`/jobs/${JOB.jid}`)
+    const kill = await screen.findByRole('link', { name: 'Kill' })
+    expect(new URL(kill.getAttribute('href')!, 'http://x').searchParams.get('target')).toBe('rover-02')
+  })
+
+  it('offers no Stop when every missing minion is still to catch up', async () => {
+    const waiting = {
+      id: 1, minion_id: 'rover-03', source_jid: JOB.jid, fun: JOB.fun, args: JOB.args, actor: OPERATOR.email,
+      created_at: ago(60), expires_at: ago(-86400), state: 'waiting' as const, reason: null,
+      sent_jid: null, sent_at: null, answered_at: null,
+    }
+    api({ ...JOB, catch_up: [waiting] }, ['saltutil.*'])
+    renderApp(`/jobs/${JOB.jid}`)
+    expect(await screen.findByRole('link', { name: 'Run again' })).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Stop' })).toBeNull()
+    expect(screen.queryByText(/^Stop asks/)).toBeNull()
   })
 
   it('re-runs targets the Run page cannot take on the minions the job reached', async () => {

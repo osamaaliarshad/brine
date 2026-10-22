@@ -227,7 +227,8 @@ it in with one click, and `{{ name }}` anywhere in a template becomes a field to
 When some targeted minions are offline, you can have them **catch up**: tick "Also run it on the
 offline minions when they're back" and brine remembers the command and runs it on each one as it
 reconnects, one command at a time, newest wins for repeats, giving up after 7 days. The job page
-shows who's still waiting (and lets you cancel); each catch-up is its own job, under your name.
+shows who's still waiting (and lets you cancel), and each one's result once it has caught up;
+each catch-up is also its own job, under your name.
 It all lives in brine: nothing is installed on the master, and commands run from the salt CLI are
 never repeated.
 

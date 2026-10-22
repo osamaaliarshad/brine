@@ -134,6 +134,7 @@ describe('an orchestration job', () => {
       returned: 1,
       succeeded: 0,
       failed: 1,
+      caught_up: 0,
       args: ['orch.rollout'],
       minions: ['master'],
       missing: [],
@@ -146,6 +147,7 @@ describe('an orchestration job', () => {
           success: false,
           retcode: null,
           data: {},
+          caught_up: null,
           states: [
             { id: 'rovers-answer', name: 'test.ping', function: 'salt.function', sls: 'orch.rollout', result: true, changed: false, comment: 'ok', duration_ms: 120, jid: '20261020120000000201' },
           ],

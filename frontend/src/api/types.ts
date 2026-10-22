@@ -103,6 +103,8 @@ export type CatchUpRun = {
   reason: string | null
   sent_jid: string | null
   sent_at: string | null
+  /** When the minion answered the job that ran it (on a job's page). */
+  answered_at: string | null
 }
 
 export type GrainsChange = {
@@ -135,8 +137,11 @@ export type JobSummary = {
   finished_at: string | null
   expected: number
   returned: number
+  /** Of the returns and the catch-ups' answers. */
   succeeded: number
   failed: number
+  /** Minions that missed it and answered a catch-up run of it later. */
+  caught_up: number
 }
 
 export type JobPage = { jobs: JobSummary[]; next_before: string | null }
@@ -161,12 +166,16 @@ export type JobResult = {
   retcode: number | null
   data: unknown
   states: StateResult[] | null
+  /** It missed the job: this is its answer to a catch-up run, in that job, run then. */
+  caught_up: { jid: string; at: string } | null
 }
 
 export type JobDetail = JobSummary & {
   args: unknown[]
   minions: string[]
+  /** No return, here or from a catch-up run. */
   missing: string[]
+  /** The catch-ups' answers too, marked caught_up. */
   results: JobResult[]
   /** Minions that missed it and get it when they're back. */
   catch_up: CatchUpRun[]

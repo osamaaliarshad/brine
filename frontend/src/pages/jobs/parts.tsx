@@ -17,18 +17,21 @@ export function Target({ job }: { job: Pick<JobSummary, 'kind' | 'target' | 'tar
   )
 }
 
-/** "4/4 ✓", "3/4 · 1 failed", "0/2 waiting". */
+/** "4/4 ✓", "3/4 · 1 failed", "3/4 · 1 caught up", "0/2 waiting". */
 export function JobOutcome({ job }: { job: JobSummary }) {
-  const pending = job.expected > 0 ? job.expected - job.returned : 0
+  const pending = job.expected > 0 ? job.expected - job.returned - job.caught_up : 0
+  // Minions that missed it and answered a catch-up run of it later.
+  const late = job.caught_up > 0 && <span className="text-muted">· {job.caught_up} caught up</span>
   if (job.failed > 0)
     return (
       <span className="inline-flex items-center gap-1.5 text-danger">
         <CircleX className="size-4" aria-hidden />
         {job.failed} failed
         {job.expected > 0 && <span className="text-muted">· {job.returned}/{job.expected}</span>}
+        {late}
       </span>
     )
-  if (job.returned === 0)
+  if (job.returned === 0 && job.caught_up === 0)
     return (
       <span className="inline-flex items-center gap-1.5 text-muted">
         <CircleDashed className="size-4" aria-hidden />
@@ -39,6 +42,7 @@ export function JobOutcome({ job }: { job: JobSummary }) {
     <span className={cn('inline-flex items-center gap-1.5', pending ? 'text-warn' : 'text-online')}>
       <CircleCheck className="size-4" aria-hidden />
       {job.expected > 0 ? `${job.returned}/${job.expected}` : 'Done'}
+      {late}
       {pending > 0 && <span className="text-muted">· {pending} missing</span>}
     </span>
   )
