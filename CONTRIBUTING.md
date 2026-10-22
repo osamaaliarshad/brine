@@ -68,7 +68,7 @@ real fleet: they're committed to a public repository.
 - `frontend/src`: React and TypeScript. `pages/` has one folder per page; `api/` has the typed
   client and the TanStack Query hooks.
 - `docs/decisions.md` explains the design choices that aren't obvious from the code. Read it
-  before changing how presence, sessions, commands or catch-up runs work.
+  before changing how presence, sessions, commands, catch-up runs or packages and checks work.
 
 ## Releasing
 

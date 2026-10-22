@@ -32,7 +32,7 @@ export const PAGES = [
   ['grains', `/?tab=grains&grain=${encodeURIComponent('@packages:rover-agent')}`],
   ['nodegroups', '/?tab=nodegroups'],
   ['minion', '/minions/rover-01'],
-  // Compared with rover-03: rover-agent and the rover-cli check differ.
+  // Compared with dock-01: rover-agent and the rover-cli check differ.
   ['packages', '/minions/rover-01?tab=packages&compare=dock-01'],
   ['jobs', '/jobs'],
   ['state-runs', '/jobs?tab=states'],
