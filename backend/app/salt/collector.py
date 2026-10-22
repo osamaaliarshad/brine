@@ -59,6 +59,9 @@ class SaltApi(Protocol):
 class CollectorStatus:
     connected: bool = False
     since: datetime | None = None  # when the current state (connected or not) began
+    # When brine lost salt-api, or started without it. Unlike `since`, a new error while it's
+    # still down doesn't move it.
+    down_since: datetime | None = None
     last_event_at: datetime | None = None
     error: str | None = None
     presence_method: str | None = None  # what's actually providing presence right now
@@ -106,7 +109,7 @@ class Collector:
         # Only the reconnect wait is injectable (tests skip it); the poll loops use real time.
         self.backoff_sleep = backoff_sleep
         self.event_log = event_log or EventLog()
-        self.status = CollectorStatus(since=clock())
+        self.status = CollectorStatus(since=clock(), down_since=clock())
         self._presence_event_at: datetime | None = None
         # When brine last asked every minion for fresh grains (survives reconnects).
         self._grains_asked_at: datetime | None = None
@@ -176,6 +179,8 @@ class Collector:
 
     def _set_connected(self, connected: bool, *, error: str | None = None) -> None:
         if connected != self.status.connected or error != self.status.error:
+            if self.status.connected and not connected:
+                self.status.down_since = self.clock()
             self.status.connected = connected
             self.status.since = self.clock()
             self.status.error = error

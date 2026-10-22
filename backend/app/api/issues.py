@@ -20,9 +20,9 @@ from app.api.deps import RuntimeDep, SessionDep
 from app.api.fleet import grain_value, presence_blind, presence_info
 from app.api.inventory import refused_sources
 from app.api.jobs import NO_CATCH_UPS, catch_ups, latest_state_runs
-from app.api.schemas import Issue, IssuesRead, IssuesUnread
+from app.api.schemas import Issue, MarkRead, MarkReadResult, MarkUnread
 from app.auth.users import CurrentUser
-from app.models import IssueRead, Job, JobReturn, Minion
+from app.models import IssueRead, Job, JobReturn, Minion, PresenceChange
 from app.status import Status, minion_status
 
 router = APIRouter()
@@ -43,13 +43,19 @@ def _fingerprint(*parts: object) -> str:
 
 
 # Marking an issue as read hides it from that person until it changes, that is until its
-# fingerprint does. By default the fingerprint goes by the issue's `since`, when this occurrence
-# began: salt-api lost again, presence gone stale again, a minion offline again or a newer failed
-# state run brings it back, and new wording alone doesn't (a job failing on one more minion).
-# Without a `since`, it goes by the title and detail (a minion on another Salt version, a new
-# reason salt-api refuses a read). Two kinds differ: a pending key goes by the key's fingerprint
-# too, so a new key under the same name comes back; a minion presence can't see never comes
-# back, as its `since` (when it was last seen) moves whenever it answers a job.
+# fingerprint does. By default the fingerprint goes by the issue's `since`, when it began
+# (presence gone stale again comes back), or without one, by its title and detail (a minion on
+# another Salt version, a new reason salt-api refuses a read). A job's issues are one per job,
+# and new wording alone doesn't bring one back (failing on one more minion). Some kinds go by
+# what best says it's still the same trouble:
+# - salt-api: when brine lost it, so a new error while it's still down doesn't count.
+# - offline: when presence saw the minion go, not when it was last seen, which a start event or
+#   a job's answer moves before presence sees it back.
+# - a failed state run: which states failed, so a schedule failing the same ones again stays
+#   read, and different ones come back.
+# - a pending key: the key's fingerprint too, so a new key under the same name comes back.
+# - a minion presence can't see: nothing, so it never comes back, as its `since` (when it was
+#   last seen) moves whenever it answers a job.
 def _issue(
     key: str,
     severity: Severity,
@@ -85,16 +91,22 @@ async def issues(runtime: RuntimeDep, session: SessionDep, user: CurrentUser) ->
     return found
 
 
-@router.post("/issues/read", status_code=204)
-async def mark_read(body: IssuesRead, runtime: RuntimeDep, user: CurrentUser) -> Response:
-    """Hide these issues from the signed-in person until they change. Not audited: like the
+@router.post("/issues/read", response_model=MarkReadResult)
+async def mark_read(
+    body: MarkRead, runtime: RuntimeDep, session: SessionDep, user: CurrentUser
+) -> MarkReadResult:
+    """Hide these issues from the signed-in person until they change. Only those still as the
+    page showed them are kept; the rest have changed (or gone) already. Not audited: like the
     fleet's columns, it's their own view."""
-    await runtime.ingest.issues_read(user.email, {i.key: i.fingerprint for i in body.issues})
-    return Response(status_code=204)
+    now = {i.key: i.fingerprint for i in await current_issues(runtime, session)}
+    marked = {i.key: i.fingerprint for i in body.issues if now.get(i.key) == i.fingerprint}
+    await runtime.ingest.issues_read(user.email, marked)
+    changed = [i.key for i in body.issues if i.key in now and i.key not in marked]
+    return MarkReadResult(marked=list(marked), changed=changed)
 
 
 @router.post("/issues/unread", status_code=204)
-async def mark_unread(body: IssuesUnread, runtime: RuntimeDep, user: CurrentUser) -> Response:
+async def mark_unread(body: MarkUnread, runtime: RuntimeDep, user: CurrentUser) -> Response:
     await runtime.ingest.issues_unread(user.email, body.keys)
     return Response(status_code=204)
 
@@ -116,6 +128,7 @@ async def current_issues(runtime: RuntimeDep, session: SessionDep) -> list[Issue
                 "brine can't reach salt-api",
                 collector.error or "Statuses will turn stale until it's back.",
                 since=collector.since,
+                changes_with=(collector.down_since,),
             )
         )
     presence = await presence_info(session)
@@ -169,6 +182,14 @@ async def current_issues(runtime: RuntimeDep, session: SessionDep) -> list[Issue
                     changes_with=(m.first_seen_at, m.key_fingerprint),
                 )
             )
+    # When presence last saw each minion go: unlike when it was last seen, that stays put while
+    # it's offline (a start event or a job's answer can come before presence sees it back).
+    offline_at = (
+        select(PresenceChange.minion_id, func.max(PresenceChange.at))
+        .where(PresenceChange.connected.is_(False))
+        .group_by(PresenceChange.minion_id)
+    )
+    went_offline = {mid: at for mid, at in await session.execute(offline_at)}
     for m in accepted:
         status = minion_status(
             connected=m.connected,
@@ -211,6 +232,7 @@ async def current_issues(runtime: RuntimeDep, session: SessionDep) -> list[Issue
                     "Not connected to the master in the latest presence check.",
                     since=m.last_seen_at,
                     minion_id=m.id,
+                    changes_with=(went_offline.get(m.id),),
                 )
             )
         if m.grains_source == "master_cache":
@@ -254,6 +276,9 @@ async def current_issues(runtime: RuntimeDep, session: SessionDep) -> list[Issue
                     since=run.returned_at,
                     minion_id=run.minion_id,
                     jid=run.jid,
+                    changes_with=tuple(
+                        sorted({(s.function, s.id) for s in run.states if s.result is False})
+                    ),
                 )
             )
 

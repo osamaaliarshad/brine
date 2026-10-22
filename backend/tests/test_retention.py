@@ -10,7 +10,15 @@ from sqlalchemy import func, select
 from app import retention
 from app.config import parse_config
 from app.main import create_app
-from app.models import AuditEntry, GrainsSnapshot, Job, JobReturn, PendingRun, PresenceChange
+from app.models import (
+    AuditEntry,
+    GrainsSnapshot,
+    IssueRead,
+    Job,
+    JobReturn,
+    PendingRun,
+    PresenceChange,
+)
 from tests.test_api import Api
 
 NOW = datetime.now(UTC)
@@ -112,4 +120,28 @@ def test_zero_keeps_everything(tmp_path: Path) -> None:
         seed(api)
         before = counts(api)
         deleted = api.seed(retention.prune, client.app.state.runtime, NOW)
-        assert counts(api) == before and deleted == {}
+        assert counts(api) == before and not any(deleted.values())
+
+
+def test_marks_on_job_issues_go_after_two_days_whatever_is_kept(tmp_path: Path) -> None:
+    keep = "retention: {jobs_days: 0, history_days: 0, audit_days: 0}\n"
+    with make(tmp_path, keep) as client:
+        api = Api(client)
+        runtime = client.app.state.runtime
+
+        async def mark() -> None:
+            async with runtime.sessions() as s, s.begin():
+                for key, at in [
+                    ("job-failed:1", NOW - timedelta(days=3)),
+                    ("job-failed:2", RECENT),
+                    ("offline:m1", OLD),
+                ]:
+                    s.add(IssueRead(user="local", key=key, fingerprint="f", read_at=at))
+
+        async def marked() -> list[str]:
+            async with runtime.sessions() as s:
+                return sorted((await s.scalars(select(IssueRead.key))).all())
+
+        api.seed(mark)
+        api.seed(retention.prune, runtime, NOW)
+        assert api.seed(marked) == ["job-failed:2", "offline:m1"]

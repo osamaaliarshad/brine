@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import delete, select
+from sqlalchemy import and_, delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.inventory import AFTER_JOB, CLOCK_MARGIN, CREDIT_WINDOW, NO_JOB
@@ -704,10 +704,20 @@ class Ingest:
         jobs_before: datetime | None,
         history_before: datetime | None,
         audit_before: datetime | None,
+        job_marks_before: datetime | None = None,
     ) -> dict[str, int]:
         """Delete history older than each cutoff (None keeps it). Returns rows deleted per kind.
-        A job's returns go with it; catch-up runs still waiting are never deleted."""
+        A job's returns go with it; catch-up runs still waiting are never deleted. Marks on a
+        job's issues (which last a day) have a cutoff of their own."""
         deleted: dict[str, int] = {}
+        old_marks = []
+        if history_before is not None:
+            # One still there after all this time comes back.
+            old_marks.append(IssueRead.read_at < history_before)
+        if job_marks_before is not None:
+            old_marks.append(
+                and_(IssueRead.key.startswith("job-"), IssueRead.read_at < job_marks_before)
+            )
 
         async def drop(s: AsyncSession, name: str, statement: Any) -> None:
             result = await s.execute(statement)
@@ -740,10 +750,8 @@ class Ingest:
                     "inventory_changes",
                     delete(InventoryChange).where(InventoryChange.at < history_before),
                 )
-                # Mostly long-gone jobs' issues. One still going after all this time comes back.
-                await drop(
-                    s, "issue_reads", delete(IssueRead).where(IssueRead.read_at < history_before)
-                )
+            if old_marks:
+                await drop(s, "issue_reads", delete(IssueRead).where(or_(*old_marks)))
             if audit_before is not None:
                 await drop(s, "audit", delete(AuditEntry).where(AuditEntry.at < audit_before))
         return deleted
@@ -821,10 +829,17 @@ class Ingest:
     async def issues_read(self, user: str, fingerprints: dict[str, str]) -> None:
         """`user` read these issues ({key: fingerprint}), as they were then. A person's own view,
         so nobody else's browser is told."""
+        if not fingerprints:
+            return
         now = self._clock()
         async with self._lock, self._sessions() as s, s.begin():
             mine = {
-                r.key: r for r in await s.scalars(select(IssueRead).where(IssueRead.user == user))
+                r.key: r
+                for r in await s.scalars(
+                    select(IssueRead).where(
+                        IssueRead.user == user, IssueRead.key.in_(list(fingerprints))
+                    )
+                )
             }
             for key, fingerprint in fingerprints.items():
                 if (row := mine.get(key)) is None:

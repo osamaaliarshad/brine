@@ -204,12 +204,29 @@ cache after a reconnect don't trigger a read; the next read finds their changes,
 Issues are worked out on every request from what brine knows, so there's nothing to close, and
 one person putting a failed state aside shouldn't hide it from everyone else. brine keeps, for
 each person, the issues they marked as read with each one's fingerprint at the time, and hides an
-issue from them while its fingerprint stays the same. The fingerprint goes by when the issue
-began, so a minion offline again, a newer failed state run or salt-api lost again comes back; an
-issue with no start time goes by its wording (a minion moving to another Salt version). The page
-sends the fingerprints it showed, so an issue that changed in the meantime stays unread. Read
-issues can still be shown, and they don't count towards "need attention". Not audited: like the
-fleet's columns, it's how one person looks at brine.
+issue from them while its fingerprint stays the same. With sign-in off, everyone is the same
+"local" person, so marks are shared.
 
-Two gaps: an issue with no start time that goes away and comes back worded the same stays read,
-and marks are pruned after `retention.history_days`, so an issue still there by then comes back.
+What the fingerprint goes by (the rules are in `app/api/issues.py`):
+
+- By default, when the issue began (presence gone stale again comes back), or for an issue with
+  no start time, its wording (a minion moving to another Salt version).
+- salt-api: when brine lost it. A new error during the same outage doesn't count.
+- A minion offline: when presence saw it go. When it was last seen won't do: a start event or a
+  job's answer moves it before presence sees the minion back.
+- A failed state run: which states failed. A schedule failing the same ones again stays read;
+  other states failing comes back.
+- A pending key: the key's fingerprint too, so a new key under the same name comes back.
+- A minion presence can't see: nothing. It stays read, as when it was last seen moves whenever
+  it answers a job.
+
+The page sends the fingerprints it showed, and brine keeps only those still current, so an issue
+that changed in the meantime stays unread, and the page says so. Read issues can still be shown,
+and they don't count towards "need attention". Not audited: like the fleet's columns, it's how
+one person looks at brine.
+
+Gaps: an issue that goes away and comes back the same stays read. That's an issue with no start
+time worded the same, a minion presence can't see again, a state run failing the same states
+after a good one, or the same pending key sent again. And marks are pruned after
+`retention.history_days` (those on a job's issues, which last a day, after two days), as are the
+presence changes an offline minion's mark goes by, so an issue still there by then comes back.

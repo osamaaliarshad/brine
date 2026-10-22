@@ -160,12 +160,17 @@ class IssueRef(BaseModel):
 MAX_ISSUES_AT_ONCE = 10_000
 
 
-class IssuesRead(BaseModel):
+class MarkRead(BaseModel):
     # The issues as the page showed them: one that has changed since stays unread.
     issues: list[IssueRef] = Field(max_length=MAX_ISSUES_AT_ONCE)
 
 
-class IssuesUnread(BaseModel):
+class MarkReadResult(BaseModel):
+    marked: list[str]
+    changed: list[str]  # still issues, but not as the page showed them: they stay unread
+
+
+class MarkUnread(BaseModel):
     keys: list[Annotated[str, Field(max_length=512)]] = Field(max_length=MAX_ISSUES_AT_ONCE)
 
 
