@@ -1,11 +1,13 @@
 import { ArrowDown, ArrowUp, Columns3, Plus, X } from 'lucide-react'
+import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { INVENTORY_KEYS_LIMIT, useGrainKeys, useInventoryKeys } from '@/api/queries'
-import type { Column, InventoryKey } from '@/api/types'
+import { INVENTORY_KEYS_LIMIT, inventoryKeysQuery, useGrainKeys, useInventoryKeys } from '@/api/queries'
+import type { Column, GrainKey, InventoryKey } from '@/api/types'
 import { Combobox, type ComboboxOption } from '@/components/Listbox'
 import { cn } from '@/lib/cn'
 import { keyDescription, keyKind, keyLabel } from '@/lib/inventoryKey'
 import { useDebounced } from '@/lib/useDebounced'
+import { visibleArea } from '@/lib/visibleArea'
 import { addGrain, moveGrain } from '@/pages/fleet/columnPrefs'
 
 const ICON_BTN =
@@ -17,7 +19,8 @@ const MIN_SEARCH = 2
 const SEARCH_DELAY_MS = 250
 // More grains than this make a wall to scroll through: typing narrows them instead.
 const MAX_GRAINS = 50
-// The menu keeps this far from the screen's edges (as its max-w does: 100vw less 2rem).
+// The menu keeps this far inside what can show it: the screen (as its max-w does: 100vw less
+// 2rem), or the card it's in.
 const GUTTER = 16
 
 const minions = (n: number) => `${n} minion${n === 1 ? '' : 's'}`
@@ -27,13 +30,45 @@ function matches(k: InventoryKey, needle: string): boolean {
   return k.name.toLowerCase().includes(needle) || (k.kind === 'check' && k.source.toLowerCase().includes(needle))
 }
 
+/** The grains on offer for what's typed: not columns yet, with it anywhere in the key. */
+function offeredGrains(keys: GrainKey[], columns: string[], needle: string): GrainKey[] {
+  return keys.filter((k) => !columns.includes(k.key) && k.key.toLowerCase().includes(needle))
+}
+
+/** The packages and checks on offer from a search's answer (maybe the last one, for less than
+ * what's typed now, kept while the next is on its way). */
+function offeredInventory(keys: InventoryKey[], columns: string[], needle: string): InventoryKey[] {
+  return keys.filter((k) => !columns.includes(k.key) && (!needle || matches(k, needle)))
+}
+
+/**
+ * What adding `typed` adds when no option is picked: the grain, package or check that is what's
+ * typed (a grain by its key first, then a package or check by its name), else the only one on
+ * offer, else what's typed, as a grain path.
+ */
+function typedKey(typed: string, grainKeys: GrainKey[], inventoryKeys: InventoryKey[], columns: string[]): string {
+  const needle = typed.toLowerCase()
+  const exact =
+    grainKeys.find((k) => k.key.toLowerCase() === needle) ??
+    inventoryKeys.find((k) => keyLabel(k.key).toLowerCase() === needle)
+  if (exact) return exact.key
+  const offered = [
+    ...offeredGrains(grainKeys, columns, needle).slice(0, MAX_GRAINS),
+    ...offeredInventory(inventoryKeys, columns, needle),
+  ]
+  return offered.length === 1 ? offered[0]!.key : typed
+}
+
 function option(key: string, count: number, tag?: string): ComboboxOption {
   return { value: key, label: keyLabel(key), tag, hint: minions(count), title: keyDescription(key) }
 }
 
 /** Add any grain, package or check as a column: suggested as you type, or a grain path typed out. */
 function AddColumn({ columns, onAdd }: { columns: string[]; onAdd: (key: string) => void }) {
+  const queryClient = useQueryClient()
   const [draft, setDraft] = useState('')
+  // Bumped by every edit and add: an answer awaited for an earlier Enter is then dropped.
+  const asked = useRef(0)
   const typed = draft.trim()
   const needle = typed.toLowerCase()
   const grainKeys = useGrainKeys(true)
@@ -43,10 +78,10 @@ function AddColumn({ columns, onAdd }: { columns: string[]; onAdd: (key: string)
   // the pause.
   const inventory = useInventoryKeys(short || settled.length < MIN_SEARCH ? '' : settled)
   // What's typed hasn't been searched for yet (still typing, or the answer is on its way).
-  const searching = !short && (settled !== typed || inventory.isPlaceholderData)
+  const searching = !short && (settled !== typed || inventory.isPlaceholderData || inventory.isPending)
 
-  const grains = (grainKeys.data ?? []).filter((k) => !columns.includes(k.key) && k.key.toLowerCase().includes(needle))
-  const found = (inventory.data ?? []).filter((k) => !columns.includes(k.key) && (!needle || matches(k, needle)))
+  const grains = offeredGrains(grainKeys.data ?? [], columns, needle)
+  const found = offeredInventory(inventory.data ?? [], columns, needle)
   // Not searching: the checks, then the packages that differ across the fleet.
   const items = short ? [...found.filter((k) => k.kind === 'check'), ...found.filter((k) => k.kind === 'package')] : found
   // Under the packages and checks: why there are none yet, or how to find others.
@@ -59,15 +94,28 @@ function AddColumn({ columns, onAdd }: { columns: string[]; onAdd: (key: string)
   }
 
   const add = (key: string) => {
+    asked.current++
     onAdd(key)
     setDraft('')
+  }
+
+  // Enter (or Add) with no option picked. The packages are looked up for what's typed first (or
+  // the answer already in is taken), so a package named in full isn't added as a grain path no
+  // minion has just because its search was still on its way.
+  const submit = async () => {
+    if (!typed) return
+    const ask = ++asked.current
+    const inventoryKeys = short
+      ? (inventory.data ?? [])
+      : await queryClient.fetchQuery(inventoryKeysQuery(typed)).catch((): InventoryKey[] => [])
+    if (ask === asked.current) add(typedKey(typed, grainKeys.data ?? [], inventoryKeys, columns))
   }
 
   return (
     <form
       onSubmit={(event) => {
         event.preventDefault()
-        add(draft)
+        void submit()
       }}
       className="mt-2"
     >
@@ -75,7 +123,10 @@ function AddColumn({ columns, onAdd }: { columns: string[]; onAdd: (key: string)
         label="Add a grain, package or check"
         placeholder="Add a grain, package or check"
         value={draft}
-        onChange={setDraft}
+        onChange={(text) => {
+          asked.current++
+          setDraft(text)
+        }}
         onPick={add}
         groups={[
           {
@@ -134,19 +185,24 @@ export function ColumnsMenu({
   buttonClassName?: string
 }) {
   const [open, setOpen] = useState(false)
-  // How far right of its usual place (right edge under the button's) the menu goes.
+  // How far right of its usual place (right edge under the button's) the menu goes; left if less
+  // than 0.
   const [shift, setShift] = useState(0)
   const ref = useRef<HTMLDivElement>(null)
   const dialog = useRef<HTMLDivElement>(null)
   const grains = grainColumns.map((c) => c.grain)
 
-  // On a phone the button can be at the left of its row, where a menu hanging left from it would
-  // be off the screen: move it right, as far as it takes to stay on screen.
+  // The button can be at the left of its row (on a phone, or beside the sidebar when the toolbar
+  // wraps), where a menu hanging left from it would be cut off by the card or the screen: move it
+  // right, as far as it takes to be seen whole.
   useLayoutEffect(() => {
     const width = dialog.current?.offsetWidth
-    const button = ref.current?.getBoundingClientRect()
-    if (!open || !width || !button) return
-    setShift(Math.max(0, Math.min(GUTTER - (button.right - width), window.innerWidth - GUTTER - button.right)))
+    if (!open || !width || !ref.current) return
+    const button = ref.current.getBoundingClientRect()
+    const area = visibleArea(ref.current)
+    const [lo, hi] = [area.left + GUTTER, area.right - GUTTER]
+    const left = button.right - width
+    setShift(left < lo ? Math.min(lo - left, hi - button.right) : Math.min(0, hi - button.right))
   }, [open])
 
   useEffect(() => {

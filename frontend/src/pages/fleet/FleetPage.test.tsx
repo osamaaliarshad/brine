@@ -78,10 +78,12 @@ const pkg = (name: string, minions: number): InventoryKey => ({
 const PACKAGES = [pkg('bash', 3), pkg('nginx', 2), pkg('nginx-common', 1), pkg('rover-agent', 2)]
 const ROVER_CLI: InventoryKey = { key: '@rover-cli', source: 'rover-cli', name: '', kind: 'check', minions: 3 }
 
-/** Like the server: no search gives the checks and the packages that differ; a search, any package. */
+/** Like the server: no search gives the checks and the packages that differ; a search, any package
+ * by its name, or a check by its own. */
 function inventoryKeys(url: URL): InventoryKey[] {
   const q = url.searchParams.get('q')!.toLowerCase()
-  return q ? PACKAGES.filter((p) => p.name.includes(q)) : [pkg('rover-agent', 2), ROVER_CLI]
+  if (!q) return [pkg('rover-agent', 2), ROVER_CLI]
+  return [...PACKAGES, ROVER_CLI].filter((k) => k.name.includes(q) || (k.kind === 'check' && k.source.includes(q)))
 }
 
 /** The Fleet page with the Columns menu open, and its box for adding a column. */
@@ -254,7 +256,7 @@ describe('FleetPage', () => {
 
   it('offers grains, packages and checks in a list of its own, narrowed as you type', async () => {
     const user = userEvent.setup()
-    const { box } = await openColumns(user)
+    const { menu, box } = await openColumns(user)
     expect(box).toHaveAttribute('aria-expanded', 'false')
 
     await user.click(box)
@@ -266,6 +268,9 @@ describe('FleetPage', () => {
     // Before a search: the checks, then the packages that differ across the fleet.
     await waitFor(() => expect(offered('Packages and checks')).toEqual(['rover-cli check 3 minions', 'rover-agent package 2 minions']))
     expect(within(list).getByText('Type 2 or more letters to find any package')).toBeInTheDocument()
+    // The notes under the options are read out as they change.
+    const status = within(menu).getByRole('status')
+    expect(status).toHaveTextContent('Packages and checks: Type 2 or more letters to find any package')
 
     // Anywhere in the key, whatever the case.
     await user.type(box, 'MODEL')
@@ -276,8 +281,10 @@ describe('FleetPage', () => {
     await user.type(box, 'nginx')
     expect(screen.queryByRole('group', { name: 'Grains' })).toBeNull()
     expect(within(screen.getByRole('group', { name: 'Packages and checks' })).getByText('Searching…')).toBeInTheDocument()
+    expect(status).toHaveTextContent('Packages and checks: Searching…')
     await waitFor(() => expect(offered('Packages and checks')).toEqual(['nginx package 2 minions', 'nginx-common package 1 minion']))
-    expect(screen.queryByText('Searching…')).toBeNull()
+    expect(screen.queryByText(/Searching…/)).toBeNull()
+    expect(status).toHaveTextContent(/^$/)
 
     // Nothing matches: no list at all.
     await user.type(box, 'zzz')
@@ -356,14 +363,61 @@ describe('FleetPage', () => {
     expect(screen.queryByRole('listbox')).toBeNull()
   })
 
-  it('adds what was typed on Enter when no option is highlighted', async () => {
+  it('adds what was typed on Enter when nothing is highlighted and nothing listed is it', async () => {
     const user = userEvent.setup()
     const { api, box } = await openColumns(user)
-    // A path the list doesn't know: the list is still searching packages when Enter comes.
+    // A path nothing listed is: once the packages are searched (none is it either), it's a grain path.
     await user.type(box, 'hw:serial{Enter}')
     expect(await screen.findByRole('columnheader', { name: /hw:serial/ })).toBeInTheDocument()
     expect(api).toHaveBeenCalledWith('/api/fleet?column=site&column=app_version&column=hw%3Aserial', expect.anything())
     expect(box).toHaveValue('')
+  })
+
+  it('adds the package or check whose name is typed, on Enter or Add', async () => {
+    const user = userEvent.setup()
+    const { api, menu, box } = await openColumns(user)
+    // Enter before the packages are even searched: it waits for them, rather than adding "nginx"
+    // as a grain path no minion has.
+    await user.type(box, 'nginx{Enter}')
+    expect(await screen.findByRole('columnheader', { name: /nginx/ })).toBeInTheDocument()
+    expect(api).toHaveBeenCalledWith(
+      '/api/fleet?column=site&column=app_version&column=%40packages%3Anginx',
+      expect.anything(),
+    )
+    expect(api).not.toHaveBeenCalledWith('/api/fleet?column=site&column=app_version&column=nginx', expect.anything())
+    expect(box).toHaveValue('')
+
+    // A check by its name, whatever the case, with the results already in; the Add button too.
+    await user.type(box, 'ROVER-CLI')
+    await screen.findByRole('option', { name: 'rover-cli check 3 minions' })
+    await user.click(within(menu).getByRole('button', { name: 'Add' }))
+    expect(await screen.findByRole('columnheader', { name: /rover-cli/ })).toBeInTheDocument()
+    expect(JSON.parse(localStorage.getItem('brine-fleet-columns')!).grains).toEqual([
+      'site',
+      'app_version',
+      '@packages:nginx',
+      '@rover-cli',
+    ])
+  })
+
+  it('adds the grain whose name is typed, before a package of the same name', async () => {
+    const user = userEvent.setup()
+    const { api, box } = await openColumns(user, [...GRAIN_KEYS, { key: 'bash', minions: 3 }])
+    await user.click(box)
+    await screen.findByRole('option', { name: 'bash 3 minions' })
+    await user.type(box, 'Bash{Enter}')
+    expect(await screen.findByRole('columnheader', { name: /bash/ })).toBeInTheDocument()
+    expect(api).toHaveBeenCalledWith('/api/fleet?column=site&column=app_version&column=bash', expect.anything())
+    expect(api).not.toHaveBeenCalledWith(expect.stringContaining('%40packages%3Abash'), expect.anything())
+  })
+
+  it('adds the only option listed on Enter', async () => {
+    const user = userEvent.setup()
+    const { api, box } = await openColumns(user)
+    // Only the kernel grain has "kern" in it (no package does, once they're searched).
+    await user.type(box, 'kern{Enter}')
+    expect(await screen.findByRole('columnheader', { name: /kernel/ })).toBeInTheDocument()
+    expect(api).toHaveBeenCalledWith('/api/fleet?column=site&column=app_version&column=kernel', expect.anything())
   })
 
   it('finds a package by typing and adds it as a column', async () => {
@@ -443,14 +497,41 @@ describe('FleetPage', () => {
     expect(screen.getByRole('dialog', { name: 'Choose columns' })).toHaveStyle({ right: '-200px' })
   })
 
+  it('keeps the menu inside the card it is in, when its button is at the left beside the sidebar', async () => {
+    const user = userEvent.setup()
+    mockApi({ '/api/fleet': FLEET, '/api/status': systemStatus() })
+    renderApp('/')
+    await screen.findByText('rover-01')
+    // The Fleet card cuts off what overflows it: on a 1024px screen, beside the sidebar, it runs
+    // from 290 to 1004. The button's right edge is at 412, the menu 320px wide.
+    const button = screen.getByRole('button', { name: 'Columns' })
+    const card = button.closest<HTMLElement>('.rounded-2xl')!
+    // As a browser computes overflow-hidden (jsdom doesn't expand the shorthand).
+    card.style.overflowX = 'hidden'
+    card.style.overflowY = 'hidden'
+    const spies = [
+      vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(320),
+      vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+        return (this === card ? { top: 0, bottom: 900, left: 290, right: 1004 } : { right: 412 }) as DOMRect
+      }),
+    ]
+    onTestFinished(() => spies.forEach((s) => s.mockRestore()))
+
+    await user.click(button)
+    // Hanging left from the button, it would start at 412 - 320 = 92, under the sidebar: it moves
+    // right to 16px inside the card.
+    expect(screen.getByRole('dialog', { name: 'Choose columns' })).toHaveStyle({ right: '-214px' })
+  })
+
   it('shows at most 50 grains, and says to type to narrow them', async () => {
     const user = userEvent.setup()
     const many = Array.from({ length: 60 }, (_, i) => ({ key: `grain_${String(i).padStart(2, '0')}`, minions: 1 }))
-    const { box } = await openColumns(user, many)
+    const { menu, box } = await openColumns(user, many)
     await user.click(box)
     await screen.findByRole('listbox')
     expect(offered('Grains')).toHaveLength(50)
     expect(within(screen.getByRole('group', { name: 'Grains' })).getByText('Type to narrow…')).toBeInTheDocument()
+    expect(within(menu).getByRole('status')).toHaveTextContent('Grains: Type to narrow…')
 
     await user.type(box, 'grain_5')
     expect(offered('Grains')).toHaveLength(10)

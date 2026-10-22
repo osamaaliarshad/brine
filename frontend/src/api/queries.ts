@@ -1,4 +1,11 @@
-import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  keepPreviousData,
+  queryOptions,
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query'
 import { fetchJson, postJson } from '@/api/client'
 import type {
   AskResult,
@@ -342,16 +349,19 @@ export const INVENTORY_KEYS_LIMIT = 50
 
 /**
  * Every check's entries and the packages that differ across the fleet, or with `q`, the packages
- * and checks whose name contains it.
+ * and checks whose name contains it. (As options, to fetch an answer outright: queryClient.fetchQuery.)
  */
-export function useInventoryKeys(q: string) {
-  return useQuery({
+export function inventoryKeysQuery(q: string) {
+  return queryOptions({
     queryKey: [...queryKeys.inventory, 'keys', q],
     queryFn: () =>
       fetchJson<InventoryKey[]>(`/api/inventory/keys?${new URLSearchParams({ q, limit: String(INVENTORY_KEYS_LIMIT) })}`),
     staleTime: 60_000,
-    placeholderData: keepPreviousData,
   })
+}
+
+export function useInventoryKeys(q: string) {
+  return useQuery({ ...inventoryKeysQuery(q), placeholderData: keepPreviousData })
 }
 
 export function useInventoryValues(key: string | null) {

@@ -1,6 +1,7 @@
 import { Check, ChevronDown } from 'lucide-react'
 import { type KeyboardEvent, type ReactNode, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { cn } from '@/lib/cn'
+import { visibleArea } from '@/lib/visibleArea'
 
 /*
  * brine's own dropdown lists, in place of the browser's (a <select>'s, a <datalist>'s), which look
@@ -16,6 +17,10 @@ const POPUP = 'absolute z-30 flex flex-col overflow-hidden rounded-xl border bg-
 const LIST = 'relative max-h-64 min-h-0 overflow-y-auto p-1 outline-none'
 const HEADING = 'px-2 pt-2 pb-1 text-xs font-medium uppercase tracking-wider text-muted'
 const NOTE = 'px-2 py-1.5 text-xs text-muted'
+// The option the arrow keys (or the mouse) are on: tinted, with the sidebar's accent bar for the
+// current page, so it stands out in either theme (surface-2 alone barely differs from surface).
+const ACTIVE =
+  'bg-accent/15 text-fg before:absolute before:inset-y-1.5 before:left-0 before:w-0.5 before:rounded-full before:bg-accent'
 
 // The popup at its tallest (max-h-64 and the borders); the least it's worth shrinking to below
 // its control before it opens above instead; and the least it ever shrinks to (three options).
@@ -55,17 +60,10 @@ function step(key: string, current: number, count: number, wrap: boolean): numbe
   }
 }
 
-/** The room above and below `anchor`: to the window's edges, or to those of an ancestor that cuts
- * off what overflows it (the Fleet card has overflow-hidden). */
+/** The room above and below `anchor` that a popup can be seen in (the Fleet card cuts off what
+ * overflows it, so the window's edges aren't always the limit). */
 function roomAround(anchor: HTMLElement): { above: number; below: number } {
-  let top = 0
-  let bottom = window.innerHeight
-  for (let el = anchor.parentElement; el; el = el.parentElement) {
-    if (getComputedStyle(el).overflowY === 'visible') continue
-    const rect = el.getBoundingClientRect()
-    top = Math.max(top, rect.top)
-    bottom = Math.min(bottom, rect.bottom)
-  }
+  const { top, bottom } = visibleArea(anchor)
   const rect = anchor.getBoundingClientRect()
   return { above: rect.top - top - GAP, below: bottom - rect.bottom - GAP }
 }
@@ -136,11 +134,7 @@ function Option({
       // its highlight.
       onMouseMove={active ? undefined : onHover}
       onClick={onPick}
-      className={cn(
-        'flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm',
-        active && 'bg-surface-2',
-        className,
-      )}
+      className={cn('relative flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm', active && ACTIVE, className)}
     >
       {children}
     </div>
@@ -469,12 +463,25 @@ export function Combobox({
                     </Option>
                   )
                 })}
-                {group.note && <div className={NOTE}>{group.note}</div>}
+                {/* Read out from the status below instead. */}
+                {group.note && (
+                  <div aria-hidden className={NOTE}>
+                    {group.note}
+                  </div>
+                )}
               </div>
             ))}
           </div>
         </Popup>
       )}
+      {/* The groups' notes ("Searching…"), read out politely as they change; only those, not
+          every change of the options. Always there, so a screen reader hears its first note. */}
+      <div role="status" className="sr-only">
+        {expanded &&
+          shownGroups
+            .filter((g) => g.note)
+            .map((g) => <div key={g.label}>{`${g.label}: ${g.note}`}</div>)}
+      </div>
     </div>
   )
 }
