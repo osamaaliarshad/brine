@@ -252,9 +252,32 @@ export function useIssues() {
   return useQuery({ queryKey: queryKeys.issues, queryFn: () => fetchJson<Issue[]>('/api/issues') })
 }
 
-/** Critical + warning issues: what "need attention" means everywhere. */
+/** Critical + warning issues not marked as read: what "need attention" means everywhere. */
 export function attentionCount(issues: Issue[] | undefined): number | undefined {
-  return issues?.filter((i) => i.severity !== 'info').length
+  return issues?.filter((i) => i.severity !== 'info' && !i.read).length
+}
+
+/**
+ * Mark issues read, as the page showed them (one that has changed since stays unread), or unread
+ * again. Only for the signed-in person. The page changes straight away.
+ */
+export function useMarkIssues() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: ({ issues, read }: { issues: Issue[]; read: boolean }) =>
+      read
+        ? postJson<void>('/api/issues/read', { issues: issues.map(({ key, fingerprint }) => ({ key, fingerprint })) })
+        : postJson<void>('/api/issues/unread', { keys: issues.map((i) => i.key) }),
+    onMutate: async ({ issues, read }) => {
+      await client.cancelQueries({ queryKey: queryKeys.issues })
+      const before = client.getQueryData<Issue[]>(queryKeys.issues)
+      const keys = new Set(issues.map((i) => i.key))
+      client.setQueryData<Issue[]>(queryKeys.issues, (old) => old?.map((i) => (keys.has(i.key) ? { ...i, read } : i)))
+      return { before }
+    },
+    onError: (_error, _vars, context) => client.setQueryData(queryKeys.issues, context?.before),
+    onSettled: () => client.invalidateQueries({ queryKey: queryKeys.issues }),
+  })
 }
 
 export function useSettings() {

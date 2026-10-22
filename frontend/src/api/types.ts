@@ -331,6 +331,10 @@ export type Issue = {
   since: string | null
   minion_id: string | null
   jid: string | null
+  /** Changes when the issue does: marking it read lasts until then. */
+  fingerprint: string
+  /** The signed-in person marked it as read, and it hasn't changed since. */
+  read: boolean
 }
 
 export type Settings = {

@@ -304,6 +304,10 @@ brine's own view (salt-api unreachable, stale presence, minions presence can't s
 checks Salt won't let it read). Each links to the minion, job or setting. The count also appears
 on the Fleet page and in the sidebar.
 
+Mark an issue as read (or all of them at once) and it's out of your way, and out of your count,
+until it changes: a minion going offline again, a newer failed state run. It's only for you;
+everyone else still sees it. Read issues are a click away, to mark as unread.
+
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/issues-dark.png">
   <img alt="The Issues page: a failed state on dock-01, rover-03 offline, rover-04 waiting for key approval" src="docs/assets/screenshots/issues-light.png">

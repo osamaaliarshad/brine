@@ -35,7 +35,7 @@ Your `saltgui_templates` keep working: brine reads them from the master config a
 | Job | Job | Run again; stop or kill it on minions still running it |
 | Highstate | Jobs › State runs | Each minion's latest state run, one square per state |
 | Events | Events | Reconnects by itself; a Reactors tab shows the master's reactor config |
-| Issues | Issues | Plus stale and never-seen minions, and minions presence can't see |
+| Issues | Issues | Plus stale and never-seen minions, and minions presence can't see; each person can mark them as read until they change |
 | Options, `/stats` | Settings | |
 | Command box | Run | Shows the exact minions before anything runs; per-role allowlist; audited |
 | Templates (`saltgui_templates`) | Run › Templates | Plus `templates:` in brine's config, with fill-in fields |

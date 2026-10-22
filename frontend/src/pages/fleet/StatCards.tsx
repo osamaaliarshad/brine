@@ -29,7 +29,7 @@ export function StatCards({
   attention,
 }: {
   summary: Fleet['summary'] | undefined
-  /** Critical + warning issues. */
+  /** Critical + warning issues not marked as read. */
   attention: number | undefined
 }) {
   const value = (n: number | undefined) => (n === undefined ? '–' : n)
@@ -47,7 +47,7 @@ export function StatCards({
           icon={<TriangleAlert className="size-5 text-warn sm:size-7" strokeWidth={1.75} />}
           value={value(attention)}
           label="Need attention"
-          title="Critical and warning issues; see the Issues page"
+          title="Critical and warning issues you haven't marked as read; see the Issues page"
         />
       </Link>
     </div>
