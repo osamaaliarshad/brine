@@ -195,13 +195,17 @@ async def inventory_keys(
         wanted = or_(
             InventoryItem.source.in_(checks), and_(packages, InventoryItem.name.in_(differing))
         )
+    order: list[Any] = [InventoryItem.source, InventoryItem.name]
+    if needle:
+        # The one named exactly first: however many longer names sort before it, it's in.
+        order.insert(0, func.lower(InventoryItem.name) != needle)
     found = (
         await session.execute(
             select(InventoryItem.source, InventoryItem.name, func.count())
             .join(Minion, Minion.id == InventoryItem.minion_id)
             .where(Minion.key_state == "accepted", wanted)
             .group_by(InventoryItem.source, InventoryItem.name)
-            .order_by(InventoryItem.source, InventoryItem.name)
+            .order_by(*order)
             .limit(limit if needle else None)
         )
     ).all()

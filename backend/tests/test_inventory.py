@@ -1000,6 +1000,17 @@ def test_keys_list_checks_and_find_packages(with_checks: tuple[Api, FakeSalt]) -
     assert api.client.get("/api/inventory/keys", params={"limit": 0}).status_code == 422
 
 
+def test_a_search_puts_the_package_named_exactly_first(with_checks: tuple[Api, FakeSalt]) -> None:
+    # However many longer names sort before it, the one asked for by name makes the cut.
+    api, _ = with_checks
+    now = datetime.now(UTC)
+    read(api, "rover-01", {"libaaa-perl": "1", "libbbb-perl": "1", "perl": "5.36"}, now)
+    assert [k["key"] for k in api.get("/api/inventory/keys", q="Perl", limit=2)] == [
+        "@packages:perl",
+        "@packages:libaaa-perl",
+    ]
+
+
 def test_check_entries_keep_their_order_beside_packages_that_differ(
     with_checks: tuple[Api, FakeSalt],
 ) -> None:
