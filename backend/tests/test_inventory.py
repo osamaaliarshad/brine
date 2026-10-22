@@ -288,10 +288,16 @@ def test_check_values_sort_in_natural_order() -> None:
         ("test.ping", False),
         ("grains.items", False),
         ("pkg.list_pkgs", False),
-        # Shows what a state would do, without doing it.
+        # Shows or checks what a state would do, without doing it. state.test is state.apply
+        # with test=True.
         ("state.show_sls", False),
         ("state.show_highstate", False),
         ("state.show_lowstate", False),
+        ("state.test", False),
+        ("state.sls_exists", False),
+        ("state.id_exists", False),
+        ("state.sls", True),
+        ("state.single", True),
     ],
 )
 def test_jobs_that_may_change_software(fun: str, changes: bool) -> None:
@@ -426,6 +432,20 @@ def test_a_want_stays_until_brines_answer_clears_it() -> None:
     # answer with (here, a master clock ahead of brine's).
     skewed = _state(asked_jid="A1", asked_at=T0, answered_at=t4, wanted_at=t1)
     assert not inv.is_due(skewed, now=t2, every=every, back_at=None)
+
+
+def test_a_lost_answer_is_asked_again_whatever_the_ask_was_for() -> None:
+    every, minute = timedelta(hours=6), timedelta(minutes=1)
+    back = T0 + timedelta(hours=1)
+    asked = back + timedelta(seconds=15)
+    # Asked for a comeback (answered before it went), and for the refresh (someone else's
+    # answer came in since, but brine's never did). Waited for, then asked again.
+    for_comeback = _state(asked_jid="A1", asked_at=asked, answered_at=back - minute)
+    for_refresh = _state(asked_jid="A1", asked_at=asked, answered_at=asked + minute)
+    for read, back_at in ((for_comeback, back), (for_refresh, None)):
+        wait = asked + inv.ANSWER_WAIT
+        assert not inv.is_due(read, now=wait - minute, every=every, back_at=back_at)
+        assert inv.is_due(read, now=wait, every=every, back_at=back_at)
 
 
 def test_a_want_is_asked_again_when_its_answer_is_lost() -> None:
@@ -574,6 +594,42 @@ def test_a_minion_that_came_back_is_asked(admin: tuple[Api, FakeSalt]) -> None:
     assert salt.asked("pkg.list_pkgs") == [*ONLINE, *back]
 
 
+def test_a_lost_answer_after_a_comeback_is_asked_again(admin: tuple[Api, FakeSalt]) -> None:
+    api, salt = admin
+    now = datetime.now(UTC)
+    sweep(api, now)
+    for mid in ONLINE:
+        answer(api, mid, {"bash": "5.2"}, at=now + 5 * SECOND)
+    api.seed(api.ingest.presence_change, new=[], lost=["rover-02"], at=now + 10 * SECOND)
+    api.seed(api.ingest.presence_change, new=["rover-02"], lost=[], at=now + 20 * SECOND)
+    asked = now + MINUTE
+    sweep(api, asked)
+    assert salt.asked("pkg.list_pkgs") == [*ONLINE, "rover-02"]
+    # Its answer never comes: waited for, then asked again.
+    sweep(api, asked + inv.ANSWER_WAIT - SECOND)
+    assert salt.asked("pkg.list_pkgs") == [*ONLINE, "rover-02"]
+    sweep(api, asked + inv.ANSWER_WAIT)
+    assert salt.asked("pkg.list_pkgs") == [*ONLINE, "rover-02", "rover-02"]
+
+
+def test_a_lost_answer_to_the_refresh_is_asked_again(admin: tuple[Api, FakeSalt]) -> None:
+    api, salt = admin
+    now = datetime.now(UTC)
+    sweep(api, now)
+    for mid in ONLINE:
+        answer(api, mid, {"bash": "5.2"}, at=now + 5 * SECOND)
+    due = now + 5 * SECOND + timedelta(hours=6)
+    api.seed(api.ingest.presence, ONLINE, at=due, method="events")
+    sweep(api, due)
+    assert salt.asked("pkg.list_pkgs") == ONLINE * 2
+    # No answer comes back to brine, though a person's own read of rover-01 does.
+    api.seed(api.ingest.inventory_read, "rover-01", "packages", {"bash": "5.2"}, at=due, jid=None)
+    sweep(api, due + inv.ANSWER_WAIT - SECOND)
+    assert salt.asked("pkg.list_pkgs") == ONLINE * 2
+    sweep(api, due + inv.ANSWER_WAIT)
+    assert salt.asked("pkg.list_pkgs") == ONLINE * 3
+
+
 def test_a_minion_that_came_back_is_asked_once_whatever_the_masters_clock(
     admin: tuple[Api, FakeSalt],
 ) -> None:
@@ -688,6 +744,11 @@ def test_an_ask_that_matched_no_minion_is_waited_for(admin: tuple[Api, FakeSalt]
     assert read is not None and read.asked_jid == inv.NO_JOB
     sweep(api, now + 15 * SECOND)
     assert len(salt.calls) == 1
+    # Asked again every ANSWER_WAIT, not on every sweep.
+    sweep(api, now + inv.ANSWER_WAIT)
+    assert len(salt.calls) == 2
+    sweep(api, now + inv.ANSWER_WAIT + 15 * SECOND)
+    assert len(salt.calls) == 2
 
 
 SOURCES = ("packages", "rover-cli", "containers")

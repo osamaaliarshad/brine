@@ -504,8 +504,9 @@ async def test_brines_own_calls_and_read_only_jobs_dont_want_a_reread(
     await collector.handle(job_ret("302", "cmd.run_all", ok(""), args=["true"]))
     await collector.handle(job_ret("303", "test.ping", True, user="alice"))
     await collector.handle(job_ret("304", "pkg.list_pkgs", {"bash": "5.2"}, user="alice"))
-    # A person's dry runs and state.show_* change nothing either.
+    # A person's dry runs, state.test and state.show_* change nothing either.
     await collector.handle(job_ret("305", "state.show_sls", {}, args=["web"], user="alice"))
+    await collector.handle(job_ret("308", "state.test", {}, args=["web"], user="alice"))
     dry_runs: list[list[Any]] = [["web", {"test": True, "__kwarg__": True}], ["web", "test=true"]]
     for jid, args in zip(("306", "307"), dry_runs, strict=True):
         await collector.handle(job_ret(jid, "state.apply", {}, args=args, user="alice"))

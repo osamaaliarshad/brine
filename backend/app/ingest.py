@@ -260,12 +260,13 @@ class Ingest:
     # * brine's answer comes from the job of its ask still out (`asked_jid`; NO_JOB when no
     #   minion matched, which no answer matches). Any other answer (a person's own
     #   pkg.list_pkgs, an older ask, one that beat `inventory_asked` to the database) still
-    #   updates the entries, but settles nothing.
+    #   updates the entries, but settles nothing. An ask with no answer after ANSWER_WAIT is
+    #   asked again, whatever it was for (`is_due`): a lost answer costs only the wait.
     # * A start, or a person's job that may change software, wants the source read again (for
     #   a job, AFTER_JOB after it), and forgets brine's ask still out: that answer may predate
     #   it. So does Read now for the fleet (at once, by brine's clock), which the sweep then
-    #   asks BATCH at a time. The want stays until brine's answer, good or failed, clears it,
-    #   so a lost answer is asked again.
+    #   asks BATCH at a time. The want stays until brine's answer, good or failed, clears it:
+    #   someone else's answer doesn't.
     # * Credit: the job waits in `after_*` for brine's answer. A good one credits what changed
     #   to the job if brine asked at least CLOCK_MARGIN after it (see the next rule) and within
     #   CREDIT_WINDOW of it; later, too much else may have changed. brine's answer uses the

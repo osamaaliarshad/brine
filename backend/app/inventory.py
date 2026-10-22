@@ -23,7 +23,7 @@ PACKAGES = "packages"
 PACKAGES_FUN = "pkg.list_pkgs"
 CHECK_FUN = "cmd.run_all"
 
-# A minion asked and not answered after this long is asked again when it's due.
+# A minion asked and not answered after this long is asked again, whatever the ask was for.
 ANSWER_WAIT = timedelta(minutes=10)
 # Read again this long after a person's job that may change software finishes.
 AFTER_JOB = timedelta(seconds=60)
@@ -58,8 +58,10 @@ _SOFTWARE_PREFIXES = (
     *("state.", "pkg.", "cmd.", "docker.", "file.", "archive.", "cp.", "service."),
     *("pip.", "snap.", "flatpak.", "npm."),
 )
-# These state functions only show what a state would do.
+# These state functions only show or check what a state would do. state.test is state.apply
+# with test=True.
 _SHOWS_ONLY = "state.show_"
+_CHECKS_ONLY = ("state.test", "state.sls_exists", "state.id_exists")
 # C0 control characters but tab and newline. PostgreSQL text can't hold NUL (and
 # /proc/device-tree/model ends in one); the rest only garble what's shown. Newlines stay: a
 # check's single value is its lines joined by them.
@@ -158,13 +160,15 @@ def _dry_run(args: object) -> bool:
 
 def may_change_software(fun: str, args: object) -> bool:
     """Whether a job running ``fun`` with ``args`` (its ``fun_args``) could change what's
-    installed, so worth reading again. Not state.show_*, nor a dry run (``test=True``)."""
+    installed, so worth reading again. Not state.show_*, state.test, state.sls_exists or
+    state.id_exists, nor a dry run (``test=True``)."""
     # pkg.list_pkgs is brine's own read. cmd.run_all counts: a person can install things with it,
     # and brine's own check jobs are told apart elsewhere, as its service user's housekeeping.
     return (
         fun.startswith(_SOFTWARE_PREFIXES)
         and fun != PACKAGES_FUN
         and not fun.startswith(_SHOWS_ONLY)
+        and fun not in _CHECKS_ONLY
         and not _dry_run(args)
     )
 
@@ -310,22 +314,21 @@ def is_due(
     """Whether to ask a minion now (``now`` by brine's clock). ``back_at`` is when it last came
     online, by brine's clock too.
 
-    The refresh and a want compare brine's clock with the master's: off by CLOCK_MARGIN, they
-    come that much early or late. Waiting for an answer, and coming back, compare only brine's
-    own times."""
+    brine's ask still out is waited for ANSWER_WAIT; with no answer by then, it's asked again,
+    whatever it was for. The refresh and a want compare brine's clock with the master's: off by
+    CLOCK_MARGIN, they come that much early or late. Waiting for an answer, and coming back,
+    compare only brine's own times."""
     if read is None:
         return True
-    # brine's ask is out: give the answer a while before asking again.
-    if (
-        read.asked_jid is not None
-        and read.asked_at is not None
-        and now - read.asked_at < ANSWER_WAIT
-    ):
-        return False
+    if read.asked_jid is not None:
+        # brine's ask is out: give the answer a while before asking again. After that, its
+        # answer is lost, whatever the ask was for (the refresh, a want, a comeback; or NO_JOB,
+        # which no answer settles): ask again.
+        return read.asked_at is None or now - read.asked_at >= ANSWER_WAIT
     answered = read.answered_at
     if answered is None or now - answered >= every:
         return True
-    # A want stays until brine's answer clears it, so a lost answer is asked again.
+    # A want stays until brine's answer clears it: someone else's answer doesn't.
     if read.wanted_at is not None and read.wanted_at <= now:
         return True
     # Back since brine last asked (or brine never asked: the answer was someone else's). Not

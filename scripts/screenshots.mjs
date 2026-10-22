@@ -28,7 +28,9 @@ const getJson = async (url) => (await fetch(url)).json()
 // this order.
 export const PAGES = [
   ['fleet', '/'],
-  // A package: in the demo, rover-agent is 2.4.1 on two rovers, 2.3.0 on rover-03, and not on dock-01.
+  // A package. The demo starts with rover-agent 2.4.1 on rover-01 and rover-02, 2.3.0 on rover-03,
+  // and none on dock-01; the README's shots are taken after upgrading rover-03 to 2.4.1 through
+  // brine (state.apply agent from the Run page), so the explorer shows that change credited to the job.
   ['grains', `/?tab=grains&grain=${encodeURIComponent('@packages:rover-agent')}`],
   ['nodegroups', '/?tab=nodegroups'],
   ['minion', '/minions/rover-01'],
