@@ -184,6 +184,12 @@ function JobActions({ job }: { job: JobDetail }) {
 
 export function JobPage() {
   const { jid = '' } = useParams()
+  // Its own state per job: going from one job to another (a catch-up run's link) starts afresh,
+  // so the next job's wait is timed from when it was opened.
+  return <JobView key={jid} jid={jid} />
+}
+
+function JobView({ jid }: { jid: string }) {
   const now = useNow()
   const query = useJob(jid)
   const job = query.data

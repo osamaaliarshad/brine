@@ -217,6 +217,35 @@ describe('JobPage', () => {
       expect(screen.queryByRole('status')).toBeNull()
       expect(screen.getByText(/^No return from rover-03\./)).toBeInTheDocument()
     })
+
+    it('waits for a young job opened from another job, with its own clock', async () => {
+      vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] })
+      vi.setSystemTime(NOW)
+      const job = (jid: string, startedAt: string): JobDetail => ({
+        ...DETAIL,
+        jid,
+        started_at: startedAt,
+        finished_at: null,
+        returned: 0,
+        results: [],
+        missing: DETAIL.minions,
+      })
+      mockApi({
+        '/api/jobs/1': job('1', ago(600)),
+        // Starts two minutes after the first job's page was opened, and is opened 5 s later.
+        '/api/jobs/2': job('2', new Date(NOW + 115_000).toISOString()),
+        '/api/status': systemStatus(),
+      })
+      const { router } = renderApp('/jobs/1')
+      await settle(50)
+      expect(screen.getByText(/^No return from rover-01/)).toBeInTheDocument()
+
+      await settle(120_000 - 50)
+      await act(() => router.navigate('/jobs/2'))
+      await settle(50)
+      expect(screen.getByText('2', { selector: 'p' })).toBeInTheDocument() // the second job's ID
+      expect(screen.getByRole('status')).toHaveTextContent('Waiting for 3 of 3 minions')
+    })
   })
 
   it('says who never answered once the job is no longer young', async () => {
