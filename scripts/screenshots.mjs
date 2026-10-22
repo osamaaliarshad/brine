@@ -8,7 +8,8 @@
 //
 // Drives headless Chrome/Chromium/Edge over the DevTools protocol (set BRINE_CHROME to choose a
 // binary) and waits until each page has finished loading, so shots never catch a spinner.
-// Writes docs/assets/screenshots/<page>-<light|dark>.png.
+// Writes docs/assets/screenshots/<page>-<light|dark>.png, and fleet-hero.png (light and dark in
+// one) for the top of the README.
 //
 // Never point this at a real fleet: the images are committed to a public repo.
 
@@ -16,7 +17,7 @@ import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { parseArgs } from 'node:util'
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -172,6 +173,43 @@ async function capture(port, url, theme, out) {
   }
 }
 
+/**
+ * The README's opening picture: the Fleet page cut on a slant, light on the left and dark on the
+ * right, drawn by the same browser from the two shots just taken.
+ */
+async function hero(port, profile) {
+  const page = join(profile, 'hero.html')
+  const [light, dark] = THEMES.map((theme) => pathToFileURL(join(OUT, `fleet-${theme}.png`)).href)
+  writeFileSync(
+    page,
+    `<!doctype html><style>
+      body { margin: 0 }
+      img { position: absolute; inset: 0; width: ${WIDTH}px; height: ${HEIGHT}px }
+      .dark { clip-path: polygon(64% 0, 100% 0, 100% 100%, 36% 100%) }
+    </style><img src="${light}"><img class="dark" src="${dark}">`,
+  )
+  const target = await (await fetch(`http://127.0.0.1:${port}/json/new?about:blank`, { method: 'PUT' })).json()
+  const tab = await connect(target.webSocketDebuggerUrl)
+  try {
+    await tab.send('Emulation.setDeviceMetricsOverride', { width: WIDTH, height: HEIGHT, deviceScaleFactor: 1, mobile: false })
+    await tab.send('Page.navigate', { url: pathToFileURL(page).href })
+    await waitFor('the opening picture', async () => {
+      const { result } = await tab.send('Runtime.evaluate', {
+        expression: `[...document.images].every((img) => img.complete && img.naturalWidth > 0)`,
+        returnByValue: true,
+      })
+      return result.value === true
+    }, 10_000)
+    const { data } = await tab.send('Page.captureScreenshot', { format: 'png' })
+    const out = join(OUT, 'fleet-hero.png')
+    writeFileSync(out, Buffer.from(data, 'base64'))
+    console.log(`wrote ${out.slice(REPO.length + 1)}`)
+  } finally {
+    tab.close()
+    await fetch(`http://127.0.0.1:${port}/json/close/${target.id}`).catch(() => {})
+  }
+}
+
 function compose(...args) {
   const result = spawnSync('docker', ['compose', '-f', join(REPO, 'docker-compose.demo.yml'), ...args], {
     stdio: 'pipe',
@@ -226,6 +264,7 @@ async function main() {
         console.log(`wrote ${out.slice(REPO.length + 1)}`)
       }
     }
+    await hero(port, profile)
   } finally {
     if (stop) compose('start', stop)
     browser.kill()

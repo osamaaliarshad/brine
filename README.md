@@ -15,6 +15,10 @@
   <a href="docs/saltgui-parity.md">Coming from SaltGUI</a>
 </p>
 
+<p align="center">
+  <img alt="The Fleet page, in the light theme on the left and the dark theme on the right: four minions with their connection, OS and Salt version, site, app version and firmware" src="docs/assets/screenshots/fleet-hero.png">
+</p>
+
 ---
 
 brine plugs into an existing **salt-master + salt-api** and gives your team a clean, fast view of
@@ -133,9 +137,9 @@ Screenshots follow your light/dark preference and come from the demo fleet.
 ### Fleet
 
 Every minion at a glance: online now or last seen when, OS and Salt version, and any grain,
-package or check you choose as a column. Search, filter by status, sort, and pick columns (add
-any grain the fleet reports, reorder, remove; saved per browser, with the config's
-`fleet.columns` as the team default). Updates live as minions come and go.
+package or check you choose as a column. Search, filter by status, sort, and pick columns (find
+any grain, package or check the fleet reports and add it, reorder, remove; saved per browser,
+with the config's `fleet.columns` as the team default). Updates live as minions come and go.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/fleet-dark.png">
@@ -147,8 +151,8 @@ machines run which version, which don't have it at all, and which haven't answer
 lists the checks and the packages that differ across the fleet; type to find any other package.
 Open a version to see its minions; if you may run commands, **Run on these** opens the Run page
 with just them (nothing runs until you click Run). Add any of them as a column in one click.
-Each change is listed with the job it was found after, or the time between two reads when brine
-can't tell.
+Open **Changes** to see each change with the job it was found after, or the time between two
+reads when brine can't tell.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/grains-dark.png">
@@ -255,7 +259,7 @@ without them brine stays read-only for keys and says so.
 
 What the master tells each minion to be: the top file, grouped by folder and foldable, with the
 minions each state applies to (asked live, skipping minions that are offline), and the state
-files themselves in a folder tree.
+files themselves in a folder tree, colored as in an editor (keys, state functions, Jinja).
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/states-dark.png">
